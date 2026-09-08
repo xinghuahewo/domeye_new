@@ -6,7 +6,8 @@ import {
   getCountryOutageGeneralAffectedAs,
   getCountryOutageGeneralPathDownstreams,
 } from '@/api/events'
-import ObservationChart, { type ObservationChartSeries } from '@/components/ObservationChart.vue'
+import CountryOutageTimeline from '@/components/CountryOutageTimeline.vue'
+import ObservationChart, { type ObservationChartSeries, type ObservationChartMarker } from '@/components/ObservationChart.vue'
 import PageState from '@/components/PageState.vue'
 import type {
   CountryOutageGeneralAffectedAsPage,
@@ -26,6 +27,7 @@ const props = defineProps<{
 const route = useRoute()
 const asPageSize = 20
 const pathPageSize = 15
+const comparisonMarkers = ref<ObservationChartMarker[]>([])
 const asResult = ref<CountryOutageGeneralAffectedAsPage | null>(null)
 const asLoading = ref(false)
 const asError = ref('')
@@ -280,12 +282,14 @@ onMounted(() => {
       </dl>
     </section>
 
+    <CountryOutageTimeline :series="page.series" :overview="page.overview" @range-change="comparisonMarkers = $event" />
+
     <section class="sheet" aria-labelledby="prefix-trend-title">
       <header class="section-heading">
         <div><span>01</span><h2 id="prefix-trend-title">前缀中断数量变化</h2></div>
         <p>只要某个固定前缀在至少一个独立观察方向看不到路由，就计入中断。</p>
       </header>
-      <ObservationChart :series="prefixSeries" unit="个前缀" :height="330" />
+      <ObservationChart :series="prefixSeries" :markers="comparisonMarkers" unit="个前缀" :height="330" />
       <div class="inline-facts">
         <p><span>中断前缀峰值</span><b>{{ formatNumber(overview.peaks.interrupted_prefix_count?.value) }}</b></p>
         <p><span>完全不可见峰值</span><b>{{ formatNumber(overview.peaks.completely_interrupted_prefix_count?.value) }}</b></p>
@@ -309,12 +313,12 @@ onMounted(() => {
       <div class="ip-grid">
         <figure>
           <figcaption><b>IPv4 可见地址</b><span>地址数</span></figcaption>
-          <ObservationChart :series="ipv4Series" unit="个地址" :height="285" />
+          <ObservationChart :series="ipv4Series" :markers="comparisonMarkers" unit="个地址" :height="285" />
           <p>窗口内累计新出现 {{ formatNumber(overview.current.new_cumulative_ipv4_prefix_count) }} 个 IPv4 前缀。</p>
         </figure>
         <figure>
           <figcaption><b>IPv6 可见地址规模</b><span>/48 等价块</span></figcaption>
-          <ObservationChart :series="ipv6Series" unit="个 /48 等价块" :height="285" />
+          <ObservationChart :series="ipv6Series" :markers="comparisonMarkers" unit="个 /48 等价块" :height="285" />
           <p>窗口内累计新出现 {{ formatNumber(overview.current.new_cumulative_ipv6_prefix_count) }} 个 IPv6 前缀。</p>
         </figure>
       </div>
