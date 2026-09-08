@@ -6,6 +6,7 @@ import {
   getCountryOutageGeneralAffectedAs,
   getCountryOutageGeneralPathDownstreams,
 } from '@/api/events'
+import CountryOutagePathEvidence from '@/components/CountryOutagePathEvidence.vue'
 import CountryOutageTimeline from '@/components/CountryOutageTimeline.vue'
 import ObservationChart, { type ObservationChartSeries, type ObservationChartMarker } from '@/components/ObservationChart.vue'
 import PageState from '@/components/PageState.vue'
@@ -389,14 +390,7 @@ onMounted(() => {
             <div><dt>同期 IPv4 地址量峰值</dt><dd>{{ formatNumber(item.peak_concurrent_ipv4_address_count) }}</dd></div>
             <div><dt>同期 IPv6 /48 峰值</dt><dd>{{ formatNumber(item.peak_concurrent_ipv6_slash48_count) }}</dd></div>
           </dl>
-          <details>
-            <summary>查看关联路径</summary>
-            <ol>
-              <li v-for="sample in item.path_samples" :key="sample.as_path_id">
-                <b>{{ sample.prefix }}</b><code>{{ sample.as_path_canonical }}</code><small>{{ sample.independent_peer_asns.length }} 个独立观察方向 · {{ sample.route_observation_count }} 条观测</small>
-              </li>
-            </ol>
-          </details>
+          <CountryOutagePathEvidence :relation="item" :metadata="pathResult" />
         </article>
       </div>
       <nav v-if="pathResult && pathResult.page_count > 1" class="pager" aria-label="路径关联分页">
@@ -477,12 +471,6 @@ td em.route_interrupted { color: #7c2f2c; background: #f9e4e2; }
 .relation-list dt { color: #78868e; font-size: 8px; }
 .relation-list dd { margin: 4px 0 0; color: #263944; font: 750 13px/1 var(--mono); }
 .relation-list details { grid-column: 2 / -1; }
-.relation-list summary { cursor: pointer; color: var(--blue); font-size: 10px; font-weight: 750; }
-.relation-list ol { display: grid; gap: 1px; margin: 10px 0 0; padding: 0; background: #dfe5e8; list-style: none; }
-.relation-list li { display: grid; grid-template-columns: minmax(150px, .25fr) minmax(300px, 1fr) auto; gap: 12px; padding: 9px 11px; background: #f8fafb; }
-.relation-list li b { color: #394b56; font: 700 9px/1.4 var(--mono); }
-.relation-list code { overflow-wrap: anywhere; color: #254e62; font: 8px/1.5 var(--mono); }
-.relation-list li small { color: #75838c; font-size: 8px; white-space: nowrap; }
 @media (max-width: 920px) {
   .event-hero, .reading-card, .ip-grid { grid-template-columns: 1fr; }
   .reading-card dl { min-height: 110px; }
@@ -499,7 +487,6 @@ td em.route_interrupted { color: #7c2f2c; background: #f9e4e2; }
   .filter-bar, .filter-bar.is-path { grid-template-columns: 1fr; }
   .relation-list dl { grid-template-columns: 1fr; }
   .relation-list dl div { border-left: 0; border-top: 1px solid #e0e6e9; }
-  .relation-list li { grid-template-columns: 1fr; }
   .pager { flex-wrap: wrap; justify-content: center; }
 }
 </style>
