@@ -364,7 +364,7 @@ onMounted(() => {
     <section class="sheet" aria-labelledby="path-title">
       <header class="section-heading">
         <div><span>05</span><h2 id="path-title">实际路径中关联了哪些网络</h2></div>
-        <p>这里展示观测路径中与受影响 AS 相邻出现的网络，以及可核对的路径样本。</p>
+        <p>这里展示有序 AS_PATH 中与受影响 AS 关联出现的网络；两端之间可能存在其他 ASN。</p>
       </header>
       <form class="filter-bar is-path" @submit.prevent="applyPathFilters">
         <label><span>受影响 AS</span><input v-model="pathAffectedAsn" placeholder="例如 AS48159" /></label>
