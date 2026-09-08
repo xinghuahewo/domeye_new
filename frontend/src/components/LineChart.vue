@@ -35,7 +35,9 @@ const chartElement = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
-const hasData = computed(() => props.series.some((series) => series.data.length > 0))
+const hasData = computed(() => props.series.some((series) =>
+  series.data.some(([, value]) => typeof value === 'number' && Number.isFinite(value)),
+))
 
 function escapeHtml(value: unknown) {
   return String(value)
