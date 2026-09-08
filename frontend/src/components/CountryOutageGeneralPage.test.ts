@@ -45,13 +45,10 @@ describe('国家中断通用观测页用户效果', () => {
     expect(source).toContain('event_start: props.page.resolution.window_start_utc')
     expect(source).toContain('event_end: props.page.resolution.window_end_utc')
     expect(source).toContain("return_anchor: 'affected-as'")
+    // 时间转换与缺失值由 businessTime / AsnEventTimeline 的公开输出测试覆盖；导航另做浏览器回归。
     expect(asnPage).toContain('按国家中断事件窗口查看')
-    expect(asnPage).toContain('query.start = toInputTime(eventContext.value.startDate)')
-    expect(asnPage).toContain('query.end = toInputTime(eventContext.value.endDate)')
     expect(asnPage).toContain('Boolean(eventContext.value)')
     expect(asnPage).toContain('eventContext.value?.reference')
-    expect(asnPage).toContain('cursor += 5 * 60 * 1000')
-    expect(asnPage).toContain('announce: null')
     expect(asnPage).toContain('返回事件中的相关 AS')
   })
 

@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { getAsOverview, getAsRecentEvents, getASPrefixOutages, type FeatureRange } from '@/api/features'
 import EventTable from '@/components/EventTable.vue'
+import AsnEventTimeline from '@/components/AsnEventTimeline.vue'
 import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
 import SparklinePair from '@/components/SparklinePair.vue'
@@ -77,29 +78,7 @@ function eventWindowLabel(): string {
   return `${formatter.format(eventContext.value.startDate)} — ${formatter.format(eventContext.value.endDate)}`
 }
 
-const selectedSeries = computed(() => {
-  const source = selected.value?.series ?? []
-  if (!eventContext.value) return source
-  const { startDate: start, endDate: end } = eventContext.value
-  const byTime = new Map(source.map((point) => [point.time, point]))
-  const result = []
-  for (
-    let cursor = start.getTime();
-    cursor <= end.getTime();
-    cursor += 5 * 60 * 1000
-  ) {
-    const time = toBusinessTime(new Date(cursor))
-    result.push(byTime.get(time) ?? {
-      time,
-      announce: null,
-      withdraw: null,
-      ipv4Prefixes: null,
-      ipv6Prefixes: null,
-      ipv4Addresses: null,
-    })
-  }
-  return result
-})
+const selectedSeries = computed(() => selected.value?.series ?? [])
 
 function asnRoute(asn: string) {
   return {
@@ -207,6 +186,7 @@ function displayName(profile: AsnProfile | null | undefined) {
 async function load() {
   const token = ++loadToken
   loading.value = true
+  overview.value = null
   error.value = ''
   outageError.value = ''
   eventError.value = ''
@@ -298,7 +278,8 @@ watch(
     <section v-if="eventContext" class="event-window-context" aria-label="国家中断事件窗口">
       <div>
         <span>按国家中断事件窗口查看</span>
-        <strong>{{ eventWindowLabel() }}</strong>
+        <strong>{{ eventWindowLabel() }} · {{ businessTimezone }}</strong>
+        <small class="event-reference">事件：{{ eventContext.reference }}</small>
       </div>
       <RouterLink :to="returnEventLink">← 返回事件中的相关 AS</RouterLink>
     </section>
@@ -308,11 +289,11 @@ watch(
         <h1>{{ selectedAsn ? `AS${selectedAsn}` : '重点 ASN 监测台' }}</h1>
       </div>
       <p class="page-heading-copy">
-        在可审计的运维候选集内定位 ASN 报文和六类异常；该视图尚未进入 P0 准入，也不代表全网 ASN 排名。
+        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图尚未进入 P0 准入，也不代表全网 ASN 排名。' }}
       </p>
     </header>
 
-    <section class="legacy-boundary" aria-label="ASN 数据准入边界">
+    <section v-if="!eventContext" class="legacy-boundary" aria-label="ASN 数据准入边界">
       <b>LEGACY EXPLORATION · NOT P0 ADMITTED</b>
       <p>本页仅用于对象定位；已移除未准入的 resource_change / max、volatility 和浏览器端样本覆盖率，不与首页 P0 指标混算。</p>
     </section>
@@ -336,7 +317,7 @@ watch(
     <PageState v-else-if="error" kind="error" title="ASN 态势不可用" :detail="error" @retry="load" />
 
     <template v-if="overview">
-      <section class="scope-note" aria-label="ASN 排行范围说明">
+      <section v-if="!eventContext" class="scope-note" aria-label="ASN 排行范围说明">
         <div>
           <span>COMPARISON SCOPE</span>
           <strong>{{ overview.scopeSize }} / {{ overview.candidatePoolSize }}</strong>
@@ -344,7 +325,7 @@ watch(
         <p>{{ overview.scopeNote }}</p>
       </section>
 
-      <section class="asn-leaders" aria-label="ASN 态势核心指标">
+      <section v-if="!eventContext" class="asn-leaders" aria-label="ASN 态势核心指标">
         <article>
           <span>有特征 ASN</span>
           <strong>{{ overview.featureAsnCount }}</strong>
@@ -367,7 +348,7 @@ watch(
         </article>
       </section>
 
-      <section class="ranking-board" aria-label="ASN 候选集排行">
+      <section v-if="!eventContext" class="ranking-board" aria-label="ASN 候选集排行">
         <article v-for="section in rankingSections" :key="section.key" class="ranking-sheet">
           <header>
             <span>{{ section.index }}</span>
@@ -411,7 +392,7 @@ watch(
           <span>证据语义 <b>OBSERVATION, NOT CAUSAL TRACE</b></span>
         </div>
 
-        <div class="dossier-metrics">
+        <div v-if="!eventContext" class="dossier-metrics">
           <article>
             <span>更新总量</span>
             <strong>{{ formatNumber(hasMessageSummary ? selected.updateTotal : null) }}</strong>
@@ -440,13 +421,15 @@ watch(
           </article>
         </div>
 
+        <AsnEventTimeline v-if="eventContext" :profile="selected" :start-time="overview.startTime" :end-time="overview.endTime" />
+
         <div class="asn-chart-grid">
-          <section class="asn-chart-panel">
+          <section v-if="!eventContext" class="asn-chart-panel">
             <div class="section-heading"><h3>报文脉冲</h3><span>announce / withdraw</span></div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有 ASN 报文样本" />
             <LineChart v-else :series="messageSeries" :timezone="businessTimezone" unit="条" :height="300" />
           </section>
-          <section class="asn-chart-panel">
+          <section v-if="!eventContext" class="asn-chart-panel">
             <div class="section-heading"><h3>路由资源等效段</h3><span>legacy snapshot · null ≠ zero · not P0 admitted</span></div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有资源快照" />
             <LineChart v-else :series="resourceSeries" :timezone="businessTimezone" unit="个" :height="300" />
@@ -486,7 +469,8 @@ watch(
   background: #14384a;
   border-left: 4px solid #e27839;
 }
-.event-window-context div { display: grid; gap: 4px; }
+.event-reference { overflow-wrap: anywhere; font-size: 10px; line-height: 1.6; color: #b6d3dc; }
+.event-window-context div { min-width: 0; display: grid; gap: 4px; }
 .event-window-context span { color: #91c2d2; font-size: 9px; font-weight: 750; letter-spacing: .06em; }
 .event-window-context strong { font: 700 11px/1.4 var(--mono); }
 .event-window-context a { color: #ffd0ad; font-size: 10px; font-weight: 750; text-decoration: none; }

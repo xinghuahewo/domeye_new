@@ -23,12 +23,14 @@ const props = withDefaults(defineProps<{
   height?: number
   timezone?: string
   showDataZoom?: boolean
+  showPoints?: boolean
 }>(), {
   unit: '',
   height: 300,
   markers: () => [],
   timezone: 'Asia/Shanghai',
   showDataZoom: false,
+  showPoints: false,
 })
 
 const chartElement = ref<HTMLDivElement | null>(null)
@@ -150,7 +152,8 @@ function renderChart() {
       name: item.name,
       type: 'line',
       data: item.data,
-      showSymbol: false,
+      showSymbol: props.showPoints,
+      symbolSize: 4,
       connectNulls: false,
       smooth: false,
       progressive: 2_000,
@@ -182,7 +185,7 @@ function renderChart() {
 }
 
 watch(
-  () => [props.series, props.markers, props.unit, props.timezone, props.showDataZoom],
+  () => [props.series, props.markers, props.unit, props.timezone, props.showDataZoom, props.showPoints],
   renderChart,
   { deep: true },
 )
