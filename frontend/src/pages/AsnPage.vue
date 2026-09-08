@@ -33,6 +33,7 @@ const selectedAsn = computed(() => {
   return value.trim().replace(/^AS/i, '')
 })
 const selected = computed(() => overview.value?.selectedAsn ?? null)
+const hasMessageSummary = computed(() => (selected.value?.sampleCount ?? 0) > 0)
 const eventContext = computed(() => {
   const start = typeof route.query.event_start === 'string' ? route.query.event_start : ''
   const end = typeof route.query.event_end === 'string' ? route.query.event_end : ''
@@ -414,13 +415,14 @@ watch(
         <div class="dossier-metrics">
           <article>
             <span>更新总量</span>
-            <strong>{{ formatNumber(selected.updateTotal) }}</strong>
-            <small>{{ changeLabel(selected.updateChangeRate) }}</small>
+            <strong>{{ formatNumber(hasMessageSummary ? selected.updateTotal : null) }}</strong>
+            <small>{{ hasMessageSummary ? changeLabel(selected.updateChangeRate) : '暂无报文汇总' }}</small>
           </article>
           <article>
             <span>撤回率</span>
-            <strong>{{ selected.withdrawRate.toFixed(1) }}%</strong>
-            <small>{{ formatNumber(selected.withdraw) }} WITHDRAW</small>
+            <strong>{{ hasMessageSummary ? `${selected.withdrawRate.toFixed(1)}%` : '—' }}</strong>
+            <small v-if="hasMessageSummary">{{ formatNumber(selected.withdraw) }} WITHDRAW</small>
+            <small v-else>暂无报文汇总</small>
           </article>
           <article>
             <span>IPv4 /24 等效段</span>
