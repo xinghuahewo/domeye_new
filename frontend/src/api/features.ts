@@ -33,6 +33,7 @@ export async function getAsOverview(
   eventReference = '',
 ) {
   return normalizeAsOverview(await apiGet<unknown>('features/ases/overview', {
+    transitional: { clarifyTimeoutError: true },
     params: {
       ...range,
       asn: asn || undefined,

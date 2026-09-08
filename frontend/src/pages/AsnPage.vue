@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { shallowRef, computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { getAsOverview, getAsRecentEvents, getASPrefixOutages, type FeatureRange } from '@/api/features'
 import EventTable from '@/components/EventTable.vue'
+import AsnRequestState from '@/components/AsnRequestState.vue'
 import AsnEventTimeline from '@/components/AsnEventTimeline.vue'
 import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
@@ -22,7 +23,7 @@ const overview = ref<AsOverview | null>(null)
 const prefixOutages = ref<OutagePoint[]>([])
 const recentEvents = ref<EventRow[]>([])
 const loading = ref(false)
-const error = ref('')
+const error = shallowRef<unknown>(null)
 const outageLoading = ref(false)
 const outageError = ref('')
 const eventsLoading = ref(false)
@@ -211,7 +212,7 @@ async function load() {
   } catch (cause) {
     if (token !== loadToken) return
     overview.value = null
-    error.value = errorMessage(cause)
+    error.value = cause
   } finally {
     if (token === loadToken) loading.value = false
   }
@@ -313,8 +314,7 @@ watch(
       <span class="console-freshness">DATA CUT · {{ overview?.latestObservation || '尚无观测' }}</span>
     </form>
 
-    <PageState v-if="loading && !overview" kind="loading" title="正在聚合 ASN 运维候选集" detail="首次进程请求会预热静态 AS 信息，后续查询使用只读缓存" />
-    <PageState v-else-if="error" kind="error" title="ASN 态势不可用" :detail="error" @retry="load" />
+    <AsnRequestState :loading="loading && !overview" :error="error" :event-window="Boolean(eventContext)" @retry="load" />
 
     <template v-if="overview">
       <section v-if="!eventContext" class="scope-note" aria-label="ASN 排行范围说明">

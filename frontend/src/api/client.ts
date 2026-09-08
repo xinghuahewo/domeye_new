@@ -7,9 +7,11 @@ export function resolveApiTimeout(value: string | undefined): number {
   return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_API_TIMEOUT_MS
 }
 
+export const API_TIMEOUT_MS = resolveApiTimeout(import.meta.env.VITE_API_TIMEOUT_MS)
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api/v1/',
-  timeout: resolveApiTimeout(import.meta.env.VITE_API_TIMEOUT_MS),
+  timeout: API_TIMEOUT_MS,
   headers: {
     Accept: 'application/json',
   },
@@ -25,7 +27,7 @@ function v2BaseUrl(value: string): string {
 
 const apiV2 = axios.create({
   baseURL: v2BaseUrl(import.meta.env.VITE_API_URL || '/api/v1/'),
-  timeout: resolveApiTimeout(import.meta.env.VITE_API_TIMEOUT_MS),
+  timeout: API_TIMEOUT_MS,
   headers: {
     Accept: 'application/json',
   },
