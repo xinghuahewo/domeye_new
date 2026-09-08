@@ -9,7 +9,8 @@ import PageState from '@/components/PageState.vue'
 import SparklinePair from '@/components/SparklinePair.vue'
 import type { AsnProfile, AsOverview, EventRow, OutagePoint } from '@/types/api'
 import { errorMessage } from '@/utils/normalize'
-import { parseInputTime, recentRange, toBackendTime, toInputTime } from '@/utils/time'
+import { recentRange, toBackendTime } from '@/utils/time'
+import { businessTimezone, businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,13 +66,13 @@ const returnEventLink = computed(() => ({
 function eventWindowLabel(): string {
   if (!eventContext.value) return ''
   const formatter = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: businessTimezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   })
   return `${formatter.format(eventContext.value.startDate)} — ${formatter.format(eventContext.value.endDate)}`
 }
@@ -79,9 +80,7 @@ function eventWindowLabel(): string {
 const selectedSeries = computed(() => {
   const source = selected.value?.series ?? []
   if (!eventContext.value) return source
-  const start = parseInputTime(query.start)
-  const end = parseInputTime(query.end)
-  if (!start || !end) return source
+  const { startDate: start, endDate: end } = eventContext.value
   const byTime = new Map(source.map((point) => [point.time, point]))
   const result = []
   for (
@@ -89,7 +88,7 @@ const selectedSeries = computed(() => {
     cursor <= end.getTime();
     cursor += 5 * 60 * 1000
   ) {
-    const time = toBackendTime(toInputTime(new Date(cursor)))
+    const time = toBusinessTime(new Date(cursor))
     result.push(byTime.get(time) ?? {
       time,
       announce: null,
@@ -156,12 +155,12 @@ const messageSeries = computed<ChartSeries[]>(() => [
   {
     name: 'ANNOUNCE',
     color: '#0b57b7',
-    data: selectedSeries.value.map((point) => [point.time, point.announce]),
+    data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.announce]),
   },
   {
     name: 'WITHDRAW',
     color: '#35b6d4',
-    data: selectedSeries.value.map((point) => [point.time, point.withdraw]),
+    data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.withdraw]),
   },
 ])
 
@@ -170,20 +169,20 @@ const resourceSeries = computed<ChartSeries[]>(() => [
     name: 'IPv4 /24 SEGMENTS',
     color: '#175cd3',
     data: selectedSeries.value
-      .map((point) => [point.time, point.ipv4Prefixes]),
+      .map((point) => [businessTimeToIso(point.time), point.ipv4Prefixes]),
   },
   {
     name: 'IPv6 /48 SEGMENTS',
     color: '#35b6d4',
     data: selectedSeries.value
-      .map((point) => [point.time, point.ipv6Prefixes]),
+      .map((point) => [businessTimeToIso(point.time), point.ipv6Prefixes]),
   },
 ])
 
 const outageSeries = computed<ChartSeries[]>(() => [{
   name: 'PREFIX OUTAGE',
   color: '#f48120',
-  data: prefixOutages.value.map((point) => [point.time, point.count]),
+  data: prefixOutages.value.map((point) => [businessTimeToIso(point.time), point.count]),
 }])
 
 function featureRange(): FeatureRange {
@@ -278,11 +277,11 @@ function openEvent(event: EventRow) {
 }
 
 watch(
-  [() => route.params.asn, () => route.query.event_start, () => route.query.event_end],
+  [() => route.params.asn, () => route.query.event_start, () => route.query.event_end, () => route.query.event_ref],
   () => {
     if (eventContext.value) {
-      query.start = toInputTime(eventContext.value.startDate)
-      query.end = toInputTime(eventContext.value.endDate)
+      query.start = toBusinessTime(eventContext.value.startDate).replace(' ', 'T')
+      query.end = toBusinessTime(eventContext.value.endDate).replace(' ', 'T')
     } else {
       query.start = defaults.start
       query.end = defaults.end
@@ -445,18 +444,18 @@ watch(
           <section class="asn-chart-panel">
             <div class="section-heading"><h3>报文脉冲</h3><span>announce / withdraw</span></div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有 ASN 报文样本" />
-            <LineChart v-else :series="messageSeries" unit="条" :height="300" />
+            <LineChart v-else :series="messageSeries" :timezone="businessTimezone" unit="条" :height="300" />
           </section>
           <section class="asn-chart-panel">
             <div class="section-heading"><h3>路由资源等效段</h3><span>legacy snapshot · null ≠ zero · not P0 admitted</span></div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有资源快照" />
-            <LineChart v-else :series="resourceSeries" unit="个" :height="300" />
+            <LineChart v-else :series="resourceSeries" :timezone="businessTimezone" unit="个" :height="300" />
           </section>
           <section class="asn-chart-panel is-wide">
             <div class="section-heading"><h3>前缀并发中断</h3><span>3-minute active slots</span></div>
             <PageState v-if="outageLoading" kind="loading" title="正在读取 ASN 前缀中断时间槽" />
             <PageState v-else-if="outageError" kind="error" title="ASN 中断时序不可用" :detail="outageError" @retry="load" />
-            <LineChart v-else :series="outageSeries" unit="起" :height="270" />
+            <LineChart v-else :series="outageSeries" :timezone="businessTimezone" unit="起" :height="270" />
           </section>
         </div>
 
