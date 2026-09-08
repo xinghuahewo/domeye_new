@@ -13,9 +13,9 @@ describe('国家中断通用观测页用户效果', () => {
   it('keeps the agreed information order', () => {
     const headings = [
       '前缀中断数量变化',
-      'AS 中断数量变化',
+      'AS 分类数量变化',
       'IP 地址变化趋势',
-      '哪些 AS 出现了路由不可见',
+      '事件窗口中的相关 AS',
       '实际路径中关联了哪些网络',
     ]
     let cursor = -1
@@ -56,7 +56,7 @@ describe('国家中断通用观测页用户效果', () => {
     expect(source).toContain('const asPageSize = 20')
     expect(source).toContain('const pathPageSize = 15')
     expect(source).not.toContain('/audit')
-    expect(source).toContain('不可见独立方向峰值')
+    expect(source).toContain('不可见独立方向窗口峰值')
     expect(source).toContain('同期中断前缀峰值')
     expect(source).toContain('同期 IPv4 地址量峰值')
     expect(source).toContain('同期 IPv6 /48 峰值')

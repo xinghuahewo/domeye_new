@@ -113,10 +113,13 @@ const prefixSeries = computed(() => chartSeries([
   { key: 'completely_interrupted_prefix_count', name: '所有观察方向均不可见', color: '#712f2a' },
 ]))
 
-const asSeries = computed(() => chartSeries([
-  { key: 'affected_asn_count', name: '出现不可见前缀的 AS', color: '#196b8a', area: true },
-  { key: 'route_interrupted_asn_count', name: '固定前缀均不可见的 AS', color: '#102f46' },
-]))
+const asMetrics = [
+  { key: 'affected_asn_count', classification: 'affected', color: '#196b8a', area: true },
+  { key: 'route_interrupted_asn_count', classification: 'route_interrupted', color: '#102f46' },
+] as const
+const asSeries = computed(() => chartSeries(asMetrics.map(metric => ({
+  ...metric, name: classificationLabel(metric.classification),
+}))))
 
 const ipv4Series = computed(() => chartSeries([
   { key: 'fixed_visible_ipv4_address_count', name: '固定前缀可见 IPv4 地址', color: '#176d8f', area: true },
@@ -227,7 +230,7 @@ function changePathPage(page: number) {
 }
 
 function classificationLabel(value: string): string {
-  return value === 'route_interrupted' ? '固定前缀均不可见' : '部分固定前缀不可见'
+  return value === 'route_interrupted' ? '路由中断类 AS' : value === 'affected' ? '受影响类 AS' : '分类 Unknown'
 }
 
 function asProfileLink(asn: number) {
@@ -278,7 +281,7 @@ onMounted(() => {
       </div>
       <dl>
         <div><dt>固定前缀</dt><dd>{{ formatNumber(overview.cohort.fixed_prefix_count) }}</dd></div>
-        <div><dt>相关 AS</dt><dd>{{ formatNumber(overview.affected_as_count) }}</dd></div>
+        <div><dt>窗口相关 AS</dt><dd>{{ formatNumber(overview.affected_as_count) }}</dd></div>
         <div><dt>实际路径关联</dt><dd>{{ formatNumber(overview.path_downstream_relation_count) }}</dd></div>
       </dl>
     </section>
@@ -300,10 +303,23 @@ onMounted(() => {
 
     <section class="sheet" aria-labelledby="as-trend-title">
       <header class="section-heading">
-        <div><span>02</span><h2 id="as-trend-title">AS 中断数量变化</h2></div>
-        <p>区分出现部分不可见前缀的 AS，与固定前缀全部不可见的 AS。</p>
+        <div><span>02</span><h2 id="as-trend-title">AS 分类数量变化</h2></div>
+        <p>曲线显示每个时点的来源分类数量；不等于整个窗口的名单人数。</p>
       </header>
-      <ObservationChart :series="asSeries" unit="个 AS" :height="320" />
+      <p class="scope-caveat">两类是否互斥、分类优先级及未知前缀处理仍为 Unknown，不将两条曲线相加或按包含关系解释。</p>
+      <ObservationChart :series="asSeries" :markers="comparisonMarkers" unit="个 AS" :height="320" />
+      <div class="as-count-summary">
+        <article v-for="metric in asMetrics" :key="metric.key" class="as-count-card">
+          <h3>{{ classificationLabel(metric.classification) }}</h3>
+          <p>窗口峰值：{{ formatNumber(overview.peaks[metric.key]?.value) }} 个 AS · {{ formatTime(overview.peaks[metric.key]?.state_point_utc) }}</p>
+          <p>窗口末点：{{ formatNumber(track(metric.key).at(-1)) }} 个 AS · {{ formatTime(page.series.timestamps.at(-1)) }}</p>
+        </article>
+      </div>
+      <details class="classification-definitions">
+        <summary>查看来源的分类说明</summary>
+        <p v-for="metric in asMetrics" :key="metric.key"><b>{{ classificationLabel(metric.classification) }}（{{ metric.classification }}）</b>：{{ page.series.track_definitions[metric.key]?.definition || 'Unknown：当前发布未提供说明。' }}</p>
+        <p>以上为当前发布所附文字，尚不能据此确认两类的包含关系、互斥规则或窗口名单的纳入算法。</p>
+      </details>
     </section>
 
     <section class="sheet" aria-labelledby="ip-trend-title">
@@ -327,12 +343,13 @@ onMounted(() => {
 
     <section id="affected-as" class="sheet" aria-labelledby="affected-as-title">
       <header class="section-heading">
-        <div><span>04</span><h2 id="affected-as-title">哪些 AS 出现了路由不可见</h2></div>
-        <p>点击 AS 可在同一事件窗口查看其特征详情。</p>
+        <div><span>04</span><h2 id="affected-as-title">事件窗口中的相关 AS</h2></div>
+        <p>这里是整个窗口的相关名单。点击 AS 可在同一时间范围查看其独立特征。</p>
       </header>
+      <p class="scope-caveat">窗口分类和峰值不能定位单个 ASN 的状态转换时刻；当前名单未提供逐时点分类、峰值时间或完整纳入规则，不能将其当作选中时点的 AS 集合。</p>
       <form class="filter-bar" @submit.prevent="applyAsFilters">
         <label><span>查找 AS</span><input v-model="asQuery" placeholder="ASN、名称或机构" /></label>
-        <label><span>不可见程度</span><select v-model="asClassification"><option value="all">全部</option><option value="affected">部分前缀不可见</option><option value="route_interrupted">固定前缀均不可见</option></select></label>
+        <label><span>窗口分类</span><select v-model="asClassification"><option value="all">全部</option><option value="affected">{{ classificationLabel('affected') }}</option><option value="route_interrupted">{{ classificationLabel('route_interrupted') }}</option></select></label>
         <button type="submit">筛选</button>
       </form>
       <PageState v-if="asLoading" kind="loading" title="正在读取相关 AS" />
@@ -340,7 +357,7 @@ onMounted(() => {
       <PageState v-else-if="!asResult?.items.length" title="当前条件下没有相关 AS" />
       <div v-else class="table-scroll">
         <table>
-          <thead><tr><th>AS 与性质</th><th>不可见程度</th><th>固定前缀</th><th>部分不可见峰值</th><th>完全不可见峰值</th><th>不可见独立方向峰值</th><th>关联网络</th></tr></thead>
+          <thead><tr><th>AS 与性质</th><th>窗口分类</th><th>固定前缀</th><th>部分不可见窗口峰值</th><th>完全不可见窗口峰值</th><th>不可见独立方向窗口峰值</th><th>关联网络</th></tr></thead>
           <tbody>
             <tr v-for="item in asResult.items" :key="item.asn">
               <td><RouterLink :to="asProfileLink(item.asn)">AS{{ item.asn }} →</RouterLink><b>{{ item.as_name || item.organization || '名称未知' }}</b><small>{{ item.nature || '性质未知' }}</small></td>
@@ -438,6 +455,13 @@ onMounted(() => {
 .ip-grid figcaption b { color: var(--navy); font-size: 13px; }
 .ip-grid figcaption span, .ip-grid figure > p { color: #71808a; font-size: 9px; }
 .ip-grid figure > p { margin: 8px 4px 0; }
+.as-count-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.as-count-card { padding: 12px 14px; background: #f8fafb; border: 1px solid #dbe2e6; }
+.as-count-card h3 { margin: 0; color: #122b3b; font-size: 13px; }
+.as-count-card p, .classification-definitions p { margin: 6px 0; color: #52616b; font-size: 12px; line-height: 1.7; }
+.classification-definitions { margin-top: 12px; }
+.classification-definitions summary { color: #176d8f; font-size: 12px; cursor: pointer; }
+.scope-caveat { padding: 12px 14px; color: #67513a; background: #fff5e9; border-left: 3px solid #df6b2d; font-size: 12px; line-height: 1.75; }
 .filter-bar { display: grid; grid-template-columns: minmax(220px, 1fr) 250px 94px; align-items: end; gap: 10px; margin-bottom: 16px; padding: 13px; background: var(--cream); border: 1px solid #e1dbd0; }
 .filter-bar.is-path { grid-template-columns: 190px minmax(220px, 1fr) 220px 94px; }
 .filter-bar label { display: grid; gap: 6px; }
@@ -479,6 +503,7 @@ td em.route_interrupted { color: #7c2f2c; background: #f9e4e2; }
   .relation-list dl, .relation-list details { grid-column: 2; }
 }
 @media (max-width: 620px) {
+  .as-count-summary { grid-template-columns: 1fr; }
   .event-hero { padding: 23px 20px; }
   .sheet { padding: 18px 14px; }
   .reading-card dl, .inline-facts { grid-template-columns: 1fr; }
