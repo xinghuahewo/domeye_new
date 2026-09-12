@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/core-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 同一留存内容版本上的 C 首页查询。零仅表示选定留存记录无匹配，不证明原始观察完整。列表局部筛选不改变概况或全日趋势。 */
+        get: operations["getCoreOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/core-overview/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 按列表版本和旧事件引用复读原记录，保留完整源键和原编码字段；不访问旧数据库详情接口。 */
+        get: operations["getCoreOverviewRecord"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -514,6 +548,400 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CoreOverviewSource: {
+            instance: string;
+            code: string;
+            collector_id: string;
+            collector_basis: string;
+            confirmed_on: string;
+            coverage: string;
+            detector_version: string | null;
+        };
+        CoreOverviewItem: {
+            reference: string;
+            content_version: string;
+            /** @enum {string} */
+            kind: "prefix_outage" | "as_outage" | "leak" | "hijack" | "sub_hijack" | "country_outage";
+            /** @description 仅sub_hijack提供；来源中记录的父前缀，object仍为子前缀。不是额外事件或影响规模。 */
+            parent_prefix?: string;
+            /** @description 仅country_outage提供；保留源国家名称，object为国家代码。国家记录地址族未知，原聚合不代表全国连通性或真实影响。 */
+            country_name?: string | null;
+            object: string;
+            /** Format: date-time */
+            start_time: string;
+            /** @description 仅明确准入的AS中断集合文本提供。object保留原文，asns为空；一条原检测记录不拆分、不认作确定单ASN，不表示误报。 */
+            object_identity?: {
+                /** @constant */
+                state: "unresolved";
+                /** @constant */
+                reason: "as_set_in_asn_field";
+                /** @constant */
+                label: "对象待核实";
+            };
+            end_time: {
+                /** @enum {string} */
+                state: "recorded" | "unknown" | "unavailable";
+                value: string | null;
+            };
+            /** @enum {string|null} */
+            level: "high" | "middle" | "low" | null;
+            /** @description 仅已核验的AS中断等级冲突提供，出现时level为null。原引用见reference，实例见metadata.source；该注解不修改record原明细或旧内容版本。 */
+            level_conflict?: {
+                event_table: string;
+                /** @enum {string} */
+                event_level: "high" | "middle" | "low";
+                /** @enum {string} */
+                detail_level: "high" | "middle" | "low";
+                source_input_sha256: string;
+            };
+            /** @enum {string} */
+            address_family: "ipv4" | "ipv6" | "mixed" | "unknown";
+            asns: string[];
+            record_number: string;
+        };
+        /** @description 绑定单RIB的独立规模摘要；只在异常日可用时附带。不是整日或连续状态，局部列表筛选不改变它。旧无绑定版本省略本字段。 */
+        CoreOverviewScale: {
+            /** @constant */
+            state: "unavailable";
+            message: string;
+        } | {
+            /** @enum {string} */
+            state: "available" | "date_not_retained" | "family_not_supported";
+            version: string;
+            /**
+             * Format: date-time
+             * @description RIB文件实际UTC时点，不取配置snapshot_time替代
+             */
+            observed_at: string;
+            available_dates: string[];
+            /** @enum {string} */
+            family: "all" | "ipv4" | "ipv6" | "unknown";
+            source: {
+                /** @constant */
+                collector_id: "rrc25";
+                /** @constant */
+                collector_bgp_id: "0.0.0.25";
+                /** @constant */
+                view_name: "rrc25";
+                /** @constant */
+                coverage: "unknown";
+                path: string;
+                sha256: string;
+                compressed_bytes: number;
+            };
+            /** @constant */
+            interpretation_version: "rib-prefix-union/v1";
+            /** @enum {string} */
+            origin_metric_state: "pending_definition" | "available" | "unavailable" | "date_not_retained" | "family_not_supported";
+            /** @description 额外绑定同一原RIB的起源归属统计；未明确归属的条目不是ASN数，也不代表缺测网络数。 */
+            origin?: {
+                version: string;
+                /** @constant */
+                interpretation_version: "rib-attributed-origin/private-skip-v1";
+                unattributed_entries: number | null;
+                limits: string[];
+            };
+            limits: string[];
+            /** @description 本文件有路由条目的Peer表位置去重数，不是稳定Peer身份数 */
+            peer_position_count?: number;
+            /** @description 单地址族前缀集合摘要；全部地址族不伪造联合摘要 */
+            prefix_set_sha256?: string;
+        };
+        /** @description 按原始Peer属性×地址族×前缀选取的有界路径不同样本；不是优先级、代表性采样或稳定Session。 */
+        CorePathExample: {
+            /** @enum {unknown} */
+            family: "ipv4" | "ipv6";
+            prefix: string;
+            peer: {
+                bgp_id: string;
+                ip: string;
+                asn: number;
+            };
+            left_path: number[];
+            right_path: number[];
+            left_reference: components["schemas"]["CorePathReference"];
+            right_reference: components["schemas"]["CorePathReference"];
+        };
+        /** @description 对应源MRT中的零基物理记录、解压偏移、帧内条目和Peer表位置。 */
+        CorePathReference: {
+            record: number;
+            offset: number;
+            entry: number;
+            peer_index: number;
+        };
+        CorePathSource: {
+            /** Format: date-time */
+            observed_at: string;
+            sha256: string;
+        };
+        /** @description 单位是原始Peer属性×AFI×SAFI×Prefix对象对，不是独立前缀数；分母为same+different，分母零时比例为null。 */
+        CorePathMetrics: {
+            same: number;
+            different: number;
+            left_only: number;
+            right_only: number;
+            not_comparable: number;
+            comparable_pairs: number;
+            different_fraction: number | null;
+        } | null;
+        /** @description 同一业务日的两个实际RIB时点对照；非期间变化次数。无旧绑定时省略，失败日不附带。日期和地址族限定范围，列表筛选不改变分母。 */
+        CorePathComparison: {
+            /** @constant */
+            state: "unavailable";
+            message: string;
+            metrics: null;
+            examples: unknown[];
+        } | ({
+            /** @enum {unknown} */
+            state: "available" | "date_not_retained" | "family_not_supported";
+            version: string;
+            comparison_version: string;
+            /** @constant */
+            interpretation_version: "rrc25-raw-peer-rib-endpoint/as-sequence-v1";
+            /** @constant */
+            collector_id: "rrc25";
+            /** @constant */
+            coverage: "unknown";
+            /** @constant */
+            session_continuity: "unknown";
+            interval_change_count: null;
+            left: components["schemas"]["CorePathSource"];
+            right: components["schemas"]["CorePathSource"];
+            limits: string[];
+            available_dates: string[];
+            /** @enum {unknown} */
+            family: "all" | "ipv4" | "ipv6" | "unknown";
+            /** @constant */
+            unit: "raw_peer_afi_safi_prefix";
+            metrics: components["schemas"]["CorePathMetrics"];
+            examples: components["schemas"]["CorePathExample"][];
+        } & unknown);
+        CoreOverviewPayload: {
+            /** @enum {string} */
+            state: "available" | "window_not_retained" | "unavailable";
+            version: string;
+            /** @description 日级数据不可用的原因；此时 HTTP 503，指标保持 null，可保留已校验目录 */
+            message?: string;
+            diagnostic?: components["schemas"]["CoreOverviewDiagnostic"];
+            metadata: {
+                source: components["schemas"]["CoreOverviewSource"];
+                scale?: components["schemas"]["CoreOverviewScale"];
+                path_comparison?: components["schemas"]["CorePathComparison"];
+                /** @description v3目录在可用日明确提供实际日输入的解释版本；复用旧日文件时仍保留旧值，不由目录版本覆盖。 */
+                input_interpretation_version?: string;
+                data_profile: {
+                    id: string;
+                    timezone: string;
+                    window_start: string;
+                    window_end_exclusive: string;
+                    snapshot_time: string;
+                };
+                /** @description 已留存日期的外包范围；不表示中间日期连续可用，以 available_dates 为准 */
+                retained_window: {
+                    source: string;
+                    start: string;
+                    end_exclusive: string;
+                };
+                /** @description 本消费版本明确留存的业务日期；实际文件校验失败仍返回不可用，不填补缺日 */
+                available_dates?: string[];
+                /** @description 已绑定失败诊断的业务日期，与available_dates不重叠；诊断须在选择该日后复读校验，不是异常记录可查询日期 */
+                diagnostic_dates?: string[];
+                /** @description 此消费版本共同声明的异常类型范围；不随程序新增类型而扩展旧输入范围 */
+                kinds: ("prefix_outage" | "as_outage" | "leak" | "hijack" | "sub_hijack" | "country_outage")[];
+                interpretation_version: string;
+            };
+            query: {
+                date: string;
+                start: string;
+                end_exclusive: string;
+                kind: string;
+                hour: number | null;
+                family: string;
+                excluded_unknown_family: number | null;
+                level: string;
+                sort: string;
+                q: string;
+                page: number;
+                page_size: number;
+            };
+            overview: {
+                record_count: number;
+                /** @description 仅metadata.scale.state=available时提供同日同地址族的单RIB前缀并集数；其余为null */
+                visible_prefixes: number | null;
+                /** @description 仅同日同地址族且起源消费准入时提供跳过私用AS后的明确归属ASN并集；不拆AS_SET或越过歧义段；其他情况为null */
+                visible_origin_ases: number | null;
+            } | null;
+            trend: {
+                /** @enum {string} */
+                metric: "recorded_prefix_outage_starts_distinct";
+                /** @enum {integer} */
+                bucket_seconds: 3600;
+                buckets: {
+                    start: string;
+                    end_exclusive: string;
+                    value: number;
+                }[];
+            } | null;
+            events: {
+                total: number;
+                items: components["schemas"]["CoreOverviewItem"][];
+                distinct_prefixes: number;
+                page: number;
+                page_size: number;
+                page_count: number;
+            } | null;
+        };
+        CoreOverviewDetail: {
+            /** @enum {string} */
+            state: "available";
+            version: string;
+            item: components["schemas"]["CoreOverviewItem"];
+            metadata: {
+                source: components["schemas"]["CoreOverviewSource"];
+                interpretation_version: string;
+                input_interpretation_version?: string;
+            };
+            record: {
+                content_version: string;
+                read_at: string;
+                record: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        CoreOverviewDiagnostic: components["schemas"]["CoreOverviewDiagnosticV1"] | components["schemas"]["CoreOverviewDiagnosticV2"];
+        CoreOverviewDiagnosticV2: {
+            /** @constant */
+            schema_version: "core-overview-diagnostic/v2";
+            version: string;
+            /** @enum {unknown} */
+            stage: "source_field_validation" | "source_read";
+            source: components["schemas"]["CoreOverviewSource"];
+            data_profile: {
+                [key: string]: unknown;
+            };
+            window: components["schemas"]["CoreOverviewDiagnosticWindow"];
+            compiler_sha256: string;
+            reasons: (components["schemas"]["CoreOverviewReadFailureReason"] | components["schemas"]["CoreOverviewSourceFailureReason"])[];
+        } & unknown;
+        CoreOverviewReadFailureReason: {
+            /** @constant */
+            code: "source_read_timeout";
+            /** @constant */
+            kind: "all";
+            /** @description 未取得完整记录；不是零条，也不是一条失败记录 */
+            count: null;
+            evidence: components["schemas"]["CoreOverviewDayFailureEvidence"] & {
+                /** @constant */
+                format?: "failed-day-read/v1";
+                receipt_sha256?: null;
+                audit_sha256?: null;
+                failure_sha256?: string;
+                finished_at?: null;
+            };
+        };
+        CoreOverviewSourceFailureReason: {
+            /** @enum {unknown} */
+            code: "source_identity_unresolved" | "source_population_mismatch" | "start_time_conflict";
+            /** @enum {unknown} */
+            kind: "as_outage" | "country_outage" | "hijack";
+            /** @description 身份／时间矛盾的记录数，或独立明细与总表候选集合的对称差条数；不同原因不可求和 */
+            count: number;
+            evidence: components["schemas"]["CoreOverviewDayFailureEvidence"] & {
+                /** @constant */
+                format?: "complete-day-audit/v1";
+                receipt_sha256?: string;
+                audit_sha256?: string;
+                failure_sha256?: null;
+                finished_at?: string;
+            };
+        } & ({
+            /** @constant */
+            code?: "source_identity_unresolved";
+            /** @constant */
+            kind?: "as_outage";
+        } | {
+            /** @constant */
+            code?: "source_population_mismatch";
+            /** @enum {unknown} */
+            kind?: "country_outage" | "hijack";
+        } | {
+            /** @constant */
+            code?: "start_time_conflict";
+            /** @constant */
+            kind?: "hijack";
+        });
+        CoreOverviewDayFailureEvidence: {
+            /** @enum {unknown} */
+            format: "complete-day-audit/v1" | "failed-day-read/v1";
+            /** @description 完整日原文或失败读取留下的部分原文，须结合format */
+            source_data_sha256: string;
+            receipt_sha256: string | null;
+            audit_sha256: string | null;
+            failure_sha256: string | null;
+            query_sha256: string;
+            selection_sha256: string;
+            /** @description 本次查询的目标业务日；失败读取不表示已取得整日数据 */
+            query_window: components["schemas"]["CoreOverviewDiagnosticWindow"];
+            /** Format: date-time */
+            read_at: string;
+            /**
+             * Format: date-time
+             * @description 源端成功完成回执的时点；超时未取得回执时为null
+             */
+            finished_at: string | null;
+        };
+        CoreOverviewDiagnosticV1: {
+            /** @constant */
+            schema_version: "core-overview-diagnostic/v1";
+            /** @description 单日诊断文件摘要身份，不是异常内容版本或历史检测版本 */
+            version: string;
+            /**
+             * @description 仅源字段预检，未完成该日全部业务字段的消费准入
+             * @constant
+             */
+            stage: "source_field_precheck";
+            source: components["schemas"]["CoreOverviewSource"];
+            data_profile: {
+                [key: string]: unknown;
+            };
+            window: components["schemas"]["CoreOverviewDiagnosticWindow"];
+            compiler_sha256: string;
+            reasons: {
+                /**
+                 * @description time_fields_conflict 为总表与明细结束时间或时长不一致，或记录自身起止与时长矛盾
+                 * @enum {string}
+                 */
+                code: "level_conflict" | "invalid_time_order" | "time_fields_conflict";
+                /** @enum {string} */
+                kind: "prefix_outage" | "as_outage" | "leak" | "hijack";
+                /** @description 该日该类型对应原因的源记录数；不同原因可能重叠，不能求和成全部受影响记录 */
+                count: number;
+                evidence: {
+                    /** @enum {string} */
+                    format: "quality-by-day/v1" | "prefix-quality/v1" | "hijack-selected-days/v1";
+                    source_data_sha256: string;
+                    receipt_sha256: string;
+                    query_sha256: string;
+                    selection_sha256: string;
+                    /** @description 查询日期的外包范围；不连续格式必须结合queried_dates，不能推出区间连续查询 */
+                    query_window: components["schemas"]["CoreOverviewDiagnosticWindow"];
+                    /** @description hijack-selected-days/v1必填，按序列出实际查询日；其他连续查询格式不使用此字段 */
+                    queried_dates?: string[];
+                    /** Format: date-time */
+                    read_at: string;
+                    /** Format: date-time */
+                    finished_at: string;
+                } & unknown;
+            }[];
+        };
+        CoreOverviewDiagnosticWindow: {
+            source: string;
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
+        };
         P0ErrorResponse: {
             /** @constant */
             schema_version: "p0_error_v1";
@@ -2660,6 +3088,119 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getCoreOverview: {
+        parameters: {
+            query?: {
+                /** @description Asia/Shanghai 日窗；默认取项目快照日 */
+                date?: string;
+                family?: "all" | "ipv4" | "ipv6" | "unknown";
+                /** @description 实际可查询类型以当前响应metadata.kinds为准；未声明的类型不返回伪零值 */
+                kind?: "all" | "prefix_outage" | "as_outage" | "leak" | "hijack" | "sub_hijack" | "country_outage";
+                /** @description conflict仅筛选等级待核实记录；unknown不含冲突。二者在等级排序中均位于高、中、低之后，再按时间和原引用排序。 */
+                level?: "all" | "high" | "middle" | "low" | "unknown" | "conflict";
+                hour?: number;
+                q?: string;
+                sort?: "severity" | "time";
+                page?: number;
+                page_size?: number;
+                /** @description 后续筛选与分页携带首次响应版本；不匹配返回409 */
+                version?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 同版本结果，或窗口未留存（指标为null） */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreOverviewPayload"];
+                };
+            };
+            /** @description 参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 输入版本不一致 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 输入缺失、文件校验失败或源记录预检失败，不能解释为空列表；日级失败保留已校验目录和版本，有证据时附diagnostic，所有指标为null */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreOverviewPayload"] | {
+                        /** @constant */
+                        state: "unavailable";
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    getCoreOverviewRecord: {
+        parameters: {
+            query: {
+                ref: string;
+                version: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 原记录及当前来源声明分别返回 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreOverviewDetail"];
+                };
+            };
+            /** @description 缺少引用或版本 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 该留存版本中没有此引用 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 版本不一致 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 留存输入不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -2775,6 +3316,19 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventPage"];
+                };
+            };
+            /** @description 源数据库不可用或所需月表读取不完整；不返回列表、部分结果或零计数 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: false;
+                        msg: string;
+                    };
                 };
             };
         };

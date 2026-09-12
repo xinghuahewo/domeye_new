@@ -10,6 +10,12 @@ export function toBusinessTime(date: Date): string {
   return formatter.format(date)
 }
 
+export function formatBusinessEndTime(end: string, start: string, full = false): string {
+  const endTime = toBusinessTime(new Date(end))
+  return full || endTime.slice(0, 10) !== toBusinessTime(new Date(start)).slice(0, 10)
+    ? endTime : endTime.slice(11)
+}
+
 // 当前固定数据档由 Vite 校验为 +08:00；数据库特征时间没有时区后缀。
 export function businessTimeToIso(value: string): string {
   return new Date(`${value.replace(' ', 'T')}${dataProfile.window_start.slice(-6)}`).toISOString()

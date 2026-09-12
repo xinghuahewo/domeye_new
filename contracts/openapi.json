@@ -7,6 +7,42 @@
   },
   "servers": [{"url": "/api/v1"}],
   "paths": {
+    "/core-overview": {
+      "get": {
+        "operationId": "getCoreOverview",
+        "description": "同一留存内容版本上的 C 首页查询。零仅表示选定留存记录无匹配，不证明原始观察完整。列表局部筛选不改变概况或全日趋势。",
+        "parameters": [
+          {"name": "date", "in": "query", "schema": {"type": "string", "format": "date"}, "description": "Asia/Shanghai 日窗；默认取项目快照日"},
+          {"name": "family", "in": "query", "schema": {"type": "string", "enum": ["all", "ipv4", "ipv6", "unknown"], "default": "all"}},
+          {"name": "kind", "in": "query", "schema": {"type": "string", "enum": ["all", "prefix_outage", "as_outage", "leak", "hijack", "sub_hijack", "country_outage"], "default": "all"}, "description": "实际可查询类型以当前响应metadata.kinds为准；未声明的类型不返回伪零值"},
+          {"name": "level", "in": "query", "schema": {"type": "string", "enum": ["all", "high", "middle", "low", "unknown", "conflict"], "default": "all"}, "description": "conflict仅筛选等级待核实记录；unknown不含冲突。二者在等级排序中均位于高、中、低之后，再按时间和原引用排序。"},
+          {"name": "hour", "in": "query", "schema": {"type": "integer", "minimum": 0, "maximum": 23}},
+          {"name": "q", "in": "query", "schema": {"type": "string", "maxLength": 120}},
+          {"name": "sort", "in": "query", "schema": {"type": "string", "enum": ["severity", "time"], "default": "severity"}},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000000, "default": 1}},
+          {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}},
+          {"name": "version", "in": "query", "schema": {"type": "string"}, "description": "后续筛选与分页携带首次响应版本；不匹配返回409"}
+        ],
+        "responses": {
+          "200": {"description": "同版本结果，或窗口未留存（指标为null）", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CoreOverviewPayload"}}}},
+          "400": {"description": "参数无效"}, "409": {"description": "输入版本不一致"}, "503": {"description": "输入缺失、文件校验失败或源记录预检失败，不能解释为空列表；日级失败保留已校验目录和版本，有证据时附diagnostic，所有指标为null", "content": {"application/json": {"schema": {"anyOf": [{"$ref": "#/components/schemas/CoreOverviewPayload"}, {"type": "object", "required": ["state", "message"], "properties": {"state": {"const": "unavailable"}, "message": {"type": "string"}}}]}}}}
+        }
+      }
+    },
+    "/core-overview/record": {
+      "get": {
+        "operationId": "getCoreOverviewRecord",
+        "description": "按列表版本和旧事件引用复读原记录，保留完整源键和原编码字段；不访问旧数据库详情接口。",
+        "parameters": [
+          {"name": "ref", "in": "query", "required": true, "schema": {"type": "string"}},
+          {"name": "version", "in": "query", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "原记录及当前来源声明分别返回", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CoreOverviewDetail"}}}},
+          "400": {"description": "缺少引用或版本"}, "404": {"description": "该留存版本中没有此引用"}, "409": {"description": "版本不一致"}, "503": {"description": "留存输入不可用"}
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "getHealth",
@@ -64,7 +100,16 @@
           {"name": "date", "in": "query", "schema": {"type": "string"}},
           {"name": "sort_mode", "in": "query", "schema": {"type": "string"}}
         ],
-        "responses": {"200": {"description": "分页事件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EventPage"}}}}}
+        "responses": {
+          "200": {"description": "分页事件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EventPage"}}}},
+          "503": {
+            "description": "源数据库不可用或所需月表读取不完整；不返回列表、部分结果或零计数",
+            "content": {"application/json": {"schema": {
+              "type": "object", "required": ["status", "msg"], "additionalProperties": false,
+              "properties": {"status": {"type": "boolean", "const": false}, "msg": {"type": "string"}}
+            }}}
+          }
+        }
       }
     },
     "/events/top": {
@@ -370,6 +415,263 @@
       "P0RepositoryUnavailable": {"description": "候选仓库未配置或不可用", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}}
     },
     "schemas": {
+      "CoreOverviewSource": {
+        "type": "object", "required": ["instance", "code", "collector_id", "collector_basis", "confirmed_on", "coverage", "detector_version"],
+        "properties": {
+          "instance": {"type": "string"}, "code": {"type": "string"}, "collector_id": {"type": "string"},
+          "collector_basis": {"type": "string"}, "confirmed_on": {"type": "string"},
+          "coverage": {"type": "string"}, "detector_version": {"type": ["string", "null"]}
+        }
+      },
+      "CoreOverviewItem": {
+        "type": "object", "required": ["reference", "content_version", "kind", "object", "start_time", "end_time", "level", "address_family", "asns", "record_number"],
+        "properties": {
+          "reference": {"type": "string"}, "content_version": {"type": "string"},
+          "kind": {"type": "string", "enum": ["prefix_outage", "as_outage", "leak", "hijack", "sub_hijack", "country_outage"]},
+          "parent_prefix": {"type": "string", "description": "仅sub_hijack提供；来源中记录的父前缀，object仍为子前缀。不是额外事件或影响规模。"},
+          "country_name": {"type": ["string", "null"], "description": "仅country_outage提供；保留源国家名称，object为国家代码。国家记录地址族未知，原聚合不代表全国连通性或真实影响。"},
+          "object": {"type": "string"}, "start_time": {"type": "string", "format": "date-time"},
+          "object_identity": {"type": "object", "additionalProperties": false, "required": ["state", "reason", "label"],
+            "description": "仅明确准入的AS中断集合文本提供。object保留原文，asns为空；一条原检测记录不拆分、不认作确定单ASN，不表示误报。",
+            "properties": {"state": {"const": "unresolved"}, "reason": {"const": "as_set_in_asn_field"}, "label": {"const": "对象待核实"}}},
+          "end_time": {"type": "object", "required": ["state", "value"], "properties": {"state": {"type": "string", "enum": ["recorded", "unknown", "unavailable"]}, "value": {"type": ["string", "null"]}}},
+          "level": {"type": ["string", "null"], "enum": ["high", "middle", "low", null]},
+          "level_conflict": {
+            "type": "object", "additionalProperties": false,
+            "description": "仅已核验的AS中断等级冲突提供，出现时level为null。原引用见reference，实例见metadata.source；该注解不修改record原明细或旧内容版本。",
+            "required": ["event_table", "event_level", "detail_level", "source_input_sha256"],
+            "properties": {
+              "event_table": {"type": "string", "pattern": "^event_table_[0-9]{6}$"},
+              "event_level": {"type": "string", "enum": ["high", "middle", "low"]},
+              "detail_level": {"type": "string", "enum": ["high", "middle", "low"]},
+              "source_input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          },
+          "address_family": {"type": "string", "enum": ["ipv4", "ipv6", "mixed", "unknown"]},
+          "asns": {"type": "array", "items": {"type": "string"}}, "record_number": {"type": "string"}
+        }
+      },
+      "CoreOverviewScale": {
+        "description": "绑定单RIB的独立规模摘要；只在异常日可用时附带。不是整日或连续状态，局部列表筛选不改变它。旧无绑定版本省略本字段。",
+        "oneOf": [
+          {"type": "object", "required": ["state", "message"], "properties": {"state": {"const": "unavailable"}, "message": {"type": "string"}}},
+          {"type": "object", "required": ["state", "version", "observed_at", "available_dates", "family", "source", "interpretation_version", "origin_metric_state", "limits"], "properties": {
+            "state": {"type": "string", "enum": ["available", "date_not_retained", "family_not_supported"]},
+            "version": {"type": "string", "pattern": "^rib_scale_v1_[0-9a-f]{64}$"},
+            "observed_at": {"type": "string", "format": "date-time", "description": "RIB文件实际UTC时点，不取配置snapshot_time替代"},
+            "available_dates": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "format": "date"}},
+            "family": {"type": "string", "enum": ["all", "ipv4", "ipv6", "unknown"]},
+            "source": {"type": "object", "required": ["collector_id", "collector_bgp_id", "view_name", "coverage", "path", "sha256", "compressed_bytes"], "properties": {
+              "collector_id": {"const": "rrc25"}, "collector_bgp_id": {"const": "0.0.0.25"}, "view_name": {"const": "rrc25"}, "coverage": {"const": "unknown"},
+              "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "compressed_bytes": {"type": "integer", "minimum": 1}
+            }},
+            "interpretation_version": {"const": "rib-prefix-union/v1"}, "origin_metric_state": {"type": "string", "enum": ["pending_definition", "available", "unavailable", "date_not_retained", "family_not_supported"]},
+            "origin": {"type": "object", "required": ["version", "interpretation_version", "unattributed_entries", "limits"], "description": "额外绑定同一原RIB的起源归属统计；未明确归属的条目不是ASN数，也不代表缺测网络数。", "properties": {
+              "version": {"type": "string", "pattern": "^rib_origin_v1_[0-9a-f]{64}$"},
+              "interpretation_version": {"const": "rib-attributed-origin/private-skip-v1"},
+              "unattributed_entries": {"type": ["integer", "null"], "minimum": 0},
+              "limits": {"type": "array", "items": {"type": "string"}}
+            }},
+            "limits": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "peer_position_count": {"type": "integer", "minimum": 0, "description": "本文件有路由条目的Peer表位置去重数，不是稳定Peer身份数"},
+            "prefix_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "单地址族前缀集合摘要；全部地址族不伪造联合摘要"}
+          }}
+        ]
+      },
+      "CorePathExample": {
+        "type": "object", "required": ["family", "prefix", "peer", "left_path", "right_path", "left_reference", "right_reference"],
+        "description": "按原始Peer属性×地址族×前缀选取的有界路径不同样本；不是优先级、代表性采样或稳定Session。",
+        "properties": {
+          "family": {"enum": ["ipv4", "ipv6"]}, "prefix": {"type": "string"},
+          "peer": {"type": "object", "required": ["bgp_id", "ip", "asn"], "properties": {"bgp_id": {"type": "string"}, "ip": {"type": "string"}, "asn": {"type": "integer", "minimum": 0, "maximum": 4294967295}}},
+          "left_path": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "integer", "minimum": 0, "maximum": 4294967295}},
+          "right_path": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "integer", "minimum": 0, "maximum": 4294967295}},
+          "left_reference": {"$ref": "#/components/schemas/CorePathReference"}, "right_reference": {"$ref": "#/components/schemas/CorePathReference"}
+        }
+      },
+      "CorePathReference": {
+        "type": "object", "required": ["record", "offset", "entry", "peer_index"], "additionalProperties": false,
+        "description": "对应源MRT中的零基物理记录、解压偏移、帧内条目和Peer表位置。",
+        "properties": {"record": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "entry": {"type": "integer", "minimum": 0}, "peer_index": {"type": "integer", "minimum": 0}}
+      },
+      "CorePathSource": {
+        "type": "object", "required": ["observed_at", "sha256"],
+        "properties": {"observed_at": {"type": "string", "format": "date-time"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+      },
+      "CorePathMetrics": {
+        "type": ["object", "null"], "required": ["same", "different", "left_only", "right_only", "not_comparable", "comparable_pairs", "different_fraction"],
+        "description": "单位是原始Peer属性×AFI×SAFI×Prefix对象对，不是独立前缀数；分母为same+different，分母零时比例为null。",
+        "properties": {
+          "same": {"type": "integer", "minimum": 0}, "different": {"type": "integer", "minimum": 0},
+          "left_only": {"type": "integer", "minimum": 0}, "right_only": {"type": "integer", "minimum": 0}, "not_comparable": {"type": "integer", "minimum": 0},
+          "comparable_pairs": {"type": "integer", "minimum": 0}, "different_fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        }
+      },
+      "CorePathComparison": {
+        "description": "同一业务日的两个实际RIB时点对照；非期间变化次数。无旧绑定时省略，失败日不附带。日期和地址族限定范围，列表筛选不改变分母。",
+        "oneOf": [
+          {"type": "object", "required": ["state", "message", "metrics", "examples"], "properties": {"state": {"const": "unavailable"}, "message": {"type": "string"}, "metrics": {"type": "null"}, "examples": {"type": "array", "maxItems": 0}}},
+          {"type": "object", "required": ["state", "version", "comparison_version", "interpretation_version", "collector_id", "coverage", "session_continuity", "interval_change_count", "left", "right", "limits", "available_dates", "family", "unit", "metrics", "examples"], "properties": {
+            "state": {"enum": ["available", "date_not_retained", "family_not_supported"]},
+            "version": {"type": "string", "pattern": "^rib_path_consumption_v1_[0-9a-f]{64}$"},
+            "comparison_version": {"type": "string", "pattern": "^rib_path_comparison_v1_[0-9a-f]{64}$"},
+            "interpretation_version": {"const": "rrc25-raw-peer-rib-endpoint/as-sequence-v1"},
+            "collector_id": {"const": "rrc25"}, "coverage": {"const": "unknown"}, "session_continuity": {"const": "unknown"}, "interval_change_count": {"type": "null"},
+            "left": {"$ref": "#/components/schemas/CorePathSource"}, "right": {"$ref": "#/components/schemas/CorePathSource"},
+            "limits": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "available_dates": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "format": "date"}},
+            "family": {"enum": ["all", "ipv4", "ipv6", "unknown"]}, "unit": {"const": "raw_peer_afi_safi_prefix"},
+            "metrics": {"$ref": "#/components/schemas/CorePathMetrics"}, "examples": {"type": "array", "maxItems": 10, "items": {"$ref": "#/components/schemas/CorePathExample"}}
+          }, "allOf": [{"if": {"properties": {"state": {"const": "available"}}}, "then": {"properties": {"metrics": {"type": "object"}}}, "else": {"properties": {"metrics": {"type": "null"}, "examples": {"maxItems": 0}}}}]}
+        ]
+      },
+      "CoreOverviewPayload": {
+        "type": "object", "required": ["state", "version", "metadata", "query", "overview", "trend", "events"],
+        "properties": {
+          "state": {"type": "string", "enum": ["available", "window_not_retained", "unavailable"]}, "version": {"type": "string"},
+          "message": {"type": "string", "description": "日级数据不可用的原因；此时 HTTP 503，指标保持 null，可保留已校验目录"},
+          "diagnostic": {"$ref": "#/components/schemas/CoreOverviewDiagnostic"},
+          "metadata": {
+            "type": "object", "required": ["source", "data_profile", "retained_window", "kinds", "interpretation_version"],
+            "properties": {
+              "source": {"$ref": "#/components/schemas/CoreOverviewSource"},
+              "scale": {"$ref": "#/components/schemas/CoreOverviewScale"},
+              "path_comparison": {"$ref": "#/components/schemas/CorePathComparison"},
+              "input_interpretation_version": {"type": "string", "description": "v3目录在可用日明确提供实际日输入的解释版本；复用旧日文件时仍保留旧值，不由目录版本覆盖。"},
+              "data_profile": {"type": "object", "required": ["id", "timezone", "window_start", "window_end_exclusive", "snapshot_time"], "properties": {"id": {"type": "string"}, "timezone": {"type": "string"}, "window_start": {"type": "string"}, "window_end_exclusive": {"type": "string"}, "snapshot_time": {"type": "string"}}},
+              "retained_window": {"type": "object", "description": "已留存日期的外包范围；不表示中间日期连续可用，以 available_dates 为准", "required": ["source", "start", "end_exclusive"], "properties": {"source": {"type": "string"}, "start": {"type": "string"}, "end_exclusive": {"type": "string"}}},
+              "available_dates": {"type": "array", "description": "本消费版本明确留存的业务日期；实际文件校验失败仍返回不可用，不填补缺日", "uniqueItems": true, "items": {"type": "string", "format": "date"}},
+              "diagnostic_dates": {"type": "array", "description": "已绑定失败诊断的业务日期，与available_dates不重叠；诊断须在选择该日后复读校验，不是异常记录可查询日期", "uniqueItems": true, "items": {"type": "string", "format": "date"}},
+              "kinds": {"type": "array", "description": "此消费版本共同声明的异常类型范围；不随程序新增类型而扩展旧输入范围", "items": {"type": "string", "enum": ["prefix_outage", "as_outage", "leak", "hijack", "sub_hijack", "country_outage"]}}, "interpretation_version": {"type": "string"}
+            }
+          },
+          "query": {
+            "type": "object", "required": ["date", "start", "end_exclusive", "kind", "hour", "family", "excluded_unknown_family", "level", "sort", "q", "page", "page_size"],
+            "properties": {
+              "date": {"type": "string"}, "start": {"type": "string"}, "end_exclusive": {"type": "string"},
+              "kind": {"type": "string"}, "hour": {"type": ["integer", "null"]}, "family": {"type": "string"}, "excluded_unknown_family": {"type": ["integer", "null"]},
+              "level": {"type": "string"}, "sort": {"type": "string"}, "q": {"type": "string"}, "page": {"type": "integer"}, "page_size": {"type": "integer"}
+            }
+          },
+          "overview": {"type": ["object", "null"], "required": ["record_count", "visible_prefixes", "visible_origin_ases"], "properties": {"record_count": {"type": "integer", "minimum": 0}, "visible_prefixes": {"type": ["integer", "null"], "minimum": 0, "description": "仅metadata.scale.state=available时提供同日同地址族的单RIB前缀并集数；其余为null"}, "visible_origin_ases": {"type": ["integer", "null"], "minimum": 0, "description": "仅同日同地址族且起源消费准入时提供跳过私用AS后的明确归属ASN并集；不拆AS_SET或越过歧义段；其他情况为null"}}},
+          "trend": {"type": ["object", "null"], "required": ["metric", "bucket_seconds", "buckets"], "properties": {
+            "metric": {"type": "string", "enum": ["recorded_prefix_outage_starts_distinct"]}, "bucket_seconds": {"type": "integer", "enum": [3600]},
+            "buckets": {"type": "array", "items": {"type": "object", "required": ["start", "end_exclusive", "value"], "properties": {"start": {"type": "string"}, "end_exclusive": {"type": "string"}, "value": {"type": "integer", "minimum": 0}}}}
+          }},
+          "events": {"type": ["object", "null"], "required": ["total", "items", "distinct_prefixes", "page", "page_size", "page_count"], "properties": {
+            "total": {"type": "integer", "minimum": 0}, "items": {"type": "array", "items": {"$ref": "#/components/schemas/CoreOverviewItem"}},
+            "distinct_prefixes": {"type": "integer", "minimum": 0}, "page": {"type": "integer"}, "page_size": {"type": "integer"}, "page_count": {"type": "integer"}
+          }}
+        }
+      },
+      "CoreOverviewDetail": {
+        "type": "object", "required": ["state", "version", "item", "metadata", "record"],
+        "properties": {
+          "state": {"type": "string", "enum": ["available"]}, "version": {"type": "string"}, "item": {"$ref": "#/components/schemas/CoreOverviewItem"},
+          "metadata": {"type": "object", "required": ["source", "interpretation_version"], "properties": {"source": {"$ref": "#/components/schemas/CoreOverviewSource"}, "interpretation_version": {"type": "string"}, "input_interpretation_version": {"type": "string"}}},
+          "record": {"type": "object", "required": ["content_version", "read_at", "record"], "properties": {"content_version": {"type": "string"}, "read_at": {"type": "string"}, "record": {"type": "object", "additionalProperties": true}}}
+        }
+      },
+      "CoreOverviewDiagnostic": {
+        "oneOf": [{"$ref": "#/components/schemas/CoreOverviewDiagnosticV1"}, {"$ref": "#/components/schemas/CoreOverviewDiagnosticV2"}]
+      },
+      "CoreOverviewDiagnosticV2": {
+        "type": "object", "required": ["schema_version", "version", "stage", "source", "data_profile", "window", "compiler_sha256", "reasons"],
+        "properties": {
+          "schema_version": {"const": "core-overview-diagnostic/v2"},
+          "version": {"type": "string", "pattern": "^overview_diagnostic_v2_[0-9a-f]{64}$"},
+          "stage": {"enum": ["source_field_validation", "source_read"]},
+          "source": {"$ref": "#/components/schemas/CoreOverviewSource"},
+          "data_profile": {"type": "object", "additionalProperties": true},
+          "window": {"$ref": "#/components/schemas/CoreOverviewDiagnosticWindow"},
+          "compiler_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reasons": {"type": "array", "minItems": 1, "maxItems": 6, "items": {"oneOf": [{"$ref": "#/components/schemas/CoreOverviewReadFailureReason"}, {"$ref": "#/components/schemas/CoreOverviewSourceFailureReason"}]}}
+        },
+        "allOf": [{"if": {"properties": {"stage": {"const": "source_read"}}},
+          "then": {"properties": {"reasons": {"maxItems": 1, "items": {"$ref": "#/components/schemas/CoreOverviewReadFailureReason"}}}},
+          "else": {"properties": {"reasons": {"items": {"$ref": "#/components/schemas/CoreOverviewSourceFailureReason"}}}}}]
+      },
+      "CoreOverviewReadFailureReason": {
+        "type": "object", "required": ["code", "kind", "count", "evidence"],
+        "properties": {
+          "code": {"const": "source_read_timeout"}, "kind": {"const": "all"},
+          "count": {"type": "null", "description": "未取得完整记录；不是零条，也不是一条失败记录"},
+          "evidence": {"allOf": [{"$ref": "#/components/schemas/CoreOverviewDayFailureEvidence"}, {"properties": {
+            "format": {"const": "failed-day-read/v1"}, "receipt_sha256": {"type": "null"}, "audit_sha256": {"type": "null"},
+            "failure_sha256": {"type": "string"}, "finished_at": {"type": "null"}
+          }}]}
+        }
+      },
+      "CoreOverviewSourceFailureReason": {
+        "type": "object", "required": ["code", "kind", "count", "evidence"],
+        "properties": {
+          "code": {"enum": ["source_identity_unresolved", "source_population_mismatch", "start_time_conflict"]},
+          "kind": {"enum": ["as_outage", "country_outage", "hijack"]},
+          "count": {"type": "integer", "minimum": 1, "description": "身份／时间矛盾的记录数，或独立明细与总表候选集合的对称差条数；不同原因不可求和"},
+          "evidence": {"allOf": [{"$ref": "#/components/schemas/CoreOverviewDayFailureEvidence"}, {"properties": {
+            "format": {"const": "complete-day-audit/v1"}, "receipt_sha256": {"type": "string"}, "audit_sha256": {"type": "string"},
+            "failure_sha256": {"type": "null"}, "finished_at": {"type": "string"}
+          }}]}
+        },
+        "oneOf": [
+          {"properties": {"code": {"const": "source_identity_unresolved"}, "kind": {"const": "as_outage"}}},
+          {"properties": {"code": {"const": "source_population_mismatch"}, "kind": {"enum": ["country_outage", "hijack"]}}},
+          {"properties": {"code": {"const": "start_time_conflict"}, "kind": {"const": "hijack"}}}
+        ]
+      },
+      "CoreOverviewDayFailureEvidence": {
+        "type": "object", "required": ["format", "source_data_sha256", "receipt_sha256", "audit_sha256", "failure_sha256", "query_sha256", "selection_sha256", "query_window", "read_at", "finished_at"],
+        "properties": {
+          "format": {"enum": ["complete-day-audit/v1", "failed-day-read/v1"]},
+          "source_data_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "完整日原文或失败读取留下的部分原文，须结合format"},
+          "receipt_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "audit_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "failure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "query_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "selection_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "query_window": {"$ref": "#/components/schemas/CoreOverviewDiagnosticWindow", "description": "本次查询的目标业务日；失败读取不表示已取得整日数据"},
+          "read_at": {"type": "string", "format": "date-time"},
+          "finished_at": {"type": ["string", "null"], "format": "date-time", "description": "源端成功完成回执的时点；超时未取得回执时为null"}
+        }
+      },
+      "CoreOverviewDiagnosticV1": {
+        "type": "object", "required": ["schema_version", "version", "stage", "source", "data_profile", "window", "compiler_sha256", "reasons"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "core-overview-diagnostic/v1"},
+          "version": {"type": "string", "pattern": "^overview_diagnostic_v1_[0-9a-f]{64}$", "description": "单日诊断文件摘要身份，不是异常内容版本或历史检测版本"},
+          "stage": {"type": "string", "const": "source_field_precheck", "description": "仅源字段预检，未完成该日全部业务字段的消费准入"},
+          "source": {"$ref": "#/components/schemas/CoreOverviewSource"},
+          "data_profile": {"type": "object", "additionalProperties": true},
+          "window": {"$ref": "#/components/schemas/CoreOverviewDiagnosticWindow"},
+          "compiler_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reasons": {"type": "array", "minItems": 1, "maxItems": 6, "items": {
+            "type": "object", "required": ["code", "kind", "count", "evidence"], "properties": {
+              "code": {"type": "string", "enum": ["level_conflict", "invalid_time_order", "time_fields_conflict"], "description": "time_fields_conflict 为总表与明细结束时间或时长不一致，或记录自身起止与时长矛盾"},
+              "kind": {"type": "string", "enum": ["prefix_outage", "as_outage", "leak", "hijack"]},
+              "count": {"type": "integer", "minimum": 1, "description": "该日该类型对应原因的源记录数；不同原因可能重叠，不能求和成全部受影响记录"},
+              "evidence": {
+                "type": "object", "required": ["format", "source_data_sha256", "receipt_sha256", "query_sha256", "selection_sha256", "query_window", "read_at", "finished_at"],
+                "allOf": [{"if": {"properties": {"format": {"const": "hijack-selected-days/v1"}}}, "then": {"required": ["queried_dates"]}}],
+                "properties": {
+                  "format": {"type": "string", "enum": ["quality-by-day/v1", "prefix-quality/v1", "hijack-selected-days/v1"]},
+                  "source_data_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "query_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "selection_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "query_window": {"$ref": "#/components/schemas/CoreOverviewDiagnosticWindow", "description": "查询日期的外包范围；不连续格式必须结合queried_dates，不能推出区间连续查询"},
+                  "queried_dates": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "format": "date"}, "description": "hijack-selected-days/v1必填，按序列出实际查询日；其他连续查询格式不使用此字段"},
+                  "read_at": {"type": "string", "format": "date-time"},
+                  "finished_at": {"type": "string", "format": "date-time"}
+                }
+              }
+            }
+          }}
+        }
+      },
+      "CoreOverviewDiagnosticWindow": {
+        "type": "object", "required": ["source", "start", "end_exclusive"],
+        "properties": {"source": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end_exclusive": {"type": "string", "format": "date-time"}}
+      },
       "P0ErrorResponse": {
         "type": "object",
         "additionalProperties": false,

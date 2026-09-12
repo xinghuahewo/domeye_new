@@ -4,8 +4,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'home',
-    component: () => import('@/pages/HomePage.vue'),
+    component: () => import('@/pages/CoreOverviewPage.vue'),
     meta: { title: '核心态势', section: '监测' },
+  },
+  {
+    path: '/legacy-overview',
+    name: 'legacy-overview',
+    component: () => import('@/pages/HomePage.vue'),
+    meta: { title: '旧 P0 态势', section: '监测' },
   },
   {
     path: '/events',

@@ -4,6 +4,7 @@ from flask import Blueprint
 from flask_restful import Api
 
 from .dashboard.api import DashboardOverviewResource, EventCountResource, TypeEventCountResource
+from .core_overview import CoreOverviewResource, CoreOverviewRecordResource
 from .events.api import (
     EventDetailResource,
     EventEvidenceBundleResource,
@@ -37,6 +38,8 @@ api_v1_bp = Blueprint('api_v1', __name__)
 api = Api(api_v1_bp)
 
 api.add_resource(HealthzResource, '/healthz')
+api.add_resource(CoreOverviewResource, '/core-overview')
+api.add_resource(CoreOverviewRecordResource, '/core-overview/record')
 
 api.add_resource(P0StatusResource, '/p0/status')
 api.add_resource(P0MetricResource, '/p0/metrics/<metric_name>')

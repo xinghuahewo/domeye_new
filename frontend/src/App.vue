@@ -119,7 +119,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <RouterView v-if="route.name === 'home'" />
+  <div v-else class="app-shell">
     <button
       v-if="sidebarOpen"
       class="sidebar-scrim"

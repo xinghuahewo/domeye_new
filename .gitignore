@@ -7,6 +7,7 @@
 **/.pytest_cache/
 **/*.pyc
 **/*.log
+backend/logs/
 .local/
 .codex/
 .DS_Store

@@ -13,6 +13,10 @@ import psycopg2.extras
 from psycopg2 import extensions
 
 
+class EventSourceUnavailable(RuntimeError):
+    """所需事件月表无法完整读取，不能将部分结果当作完整查询。"""
+
+
 def _read_transaction_started_idle(conn):
     return (
         conn is not None
@@ -397,7 +401,7 @@ def get_event_db_multi_month(conn, source, level, event_type, is_domestic,
             if if_table_exist(conn, table_name):
                 valid_tables.append(table_name)
             else:
-                database_logger.warning(f"表 {table_name} 不存在，跳过查询")
+                raise EventSourceUnavailable('请求所需的事件月表缺失或不可读')
         
         if not valid_tables:
             database_logger.error("没有找到任何有效的事件表")
@@ -438,7 +442,7 @@ def get_event_db_multi_month(conn, source, level, event_type, is_domestic,
         print(f'跨月查询事件失败: {e}')
         print(traceback.format_exc())
         conn.rollback()
-        event_rows = []
+        raise
     finally:
         cursor.close()
         _cleanup_implicit_read_transaction(conn, started_idle)
@@ -515,6 +519,8 @@ def get_event_count_multi_month(conn, source, level, event_type, is_domestic,
         for table_name in tables:
             if if_table_exist(conn, table_name):
                 valid_tables.append(table_name)
+            else:
+                raise EventSourceUnavailable('请求所需的事件月表缺失或不可读')
         
         if not valid_tables:
             return 0
@@ -565,7 +571,7 @@ def get_event_count_multi_month(conn, source, level, event_type, is_domestic,
         print(f'获取跨月查询总数失败: {e}')
         print(traceback.format_exc())
         conn.rollback()
-        total_count = 0
+        raise
     finally:
         cursor.close()
         _cleanup_implicit_read_transaction(conn, started_idle)

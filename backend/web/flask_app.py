@@ -6,6 +6,7 @@ from flask import Flask
 from flask_cors import CORS
 
 from config.data_window import validate_data_window_config
+from config.database import close_request_connections
 from .data_window_guard import enforce_request_data_window
 
 
@@ -40,6 +41,7 @@ def create_flask_app():
     from .api.v2.route import api_v2_bp
 
     app.before_request(enforce_request_data_window)
+    app.teardown_request(close_request_connections)
     app.register_blueprint(api_v1_bp, url_prefix='/api/v1')
     app.register_blueprint(api_v2_bp, url_prefix='/api/v2')
     return app

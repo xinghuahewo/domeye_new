@@ -9,3 +9,17 @@
 - 保留 pyproject.toml、uv.lock 和 package-lock.json 的依赖锁定方式。测试只用 fixture、mock 或临时目录；真实数据检查必须明确授权且只读。
 - 工作完成前运行受影响检查，审查完整差异。报告先说明用户能做什么、哪些功能尚不可用；构建或测试通过不等于运行中的功能已经可用。
 - 文档用中文。未经明确授权，不发布、部署、修改共享服务或向外发送消息。
+
+## Agent skills
+
+### Issue tracker
+
+处理任务或规格前，读取 `docs/agents/issue-tracker.md`；任务跟踪使用 GitHub Issues。
+
+### Triage labels
+
+分诊或调整任务状态前，读取 `docs/agents/triage-labels.md`，使用已确认的五个默认标签。
+
+### Domain docs
+
+探索领域代码、命名概念或讨论架构前，读取 `docs/agents/domain.md`；采用单一领域上下文。

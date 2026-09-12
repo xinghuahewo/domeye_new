@@ -6,6 +6,8 @@ import pytest
 
 
 EXPECTED_ROUTES = {
+    '/api/v1/core-overview',
+    '/api/v1/core-overview/record',
     '/api/v1/healthz',
     '/api/v1/p0/status',
     '/api/v1/p0/metrics/<metric_name>',

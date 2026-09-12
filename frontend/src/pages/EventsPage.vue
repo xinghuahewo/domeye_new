@@ -45,7 +45,7 @@ const filters = reactive({
 })
 const page = ref(1)
 const result = ref<EventPage>({ data: [], totalPage: 0, recordCount: 0 })
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 const pageLabel = computed(() => {
@@ -204,7 +204,9 @@ onMounted(() => load())
     <section class="data-panel">
       <div class="section-heading result-heading">
         <h2>查询结果</h2>
-        <span>{{ result.recordCount.toLocaleString('zh-CN') }} records · page {{ pageLabel }}</span>
+        <span v-if="loading">查询中 · 记录数未知</span>
+        <span v-else-if="error">查询失败 · 记录数未知</span>
+        <span v-else>{{ result.recordCount.toLocaleString('zh-CN') }} records · page {{ pageLabel }}</span>
       </div>
       <PageState
         v-if="loading"

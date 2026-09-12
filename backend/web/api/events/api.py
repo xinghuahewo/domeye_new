@@ -1,5 +1,7 @@
 from flask import request
 from flask_restful import Resource
+import psycopg2
+from database.event import EventSourceUnavailable
 from services.event_story_service import (
     EventStoryUnavailable,
     get_iran_event_story,
@@ -33,7 +35,10 @@ class EventListResource(Resource):
     &attacker_country=&event_info=&date=2025-07-17_2025-07-19&sort_mode=
     """
     def get(self):
-        return get_event_list_data(params=request.args.to_dict(flat=True))
+        try:
+            return get_event_list_data(params=request.args.to_dict(flat=True))
+        except (psycopg2.Error, EventSourceUnavailable):
+            return {'status': False, 'msg': '事件数据暂不可用；未返回列表或记录数。'}, 503
 
 
 class TopEventResource(Resource):

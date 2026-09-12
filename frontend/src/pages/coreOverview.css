@@ -1,0 +1,67 @@
+/* 延续已确认 C 的配色、密度和层级；不导入模拟入口的全局重置。 */
+.core-real { --canvas:#eef1f3; --surface:#fff; --ink:#293a46; --muted:#64737e; --line:#dbe1e5; --accent:#3e6f89; --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace; min-height:100vh; background:var(--canvas); color:var(--ink); font-family:"Avenir Next","PingFang SC","Microsoft YaHei",sans-serif; font-size:13px; }
+.core-real * { box-sizing:border-box; }
+.core-real h1,.core-real h2,.core-real h3,.core-real p { margin:0; }
+.core-real button { font:inherit; border:0; background:none; color:inherit; cursor:pointer; }
+.core-real button:disabled { cursor:default; opacity:.5; }
+.core-real button:focus-visible,.core-real a:focus-visible,.core-real select:focus-visible,.core-real input:focus-visible,.core-real summary:focus-visible { outline:2px solid #547e96; outline-offset:3px; }
+.core-real a { color:inherit; text-decoration:none; }
+.core-real input,.core-real select { color:var(--ink); font:inherit; }
+.core-real .overline { font:9px/1.5 var(--mono); letter-spacing:1.6px; color:var(--muted); margin-bottom:7px; }
+.core-header { height:70px; padding:0 3.4%; display:flex; align-items:center; gap:48px; background:#243843; color:#e8edf0; }
+.core-brand { display:flex; align-items:center; gap:10px; }
+.core-brand svg { width:36px; stroke:#c5de91; fill:none; stroke-width:1.4; }
+.core-brand svg circle { fill:#c5de91; stroke:none; }
+.core-brand strong { color:white; font-size:25px; font-weight:650; letter-spacing:-1px; line-height:1.2; }
+.core-brand small { display:block; font-size:9px; letter-spacing:2px; color:#a9bac4; margin-top:4px; }
+.core-header nav { display:flex; align-self:stretch; gap:30px; }
+.core-header nav a { display:flex; align-items:center; font-size:12px; color:#b4c2ca; border-bottom:3px solid transparent; padding-top:3px; }
+.core-header nav a.active { color:white; border-color:#c5de91; }
+.core-header-note { margin-left:auto; font-size:10px; color:#b4c2ca; }
+.core-toolbar { display:flex; gap:22px; align-items:center; margin:0 3.4%; padding:16px 0; border-bottom:1px solid var(--line); font-size:11px; }
+.core-toolbar>button span { margin-left:10px; color:var(--muted); }
+.core-toolbar label { display:flex; align-items:center; gap:10px; }
+.core-toolbar input,.core-toolbar select { background:white; border:1px solid var(--line); padding:6px 8px; border-radius:4px; }
+.core-zone { color:var(--muted); font-size:10px; }
+.core-family { margin-left:auto; }
+.core-main { max-width:1536px; margin:auto; padding:26px 3.4% 32px; }
+.core-real .c-title-row { margin-bottom:27px; }
+.core-real .c-note { margin-top:12px; }
+.core-real .c-chart-caption { margin:23px 0 16px; }
+.core-real .c-text-button { font-size:11px; color:var(--accent); }
+.core-real .c-bar-slot { padding:0 2px; }
+.core-real .c-metric { padding:17px 22px; font-size:12px; }
+.core-real .c-target small { display:block; font:10px "PingFang SC",sans-serif; color:var(--muted); margin-top:5px; }
+.core-notice { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 18px; margin-bottom:20px; background:#faf4e8; border:1px solid #e4d8bd; color:#765f37; font-size:12px; }
+.core-notice button { margin-left:auto; text-decoration:underline; text-underline-offset:3px; }
+.core-diagnostic ul { width:100%; margin:0; padding-left:20px; line-height:1.7; }
+.core-diagnostic small { font-size:11px; }
+.core-footer { display:flex; flex-wrap:wrap; align-items:center; gap:20px; margin-top:26px; color:var(--muted); font-size:10px; }
+.core-footer button { font-size:11px; color:var(--accent); }
+.core-footer>a { margin-left:auto; }
+.core-dialog { margin:auto; width:min(740px,calc(100% - 32px)); max-height:85vh; padding:28px; color:var(--ink); border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+.core-dialog::backdrop { background:#20334170; }
+.core-dialog-heading { display:flex; justify-content:space-between; align-items:center; }
+.core-dialog-heading button { font-size:26px; }
+.core-dialog h2 { margin:10px 0 20px; font-size:22px; font-weight:550; overflow-wrap:anywhere; }
+.core-dialog dl { margin:0; }
+.core-dialog dl>div { display:grid; grid-template-columns:120px 1fr; gap:16px; padding:10px 0; border-top:1px solid var(--line); font-size:12px; line-height:1.8; }
+.core-dialog dt { color:var(--muted); }.core-dialog dd { margin:0; overflow-wrap:anywhere; }
+.core-dialog details { margin-top:16px; font-size:12px; }
+.core-dialog summary { cursor:pointer; color:var(--accent); padding:8px 0; }
+.core-dialog pre { max-height:320px; overflow:auto; background:#f2f5f6; padding:12px; font:11px/1.7 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+.core-real .core-detail-note { background:#f3f5f6; border-left:2px solid #9bafb9; padding:14px; margin-top:20px; font-size:12px; line-height:1.9; }
+.core-real .core-dialog-done { margin-top:20px; background:var(--accent); color:white; padding:10px 20px; border-radius:4px; font-size:12px; }
+@media(max-width:760px) { .core-header { height:auto; padding:16px 5% 0; flex-wrap:wrap; gap:16px; }.core-header nav { width:100%; height:42px; gap:24px; }.core-header-note { font-size:9px; }.core-toolbar { margin:0 5%; flex-wrap:wrap; gap:12px; }.core-family { margin-left:0; }.core-toolbar>button:last-child { margin-left:auto; }.core-zone { display:none; }.core-main { padding:22px 5%; }.core-real .c-metric { padding:15px 16px; }.core-dialog { padding:20px; }.core-dialog dl>div { grid-template-columns:80px 1fr; gap:10px; }.core-notice { align-items:flex-start; }.core-notice button { margin-left:0; } }
+.core-real .c-level-unknown { color: #59636c; background: #eef0f2; }
+.core-path-comparison { padding-top:20px; }
+.core-path-times { color:var(--muted); font:11px/1.8 var(--mono); }
+.core-path-times small { display:block; font:10px/1.7 var(--mono); }
+.core-path-primary { display:flex; gap:24px; justify-content:space-between; margin:19px 0 10px; }
+.core-path-primary span { color:var(--muted); font-size:11px; }
+.core-path-primary strong { display:block; margin-top:8px; font:500 clamp(23px,2.2vw,32px)/1.1 var(--mono); letter-spacing:-1px; }
+.core-path-primary .core-path-ratio { color:var(--accent); }
+.core-path-denominator { color:var(--muted); font-size:11px; line-height:1.8; }
+.core-path-other { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); margin:16px 0; padding:13px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); gap:10px; }
+.core-path-other dt { color:var(--muted); font-size:10px; }
+.core-path-other dd { margin:7px 0 0; font:12px var(--mono); }

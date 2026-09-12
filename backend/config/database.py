@@ -2,6 +2,7 @@ import os
 import threading
 
 import psycopg2
+from flask import has_request_context, request
 
 
 def _get_int(name, default):
@@ -33,6 +34,14 @@ def _connect():
 
 
 def _get_connection(name):
+    if has_request_context():
+        connections = request.environ.setdefault('domeye.database_connections', {})
+        connection = connections.get(name)
+        if connection is None or getattr(connection, 'closed', 1) != 0:
+            connection = _connect()
+            connections[name] = connection
+        return connection
+
     connection = _CONNECTIONS.get(name)
     if connection is not None and getattr(connection, 'closed', 1) == 0:
         return connection
@@ -81,6 +90,22 @@ def close_all_connections():
             if getattr(connection, 'closed', 1) == 0:
                 connection.close()
         _CONNECTIONS.clear()
+
+
+def close_request_connections(error=None):
+    """请求之间不共享事务；成功或异常结束都回收本请求的连接。"""
+    if not has_request_context():
+        return
+    connections = request.environ.pop('domeye.database_connections', {})
+    for connection in connections.values():
+        if getattr(connection, 'closed', 1) == 0:
+            try:
+                connection.rollback()
+            except psycopg2.Error:
+                # 连接可能已被服务端关闭，仍须释放客户端资源。
+                pass
+            finally:
+                connection.close()
 
 
 # 数据库连接兼容层

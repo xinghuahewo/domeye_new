@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prototype:home": "vite --config src/pages/home-prototype/vite.config.ts",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:related": "vitest related --run",
