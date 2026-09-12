@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Domeye Core 查询与本地受控操作 API",
+    "title": "Domeye New 只读数据 API",
     "version": "0.1.0",
-    "description": "前端查询与显式本地隔离操作的接口契约。该文件是前端原始响应类型和开发 Mock 的机器基线；W5 操作不表示生产部署。"
+    "description": "当前传统前端使用的只读查询接口契约，定义原始 HTTP 响应结构，供类型生成与合同测试使用。产品能力和证据解释范围见项目 CONTEXT.md。"
   },
   "servers": [{"url": "/api/v1"}],
   "paths": {

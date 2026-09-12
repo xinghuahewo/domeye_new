@@ -1,12 +1,14 @@
 # Domeye New
 
-这是从现有系统中提取的传统 Vue 前端与 Flask 数据 API。它保留总览、事件列表与详情、国家和 ASN 档案、国家中断观测与确定性趋势展示，可继续只读使用 domeye-core 的数据库和已生成数据制品。
+Domeye New 是从现有系统提取的路由观测工作台，包含 Vue 前端和 Flask 数据 API，使用已有数据库与数据制品。用户能力、可用条件和证据解释范围以 [CONTEXT.md](CONTEXT.md) 为准。
 
-交付后服务保持停止。以下命令都由人手动执行；启动命令在前台运行，按 Ctrl+C 停止。
+包元数据暂时保留 `domeye-core` 名称；这不表示运行时加载旧项目代码，也不继承旧项目的验收结论。
 
-## 安装与检查
+## 快速开始
 
-需要 Linux、Python 3.10、uv，以及 Node.js 20+ 和 npm。依赖清单和锁文件沿用当前前后端，包元数据中的 domeye-core 名称暂时保留，不会加载旧项目代码。
+需要 Linux、Python 3.10、uv、Node.js 20+ 和 npm。依赖及版本约束以 [后端清单](backend/pyproject.toml)、[前端清单](frontend/package.json) 和各自锁文件为准。
+
+在项目目录执行：
 
 ```bash
 cd /home/bgpdata/domeye-new
@@ -15,54 +17,43 @@ make test
 make build
 ```
 
-make setup 在本项目创建 backend/.venv 与 frontend/node_modules；make test 使用隔离配置和测试样本，在 .local/test-logs 生成日志；make build 在 frontend/dist 生成静态页面。这些目录不进入 Git。测试不加载外部 backend.env，不访问真实数据。
+- `make setup` 在本项目安装依赖，生成 `backend/.venv` 和 `frontend/node_modules`。
+- `make test` 运行隔离的后端测试与前端测试；后端日志写入 `.local/test-logs`。
+- `make build` 执行前端类型检查并生成 `frontend/dist`，不启动或部署服务。
+- `make api-types` 根据 OpenAPI 更新前端原始响应类型。
 
-前端脚本优先使用当前可用的 Node.js；版本不足时尝试服务器已有的 Node 22。也可以用 DOMEYE_NODE_BIN 指定工具目录。
+命令定义以 [Makefile](Makefile) 和 [前端脚本清单](frontend/package.json) 为准。测试或构建通过不等于真实数据和页面已完成验收。
 
-## 手动启动
+## 启动与访问
 
-后端配置独立保存在 `/home/bgpdata/domeye-new-runtime/backend.env`，权限必须为 0600。启动器只解析允许的 KEY=value，不执行配置内容；不加载旧项目或本项目的 .env。更换环境时可用 DOMEYE_RUNTIME_ENV 指定另一个项目外配置文件。
+现有服务器使用 systemd 管理前后端。服务名称、配置文件、SSH 隧道、启停和检查方法统一见 [运行与维护](docs/runbooks/运行与维护.md)。不要在常驻服务占用端口时再启动一份前台进程。
 
-在两个终端分别运行：
+需要前台调试时，先按运行手册准备配置并停止对应常驻服务，再在两个终端分别执行：
 
 ```bash
-cd /home/bgpdata/domeye-new
 make backend
 ```
 
 ```bash
-cd /home/bgpdata/domeye-new
 make frontend
 ```
 
-默认前端监听 127.0.0.1:28471，后端监听 127.0.0.1:28473。前端通过自己的开发服务器代理 `/api/v1` 和 `/api/v2`，可用 DOMEYE_WEB_PORT 与 DOMEYE_API_TARGET 显式覆盖。
+前台进程可用 Ctrl+C 停止。重新交回 systemd 管理的方法见运行手册。
 
-从 Windows 访问时，在一个终端建立隧道，再打开浏览器：
+## 文档导航与权威位置
 
-```bash
-ssh -N -L 28471:127.0.0.1:28471 root@10.99.8.16
-```
+| 要查找的知识 | 权威位置 |
+|---|---|
+| 项目介绍、环境要求、快速开始 | 本文 |
+| 产品边界、领域术语、能力范围 | [CONTEXT.md](CONTEXT.md) |
+| Codex 和其他 Agent 的仓库规则 | [AGENTS.md](AGENTS.md) |
+| 当前模块关系、调用链、数据输入及合同关系 | [系统结构与数据流](docs/architecture/系统结构与数据流.md) |
+| 服务管理、部署边界、恢复和排障步骤 | [运行与维护](docs/runbooks/运行与维护.md) |
+| HTTP 接口和数据结构 | [OpenAPI](contracts/openapi.json)、[数据 Schema](contracts/data/)；趋势结构的兼容位置见架构文档 |
+| 时间范围、快照时点、业务时区的配置值 | [数据档](config/data-profile.json) |
+| 已确定架构决策及其理由 | [ADR-0001：采用 Pi Agent Runtime](docs/adr/0001-pi-agent-runtime.md)；后续决策按需记录到 `docs/adr/` |
+| 已接受的待实现能力和验收条件 | [Spec Issue #1：国家中断历史复盘 A](https://github.com/xinghuahewo/domeye_new/issues/1)；本轮不另建重复的仓库 Spec |
+| 尚未解决的问题 | GitHub Issue；目标仓库和操作方式见 [Issue 跟踪配置](docs/agents/issue-tracker.md) |
+| 当前会话进度、临时运行状态和验证结果 | handoff 或当前会话交接记录 |
 
-浏览器打开 [Domeye 本地页面](http://127.0.0.1:28471)。这里没有安装常驻服务、自动重启或 Nginx 站点；make build 也不会启动服务。
-
-## 数据与功能范围
-
-运行入口从 config/data-profile.json 读取时间范围、快照时点和业务时区，并向后端注入一致的窗口。数据库连接强制采用只读事务，Web 不执行初始化、全量数据加载或离线检测。
-
-外部配置绑定数据库、INFO 静态信息和国家中断数据制品；这些文件可以继续留在获准复用的数据目录。源码不复制这些数据，也不引用旧项目 Python 环境、前端依赖目录或运行进程。
-
-保留了当前传统 API 与页面能力，但数据完整性仍取决于实际绑定的数据库及制品。某个制品没有配置或校验失败时，相应功能应显示不可用，不能伪造空数据或成功。P0 指标功能需要单独有效的数据发布目录；本次没有为它重建或发布数据。未完成的 metric-series 实验未纳入这个项目，旧实验与数据仍留在原位置。
-
-原有 Agent 页面、问答 API、代理、Sidecar、模型调用、候选与评测、旧治理计划均未迁入。contracts/agent 下保留的四份 Schema 是当前确定性趋势数据的结构定义，保留路径用于兼容现有合同，不代表包含 Agent 运行能力。后端 data_pipeline 只保留 P0 读取所需的指标定义与质量语义校验。
-
-国家中断数据描述绑定观察点、事件、版本和时间窗内的 BGP 控制面观测，不直接代表全国实际断网或真实用户影响。页面中的“当前”应按固定数据快照理解。
-
-## 开发入口
-
-- frontend：现有 Vue 页面、API 客户端与前端测试。
-- backend：只读 Flask API、查询服务与 API 层测试。
-- contracts：OpenAPI、数据 Schema 与测试样本。
-- config/data-profile.json：唯一数据范围与时区配置。
-- scripts：手动前台启动入口。
-
-修改接口后运行 make api-types 更新前端类型，再运行 make test 与 make build。新项目使用独立本地 Git；源码来源和新项目交付状态由实际 Git 记录及运行验证说明，不沿用旧项目的验收结论。
+规格、未解决问题和会话进度按表中约定归位，具体记录按需建立。每个事实只在所属位置维护，其他文档使用链接引用；生成类型和测试样本不成为第二份接口权威。
