@@ -13,6 +13,40 @@ ROOT = Path(__file__).resolve().parents[3]
 URL = '/api/v1/core-overview'
 
 
+@pytest.mark.parametrize('day,filename', [
+    ('2026-02-27', '2026-02-27.sqlite3'),
+    ('2026-03-31', '2026-03-31.diagnostic.json'),
+])
+def test_cyclic_input_link_returns_unavailable_for_overview_and_detail(
+        client, retained, tmp_path, monkeypatch, day, filename):
+    source, manifest, _ = retained
+    selection = diagnostic_selection(tmp_path / 'evidence', manifest)
+    output = tmp_path / 'index'
+    result = index(source, output, selection)
+    assert result.returncode == 0, result.stderr
+    monkeypatch.setenv('DOMEYE_CORE_OVERVIEW_MANIFEST', str(output / 'manifest.json'))
+    initial = client.get(URL, query_string={'date': '2026-02-27'}).get_json()
+    path = output / filename
+    path.rename(output / (filename + '.original'))
+    path.symlink_to(path.name)
+
+    response = client.get(URL, query_string={'date': day})
+    body = response.get_json()
+    assert response.status_code == 503
+    assert body['state'] == 'unavailable'
+    assert body['version'] == initial['version']
+    assert body['metadata']['available_dates'] == ['2026-02-27']
+    assert body['metadata']['diagnostic_dates'] == ['2026-03-31']
+    assert body['overview'] is body['events'] is body['trend'] is None
+    reference = (initial['events']['items'][0]['reference'] if day == '2026-02-27'
+                 else 'as_outage/2026-03-31 00:00:00/64512/1/r')
+    detail = client.get(URL + '/record', query_string={'ref': reference, 'version': initial['version']})
+    assert detail.status_code == 503
+    assert detail.get_json()['state'] == 'unavailable'
+    if day == '2026-03-31':
+        assert client.get(URL, query_string={'date': '2026-02-27'}).status_code == 200
+
+
 def diagnostic_selection(directory, manifest):
     directory.mkdir()
     context = {'kind': 'context', 'month': '202603', 'anomaly_kind': 'as_outage',

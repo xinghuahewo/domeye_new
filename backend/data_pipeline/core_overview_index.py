@@ -222,7 +222,7 @@ class DailyIndex:
                     raise ValueError('查询期间输入发生变化')
             finally:
                 connection.close()
-        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
             raise InputError('首页按日索引不可用或校验失败') from error
 
     def day_interpretation(self, day):
@@ -278,7 +278,7 @@ class DailyIndex:
             if path.resolve().parent != self.path.parent.resolve():
                 raise ValueError('诊断文件越出清单目录')
             diagnostic = read_diagnostic(path, entry['sha256'], self.manifest, entry['window'])
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as error:
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as error:
             raise InputError('已知失败日的诊断证据不可验证') from error
         message = ('选定日期源数据读取未完成' if diagnostic['stage'] == 'source_read'
                    else '选定日期的源记录校验失败')
