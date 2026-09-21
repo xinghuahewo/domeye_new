@@ -8,12 +8,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '核心态势', section: '监测' },
   },
   {
-    path: '/legacy-overview',
-    name: 'legacy-overview',
-    component: () => import('@/pages/HomePage.vue'),
-    meta: { title: '旧 P0 态势', section: '监测' },
-  },
-  {
     path: '/events',
     name: 'events',
     component: () => import('@/pages/EventsPage.vue'),
@@ -28,8 +22,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/features',
     name: 'features',
-    component: () => import('@/pages/FeaturesPage.vue'),
-    meta: { title: '综合特征', section: '时序特征' },
+    redirect: to => ({ path: '/', query: typeof to.query.date === 'string' ? { date: to.query.date } : {}, hash: '#routing' }),
   },
   {
     path: '/countries',
@@ -76,7 +69,7 @@ routes.push({
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: to => to.hash ? { el: to.hash } : { top: 0 },
 })
 
 router.afterEach((to) => {

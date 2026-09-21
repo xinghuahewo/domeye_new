@@ -85,12 +85,12 @@ const rankingSections = computed(() => [
 const messageSeries = computed<ChartSeries[]>(() => [
   {
     name: 'ANNOUNCE',
-    color: '#0b57b7',
+    color: '#3e6f89',
     data: (selected.value?.series ?? []).map((point) => [point.time, point.announce]),
   },
   {
     name: 'WITHDRAW',
-    color: '#35b6d4',
+    color: '#788f58',
     data: (selected.value?.series ?? []).map((point) => [point.time, point.withdraw]),
   },
 ])
@@ -98,13 +98,13 @@ const messageSeries = computed<ChartSeries[]>(() => [
 const resourceSeries = computed<ChartSeries[]>(() => [
   {
     name: 'IPv4 /24 SEGMENTS',
-    color: '#175cd3',
+    color: '#3e6f89',
     data: (selected.value?.series ?? [])
       .map((point) => [point.time, point.ipv4Prefixes]),
   },
   {
     name: 'IPv6 /48 SEGMENTS',
-    color: '#35b6d4',
+    color: '#788f58',
     data: (selected.value?.series ?? [])
       .map((point) => [point.time, point.ipv6Prefixes]),
   },
@@ -113,7 +113,7 @@ const resourceSeries = computed<ChartSeries[]>(() => [
 const outageSeries = computed<ChartSeries[]>(() => [
   {
     name: 'AS OUTAGE',
-    color: '#f48120',
+    color: '#967431',
     data: asOutages.value.map((point) => [point.time, point.count]),
   },
   {
@@ -224,13 +224,13 @@ watch(
         <h1>{{ selectedName || '国家路由态势' }}</h1>
       </div>
       <p class="page-heading-copy">
-        用于国家对象定位的历史探索视图；报文与资源快照尚未进入 P0 MetricSeries 准入，不与首页指标混算。
+        用于国家对象定位的历史探索视图；报文与资源快照来自独立历史数据，不与首页指标混算。
       </p>
     </header>
 
     <section class="legacy-boundary" aria-label="国家数据准入边界">
-      <b>LEGACY EXPLORATION · NOT P0 ADMITTED</b>
-      <p>本页保留只读定位能力；已移除未准入的 resource_change / max 排行和浏览器端样本覆盖率。null 仍表示未知，不表示 0。</p>
+      <b>历史数据 · 独立口径</b>
+      <p>本页用于历史对象定位，数据尚未统一发布；缺失值表示未知，不表示零。</p>
     </section>
 
     <form class="country-console" @submit.prevent="openCountry()">
@@ -264,9 +264,9 @@ watch(
           <b>{{ overview.withdrawRateLeader ? `${overview.withdrawRateLeader.withdrawRate.toFixed(1)}%` : '—' }}</b>
         </article>
         <article>
-          <span>P0 准入状态</span>
-          <strong>未准入</strong>
-          <b>LEGACY COUNTRY EXPLORATION</b>
+          <span>数据口径</span>
+          <strong>历史特征</strong>
+          <b>与核心态势分开统计</b>
         </article>
         <article>
           <span>存在异常</span>
@@ -326,12 +326,12 @@ watch(
           <article>
             <span>IPv4 /24 等效段</span>
             <strong>{{ formatNumber(selected.ipv4Prefixes) }}</strong>
-            <small>LEGACY SNAPSHOT · 非 P0 指标</small>
+            <small>历史快照 · 独立统计</small>
           </article>
           <article>
             <span>IPv6 /48 等效段</span>
             <strong>{{ formatNumber(selected.ipv6Prefixes) }}</strong>
-            <small>LEGACY SNAPSHOT · 非 P0 指标</small>
+            <small>历史快照 · 独立统计</small>
           </article>
           <article>
             <span>异常 / 高风险</span>
@@ -352,7 +352,7 @@ watch(
           <section class="country-chart-panel">
             <div class="section-heading">
               <h3>路由资源等效段</h3>
-              <span>legacy snapshot · null ≠ zero · not P0 admitted</span>
+              <span>历史快照 · 缺失不等于零</span>
             </div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有资源快照" />
             <LineChart v-else :series="resourceSeries" unit="个" :height="300" />

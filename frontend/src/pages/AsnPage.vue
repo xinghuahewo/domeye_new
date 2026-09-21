@@ -6,6 +6,7 @@ import { getAsOverview, getAsRecentEvents, getASPrefixOutages, type FeatureRange
 import EventTable from '@/components/EventTable.vue'
 import AsnRequestState from '@/components/AsnRequestState.vue'
 import AsnEventTimeline from '@/components/AsnEventTimeline.vue'
+import AsnRibSnapshot from '@/components/AsnRibSnapshot.vue'
 import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
 import SparklinePair from '@/components/SparklinePair.vue'
@@ -80,12 +81,15 @@ function eventWindowLabel(): string {
 }
 
 const selectedSeries = computed(() => selected.value?.series ?? [])
+const snapshotQuery = computed(() => Object.fromEntries(
+  Object.entries(route.query).filter(([key]) => ['snapshot_date', 'snapshot_version', 'snapshot_family'].includes(key)),
+))
 
 function asnRoute(asn: string) {
   return {
     name: 'asn-detail',
     params: { asn },
-    query: eventContext.value ? { ...route.query } : {},
+    query: eventContext.value ? { ...route.query } : snapshotQuery.value,
   }
 }
 
@@ -134,12 +138,12 @@ const rankingSections = computed(() => [
 const messageSeries = computed<ChartSeries[]>(() => [
   {
     name: 'ANNOUNCE',
-    color: '#0b57b7',
+    color: '#3e6f89',
     data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.announce]),
   },
   {
     name: 'WITHDRAW',
-    color: '#35b6d4',
+    color: '#788f58',
     data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.withdraw]),
   },
 ])
@@ -147,13 +151,13 @@ const messageSeries = computed<ChartSeries[]>(() => [
 const resourceSeries = computed<ChartSeries[]>(() => [
   {
     name: 'IPv4 /24 SEGMENTS',
-    color: '#175cd3',
+    color: '#3e6f89',
     data: selectedSeries.value
       .map((point) => [businessTimeToIso(point.time), point.ipv4Prefixes]),
   },
   {
     name: 'IPv6 /48 SEGMENTS',
-    color: '#35b6d4',
+    color: '#788f58',
     data: selectedSeries.value
       .map((point) => [businessTimeToIso(point.time), point.ipv6Prefixes]),
   },
@@ -161,7 +165,7 @@ const resourceSeries = computed<ChartSeries[]>(() => [
 
 const outageSeries = computed<ChartSeries[]>(() => [{
   name: 'PREFIX OUTAGE',
-  color: '#f48120',
+  color: '#967431',
   data: prefixOutages.value.map((point) => [businessTimeToIso(point.time), point.count]),
 }])
 
@@ -290,13 +294,13 @@ watch(
         <h1>{{ selectedAsn ? `AS${selectedAsn}` : '重点 ASN 监测台' }}</h1>
       </div>
       <p class="page-heading-copy">
-        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图尚未进入 P0 准入，也不代表全网 ASN 排名。' }}
+        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图使用独立历史数据，不代表全网 ASN 排名。' }}
       </p>
     </header>
 
     <section v-if="!eventContext" class="legacy-boundary" aria-label="ASN 数据准入边界">
-      <b>LEGACY EXPLORATION · NOT P0 ADMITTED</b>
-      <p>本页仅用于对象定位；已移除未准入的 resource_change / max、volatility 和浏览器端样本覆盖率，不与首页 P0 指标混算。</p>
+      <b>历史数据 · 独立口径</b>
+      <p>本页用于历史对象定位，数据尚未统一发布，不与首页指标混算；缺失值表示未知。</p>
     </section>
 
     <form class="asn-console" @submit.prevent="openAsn()">
@@ -310,9 +314,11 @@ watch(
         </datalist>
       </label>
       <button class="solid-action" type="submit">打开档案</button>
-      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases' }">返回 ASN 总览</RouterLink>
+      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases', query: snapshotQuery }">返回 ASN 总览</RouterLink>
       <span class="console-freshness">DATA CUT · {{ overview?.latestObservation || '尚无观测' }}</span>
     </form>
+
+    <AsnRibSnapshot :asn="selectedAsn" />
 
     <AsnRequestState :loading="loading && !overview" :error="error" :event-window="Boolean(eventContext)" @retry="load" />
 
@@ -407,12 +413,12 @@ watch(
           <article>
             <span>IPv4 /24 等效段</span>
             <strong>{{ formatNumber(selected.ipv4Prefixes) }}</strong>
-            <small>LEGACY SNAPSHOT · 非 P0 指标</small>
+            <small>历史快照 · 独立统计</small>
           </article>
           <article>
             <span>IPv6 /48 等效段</span>
             <strong>{{ formatNumber(selected.ipv6Prefixes) }}</strong>
-            <small>LEGACY SNAPSHOT · 非 P0 指标</small>
+            <small>历史快照 · 独立统计</small>
           </article>
           <article>
             <span>异常 / 高风险</span>
@@ -430,7 +436,7 @@ watch(
             <LineChart v-else :series="messageSeries" :timezone="businessTimezone" unit="条" :height="300" />
           </section>
           <section v-if="!eventContext" class="asn-chart-panel">
-            <div class="section-heading"><h3>路由资源等效段</h3><span>legacy snapshot · null ≠ zero · not P0 admitted</span></div>
+            <div class="section-heading"><h3>路由资源等效段</h3><span>历史快照 · 缺失不等于零</span></div>
             <PageState v-if="selected.series.length === 0" title="当前窗口没有资源快照" />
             <LineChart v-else :series="resourceSeries" :timezone="businessTimezone" unit="个" :height="300" />
           </section>

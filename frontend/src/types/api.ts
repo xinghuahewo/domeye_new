@@ -1059,41 +1059,6 @@ export interface OutagePoint {
   count: number
 }
 
-export interface CountPoint {
-  time: string
-  count: number
-}
-
-export interface EventTrendPoint {
-  time: string
-  counts: Record<EventLabel, number>
-  total: number
-}
-
-export interface DashboardRanking {
-  name: string
-  asn?: string
-  eventCount: number
-  highRiskCount: number
-}
-
-export interface DashboardOverview {
-  startTime: string
-  endTime: string
-  timezone: string
-  latestObservation: string | null
-  eventCount: number
-  previousEventCount: number
-  eventChangeRate: number | null
-  highRiskCount: number
-  activeEventCount: number
-  affectedAsnCount: number
-  affectedCountryCount: number
-  eventSeries: EventTrendPoint[]
-  countryRankings: DashboardRanking[]
-  asnRankings: DashboardRanking[]
-}
-
 export interface CountrySparkPoint {
   time: string
   announce: number

@@ -85,7 +85,7 @@ const rows = computed(() => metrics.map(metric => {
 function chartSeries(keys: Field[]): ChartSeries[] {
   return keys.map((key, index) => ({
     name: metrics.find(metric => metric.key === key)!.label,
-    color: index === 0 ? '#175cd3' : '#35b6d4',
+    color: index === 0 ? '#3e6f89' : '#788f58',
     data: slots.value.map(time => [businessTimeToIso(time), byTime.value.get(time)?.[key] ?? null]),
   }))
 }

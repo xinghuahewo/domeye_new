@@ -49,12 +49,12 @@ const targetLabel = computed(() => {
 const messageSeries = computed<ChartSeries[]>(() => [
   {
     name: 'ANNOUNCE',
-    color: '#0b57b7',
+    color: '#3e6f89',
     data: features.value.map((point) => [point.time, point.announce]),
   },
   {
     name: 'WITHDRAW',
-    color: '#35b6d4',
+    color: '#788f58',
     data: features.value.map((point) => [point.time, point.withdraw]),
   },
 ])
@@ -62,14 +62,14 @@ const messageSeries = computed<ChartSeries[]>(() => [
 const resourceSeries = computed<ChartSeries[]>(() => [
   {
     name: 'IPv4 PREFIX',
-    color: '#175cd3',
+    color: '#3e6f89',
     data: features.value
       .filter((point) => point.ipv4Prefixes !== null)
       .map((point) => [point.time, point.ipv4Prefixes]),
   },
   {
     name: 'IPv6 PREFIX',
-    color: '#35b6d4',
+    color: '#788f58',
     data: features.value
       .filter((point) => point.ipv6Prefixes !== null)
       .map((point) => [point.time, point.ipv6Prefixes]),
@@ -80,7 +80,7 @@ const outageSeries = computed<ChartSeries[]>(() => {
   const primaryName = targetMode.value === 'as' ? 'PREFIX OUTAGE' : 'AS OUTAGE'
   const series: ChartSeries[] = [{
     name: primaryName,
-    color: '#f48120',
+    color: '#967431',
     data: outagePrimary.value.map((point) => [point.time, point.count]),
   }]
   if (targetMode.value !== 'as') {

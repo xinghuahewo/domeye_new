@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getCoreOverview, getCoreOverviewRecord, type CoreOverview, type CoreOverviewDetail, type CoreOverviewItem, type CoreOverviewQuery } from '@/api/coreOverview'
 import { errorMessage } from '@/utils/normalize'
 import { toBusinessTime, formatBusinessEndTime } from '@/utils/businessTime'
 import profile from '../../../config/data-profile.json'
+import RibSnapshotScale from '@/components/RibSnapshotScale.vue'
+import CoreAnomalyCards from '@/components/CoreAnomalyCards.vue'
+import CoreDailyTrends from '@/components/CoreDailyTrends.vue'
+import type { AnomalyKind } from '@/api/coreAnomalies'
 import './home-prototype/overview.css'
 import './coreOverview.css'
 
@@ -19,10 +23,12 @@ const query = ref('')
 const hour = ref<number | null>(null)
 const page = ref(1)
 const data = ref<CoreOverview | null>(null)
+const anomalyBase = ref<CoreOverview | null>(null)
 const metadata = ref<CoreOverview['metadata'] | null>(null)
 const loading = ref(true)
 const error = ref('')
 const pinnedVersion = ref('')
+const snapshotRefresh = ref(0)
 let requestNumber = 0
 let controller: AbortController | undefined
 const types = { prefix_outage: '前缀中断', as_outage: 'AS 中断', leak: '路由泄漏', hijack: '前缀劫持', sub_hijack: '子前缀劫持', country_outage: '国家中断' } as const
@@ -60,28 +66,11 @@ const diagnosticTypes = { ...types, all: '六类异常' }
 const diagnosticStage = computed(() => data.value?.diagnostic?.stage === 'source_read' ? '源数据读取未完成'
   : data.value?.diagnostic?.stage === 'source_field_validation' ? '整日源记录校验未通过' : '源字段预检；不是该日完整数据准入')
 const diagnosticTitle = computed(() => data.value?.diagnostic?.stage === 'source_read' ? '源数据读取未完成' : '源记录校验失败')
-const chartMax = computed(() => Math.max(4, ...((data.value?.trend?.buckets || []).map(point => point.value))))
 const hasFilters = computed(() => hour.value !== null || kind.value !== 'all' || level.value !== 'all' || !!query.value)
-const changeKind = ref(1)
 const pathComparison = computed(() => ready.value ? data.value?.metadata.path_comparison : undefined)
 const pathReady = computed(() => pathComparison.value?.state === 'available' ? pathComparison.value : undefined)
-const pathNote = computed(() => {
-  const value = pathComparison.value
-  if (loading.value) return '正在读取路径对照'
-  if (!ready.value) return '选定日期不可用'
-  if (!value) return '此版本尚未绑定两次观察对照'
-  if (value.state === 'unavailable') return '路径对照校验失败'
-  if (value.state === 'date_not_retained') return '此日无已验证的两次观察对照'
-  if (value.state === 'family_not_supported') return '未知地址族不提供路径对照'
-  return '两次 RIB 观察对照'
-})
 const pathRatio = computed(() => pathReady.value?.metrics?.different_fraction == null ? '—'
   : `${(pathReady.value.metrics.different_fraction * 100).toFixed(2)}%`)
-const changes = [
-  ['可见性', '逐前缀状态数据尚未验证', '观测缺口不能当作前缀消失。'],
-  ['路径', '带观测时间的路径数据尚未验证', '有路径样本，不等于能比较两个时点。'],
-  ['起源', '完整的起源变化记录尚未验证', '劫持事件不能代表全部起源变化。'],
-]
 const time = (value: string) => toBusinessTime(new Date(value)).slice(11)
 const hourLabel = (value: number) => `${String(value).padStart(2, '0')}:00–${String(value + 1).padStart(2, '0')}:00`
 const count = (value: number | undefined | null) => value == null ? '—' : value.toLocaleString('zh-CN')
@@ -95,7 +84,7 @@ async function load(resetVersion = false) {
   controller?.abort()
   const request = new AbortController()
   controller = request
-  if (resetVersion) pinnedVersion.value = ''
+  if (resetVersion) { pinnedVersion.value = ''; anomalyBase.value = null; snapshotRefresh.value++ }
   loading.value = true
   error.value = ''
   data.value = null
@@ -105,6 +94,7 @@ async function load(resetVersion = false) {
       page: page.value, page_size: 10, version: pinnedVersion.value || undefined }, request.signal)
     if (current !== requestNumber) return
     data.value = result
+    anomalyBase.value = result
     metadata.value = result.metadata
     pinnedVersion.value = result.version
     if (result.state === 'unavailable') error.value = result.message || '选定日期的留存数据不可用'
@@ -112,16 +102,24 @@ async function load(resetVersion = false) {
     if (current !== requestNumber || request.signal.aborted) return
     error.value = errorMessage(cause)
     metadata.value = null
+    anomalyBase.value = null
   } finally {
     if (current === requestNumber) loading.value = false
   }
 }
 function resetFilters() { hour.value = null; kind.value = 'all'; level.value = 'all'; query.value = '' }
+async function selectAnomaly(value: AnomalyKind, selectedHour?: number) {
+  kind.value = value; hour.value = selectedHour ?? null; level.value = 'all'; query.value = ''
+  await nextTick()
+  document.getElementById('events')?.scrollIntoView({ block: 'start' })
+}
 function goPage(value: number) { page.value = value; void load() }
 function useRetainedWindow() { const latest = availableDates.value.at(-1); if (latest) date.value = latest }
 function selectRetainedDate(event: Event) { const value = (event.target as HTMLSelectElement).value; if (value) date.value = value }
 watch([date, family, kind, level, sort, query, hour], () => { page.value = 1; void load() })
-watch(date, value => { void router.replace({ query: { ...route.query, date: value } }) })
+watch(date, value => {
+  if (route.query.date !== value) void router.replace({ query: { ...route.query, date: value, snapshot_version: undefined } })
+})
 watch(() => route.query.date, value => { date.value = typeof value === 'string' ? value : profile.snapshot_time.slice(0, 10) })
 
 const dialog = ref<HTMLDialogElement>()
@@ -158,13 +156,6 @@ function showScope() {
     ['类型范围', metadata.value ? availableTypes.value.map(key => types[key]).join('、') : '尚未取得留存输入'],
     ['地址族', '按已存结构化前缀匹配；AS 混合记录在两种筛选均可出现。无法判定的单列未知。'],
   ], '统计仅描述已留存异常记录，不代表完整路由观察。缺少结束不等于持续中；BGP 记录不能直接推出实际断网、用户影响、原因或责任。')
-}
-function showMetric() {
-  void openDialog('新增中断前缀数', [
-    ['指标', 'recorded_prefix_outage_starts_distinct'], ['时间桶', `1 小时 · ${profile.timezone} · 左闭右开`],
-    ['统计', '按发生时间选择前缀中断记录，再在桶内对 Prefix 去重'],
-    ['输入版本', pinnedVersion.value || '尚未取得'], ['筛选', '图与列表共用日期和地址族；列表的类型、等级、搜索是局部筛选'],
-  ], '同一前缀可在不同小时重复出现，柱子之和不等于全日去重数。核对柱值时选择前缀中断、清除等级及搜索筛选，比较列表的去重前缀数，不是记录条数。零仅表示留存记录中无匹配，不证明原始观测无缺口。')
 }
 function showDiagnostic() {
   const diagnostic = data.value?.diagnostic
@@ -285,11 +276,6 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
 
 <template>
   <div class="core-real">
-    <header class="core-header">
-      <RouterLink to="/" class="core-brand" aria-label="Domeye 核心态势"><svg viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="17" ry="10"/><ellipse cx="20" cy="20" rx="10" ry="17" transform="rotate(35 20 20)"/><circle cx="20" cy="20" r="4"/></svg><strong>domeye<small>路由观测</small></strong></RouterLink>
-      <nav aria-label="核心态势导航"><a href="#" class="active">核心态势</a><a href="#routing">变化趋势</a><a href="#events">路由异常</a><RouterLink to="/events">事件检索</RouterLink></nav>
-      <span class="core-header-note">历史窗口 / 只读数据</span>
-    </header>
     <div class="core-toolbar">
       <button @click="showScope">● RRC25 <span>来源说明 ⓘ</span></button>
       <label>日期 <input v-model="date" type="date" aria-label="观察日期" :min="profile.window_start.slice(0, 10)" :max="profile.snapshot_time.slice(0, 10)" /></label>
@@ -299,46 +285,24 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
       <button @click="load(true)" :disabled="loading">重新读取</button>
     </div>
     <main class="variant-c c-overview core-main" :aria-busy="loading">
-      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>路由态势</h1></div><div class="c-time-stamp"><span>选定历史窗口</span><strong>{{ date }} · 00:00–24:00</strong><small>RRC25 · 观察覆盖未知</small></div></div>
-      <div v-if="data?.diagnostic" class="core-notice core-diagnostic" role="alert"><strong>{{ diagnosticTitle }}</strong><span>此日不提供统计和异常列表，不表示没有异常。</span><ul><li v-for="reason in data.diagnostic.reasons" :key="`${reason.kind}:${reason.code}`">{{ diagnosticTypes[reason.kind] }}：{{ failureLabels[reason.code] }}<template v-if="reason.count !== null">，{{ count(reason.count) }} 条</template>。</li></ul><small>核验阶段：{{ diagnosticStage }}。原始值保留，此日尚未准入。</small><button @click="showDiagnostic">核验依据与版本 ↗</button></div>
+      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势</h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><div class="c-time-stamp"><span>观测日期</span><strong>{{ date }} · 00:00–24:00</strong><small>RRC25 · 观察覆盖未知</small></div></div>
+      <div v-if="data?.diagnostic" class="core-notice core-diagnostic" role="alert"><strong>{{ diagnosticTitle }}</strong><span>此日不提供异常统计和异常列表，不表示没有异常。</span><ul><li v-for="reason in data.diagnostic.reasons" :key="`${reason.kind}:${reason.code}`">{{ diagnosticTypes[reason.kind] }}：{{ failureLabels[reason.code] }}<template v-if="reason.count !== null">，{{ count(reason.count) }} 条</template>。</li></ul><small>核验阶段：{{ diagnosticStage }}。原始值保留，此日尚未准入。</small><button @click="showDiagnostic">核验依据与版本 ↗</button></div>
       <div v-else-if="error" class="core-notice" role="alert"><strong>数据不可用</strong><span>{{ error }}</span><button @click="load(true)">重新读取</button></div>
       <div v-else-if="data?.state === 'window_not_retained'" class="core-notice" role="status"><strong>选定日期尚未留存</strong><span>不是没有异常；本版本已留存 {{ availableDates.length }} 天，可在上方选择日期。</span><button @click="useRetainedWindow">查看最近已留存日期</button></div>
       <section aria-labelledby="c-overview-title">
         <div class="c-section-caption"><h2 id="c-overview-title">整体概况</h2><span>{{ familyLabel }} · {{ typeScopeLabel }}</span></div>
         <div class="c-metrics">
+          <RibSnapshotScale :date="date" :family="family || 'all'" :refresh-key="snapshotRefresh"
+            :version="typeof route.query.snapshot_version === 'string' ? route.query.snapshot_version : undefined"
+            @selected="version => router.replace({ query: { ...route.query, snapshot_version: version } })"
+            @reselect="router.replace({ query: { ...route.query, snapshot_version: undefined } })">
           <button class="c-metric" @click="showScale"><span class="c-metric-label">可见前缀数 <span>↗</span></span><strong :class="{ 'c-unknown-number': !scaleReady }" data-testid="core-prefix-count">{{ scaleReady ? count(data?.overview?.visible_prefixes) : '—' }} <small v-if="scaleReady">条</small></strong><span class="c-metric-note">{{ scaleNote }}</span></button>
           <button class="c-metric" @click="showOrigin"><span class="c-metric-label">可见起源 AS 数 <span>↗</span></span><strong :class="{ 'c-unknown-number': !originReady }" data-testid="core-origin-count">{{ originReady ? count(data?.overview?.visible_origin_ases) : '—' }} <small v-if="originReady">个</small></strong><span class="c-metric-note">{{ originNote }}</span></button>
+          </RibSnapshotScale>
           <button class="c-metric" @click="showScope"><span class="c-metric-label">新增异常记录 <span>↗</span></span><strong data-testid="core-record-count">{{ ready ? count(data?.overview?.record_count) : '—' }} <small v-if="ready">条</small></strong><span class="c-metric-note">{{ loading ? '正在读取' : ready ? `选定留存窗口 · ${availableTypes.length} 类记录` : '选定窗口不可用' }}</span></button>
         </div>
       </section>
-      <div id="routing" class="c-trends">
-        <section class="c-panel c-outage-panel" aria-labelledby="c-outage-title">
-          <div class="c-panel-heading"><div><p class="overline">PREFIX OUTAGE</p><h2 id="c-outage-title">前缀中断</h2></div><span class="c-tag">已存异常记录</span></div>
-          <div class="c-chart-caption"><span>每小时新增中断前缀数</span><span>单位：个 · {{ familyLabel }}</span></div>
-          <div v-if="!ready" class="c-empty-chart" role="status"><strong>{{ loading ? '正在读取中断记录' : '中断数据不可用' }}</strong><p>不能据此判断没有中断。</p></div>
-          <div v-else class="c-bar-chart" aria-label="每小时新增中断前缀，点选时段筛选异常列表">
-            <div class="c-y-axis" aria-hidden="true"><span>{{ chartMax }}</span><span>{{ Math.round(chartMax / 2) }}</span><span>0</span></div>
-            <div class="c-plot"><button v-for="(point, index) in data?.trend?.buckets" :key="point.start" class="c-bar-slot" :class="{ selected: hour === index }" :aria-pressed="hour === index" :aria-label="`${hourLabel(index)}，新增中断前缀 ${point.value} 个，筛选该时段`" :title="`${hourLabel(index)} · ${point.value} 个前缀`" @click="hour = hour === index ? null : index"><span class="c-bar" :style="{ height: `${point.value / chartMax * 100}%` }"></span><span class="c-bar-value">{{ point.value }}</span></button></div>
-            <div class="c-x-axis" aria-hidden="true"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-          </div>
-          <div class="c-chart-control"><label>查看时段 <select v-model="hour" aria-label="筛选异常时段" :disabled="!ready"><option :value="null">整个窗口</option><option v-for="index in 24" :key="index" :value="index - 1">{{ hourLabel(index - 1) }}</option></select></label><button class="c-text-button" @click="showMetric">统计口径 ↗</button></div>
-          <p class="c-note">点选时段筛选列表；不是当前仍中断数。零表示留存记录无匹配，观察覆盖仍未知。</p>
-        </section>
-        <section class="c-panel c-change-panel" aria-labelledby="c-change-title">
-          <div class="c-panel-heading"><div><p class="overline">ROUTE CHANGES</p><h2 id="c-change-title">路由变化</h2></div><span class="c-tag c-tag-muted">{{ changeKind === 1 && pathReady ? '两次观察' : '暂无可用数据' }}</span></div>
-          <div class="c-change-tabs" role="group" aria-label="路由变化类别"><button v-for="(change, index) in changes" :key="index" :aria-pressed="changeKind === index" :class="{ active: changeKind === index }" @click="changeKind = index">{{ change[0] }}</button></div>
-          <div v-if="changeKind === 1 && pathReady" class="core-path-comparison" aria-live="polite" data-testid="core-path-comparison">
-            <p class="core-path-times">{{ toBusinessTime(new Date(pathReady.left.observed_at)).slice(5, 16) }} → {{ toBusinessTime(new Date(pathReady.right.observed_at)).slice(5, 16) }} <small>{{ profile.timezone }}</small></p>
-            <div class="core-path-primary"><div><span>路径不同的对象对</span><strong data-testid="core-path-different">{{ count(pathReady.metrics?.different) }}</strong></div><div><span>占可比较对象对</span><strong class="core-path-ratio">{{ pathRatio }}</strong></div></div>
-            <p class="core-path-denominator">可比较 {{ count(pathReady.metrics?.comparable_pairs) }} 对 · 相同 {{ count(pathReady.metrics?.same) }} 对</p>
-            <dl class="core-path-other"><div><dt>不可比较</dt><dd>{{ count(pathReady.metrics?.not_comparable) }}</dd></div><div><dt>仅左侧记录</dt><dd>{{ count(pathReady.metrics?.left_only) }}</dd></div><div><dt>仅右侧记录</dt><dd>{{ count(pathReady.metrics?.right_only) }}</dd></div></dl>
-            <button class="c-text-button" @click="showPaths">路径样本与依据 ↗</button>
-            <p class="c-note">单位：原始 Peer × 地址族 × 前缀的对象对。不是独立前缀数，也不是期间变化次数。</p>
-          </div>
-          <template v-else><div class="c-change-state" aria-live="polite"><span class="c-pending-mark" aria-hidden="true">—</span><h3>{{ changeKind === 1 ? pathNote : changes[changeKind]?.[1] }}</h3><p>{{ changeKind === 1 ? '不沿用其他日期或地址族的对照。' : '现有异常记录不能代替完整路由状态。' }}</p></div>
-          <div class="c-change-boundary"><span class="c-small-dot"></span><p>{{ changes[changeKind]?.[2] }}</p></div><p class="c-note">不以通告、撤回消息量替代。</p></template>
-        </section>
-      </div>
+      <CoreAnomalyCards :date="date" :family="family || 'all'" :base="anomalyBase" :refresh-key="snapshotRefresh" :request-loading="loading" @select="selectAnomaly" />
       <section id="events" class="c-panel c-events" aria-labelledby="c-events-title">
         <div class="c-panel-heading"><div><p class="overline">ROUTING ANOMALIES</p><h2 id="c-events-title">路由异常 <span class="c-event-count">{{ ready ? count(data?.events?.total) : '—' }}</span></h2></div><span class="c-tag">RRC25 · 留存记录</span></div>
         <div class="c-filter-row"><div class="c-event-filters">
@@ -354,7 +318,8 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
         <div class="c-table-footer"><p>结束未记录 ≠ 持续中。等级冲突标为待核实，详情保留两份原值；等级不代表损害概率。</p><div v-if="ready && data?.events?.total" class="c-pagination"><span>{{ data.events.page }} / {{ data.events.page_count }}</span><button aria-label="上一页异常" :disabled="page === 1" @click="goPage(page - 1)">←</button><button aria-label="下一页异常" :disabled="page >= data.events.page_count" @click="goPage(page + 1)">→</button></div></div>
       </section>
       <p class="c-bottom-note">列表局部筛选不改变上方概况和趋势。只说明 RRC25 的已存异常记录，不代表全网状态、实际断网或原因。</p>
-      <footer class="core-footer"><button @click="showScope">来源、版本与数据边界 ↗</button><span :title="pinnedVersion">{{ pinnedVersion ? `${pinnedVersion.slice(0, 28)}…` : '留存版本待读取' }}</span><RouterLink to="/legacy-overview">旧 P0 页面</RouterLink></footer>
+      <CoreDailyTrends :date="date" :refresh-key="snapshotRefresh" />
+      <footer class="core-footer"><button @click="showScope">来源、版本与数据边界 ↗</button><button v-if="pathReady" @click="showPaths">两次 RIB 观察对照 ↗</button><span :title="pinnedVersion">{{ pinnedVersion ? `${pinnedVersion.slice(0, 28)}…` : '留存版本待读取' }}</span></footer>
     </main>
     <dialog ref="dialog" class="core-dialog" aria-labelledby="core-dialog-title" @close="afterClose" @click="event => { if (event.target === dialog) closeDialog() }">
       <div class="core-dialog-heading"><span class="overline">SOURCE / EVIDENCE</span><button aria-label="关闭详情" @click="closeDialog">×</button></div><h2 id="core-dialog-title">{{ dialogTitle }}</h2>

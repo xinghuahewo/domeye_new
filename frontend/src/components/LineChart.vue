@@ -142,7 +142,7 @@ function renderChart() {
           areaStyle: { color: 'rgba(152, 162, 179, .08)' },
         },
         selectedDataBackground: {
-          lineStyle: { color: '#0b57b7', width: 1 },
+          lineStyle: { color: '#3e6f89', width: 1 },
           areaStyle: { color: 'rgba(11, 87, 183, .08)' },
         },
         textStyle: { color: '#667085', fontSize: 8 },
@@ -165,7 +165,7 @@ function renderChart() {
           silent: true,
           symbol: ['none', 'none'],
           animation: false,
-          lineStyle: { color: '#f48120', width: 1, type: 'dashed', opacity: 0.7 },
+          lineStyle: { color: '#967431', width: 1, type: 'dashed', opacity: 0.7 },
           label: {
             show: true,
             position: 'insideEndTop',
@@ -176,7 +176,7 @@ function renderChart() {
           data: props.markers.map((marker) => ({
             name: marker.label,
             xAxis: marker.time,
-            lineStyle: { color: marker.color || '#f48120' },
+            lineStyle: { color: marker.color || '#967431' },
           })),
         },
       } : {}),

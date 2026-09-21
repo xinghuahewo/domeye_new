@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "阶段1固定观察输入与计算回放",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "collector",
+    "window_start",
+    "window_end_exclusive",
+    "baseline_source",
+    "update_sources",
+    "inputs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "observation-run/v1"
+    },
+    "collector": {
+      "const": "rrc25"
+    },
+    "window_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window_end_exclusive": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "baseline_source": {
+      "$ref": "#/$defs/sha"
+    },
+    "update_sources": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/sha"
+      }
+    },
+    "baseline_endpoints": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 5,
+        "maxItems": 5
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "size",
+          "role",
+          "source_id",
+          "origin_uri"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "role": {
+            "enum": [
+              "baseline",
+              "update",
+              "snapshot"
+            ]
+          },
+          "source_id": {
+            "$ref": "#/$defs/sha"
+          },
+          "origin_uri": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

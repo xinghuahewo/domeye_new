@@ -298,8 +298,8 @@ onMounted(() => load())
   padding: 0 12px;
   cursor: pointer;
   color: var(--primary);
-  background: #f7faff;
-  border: 1px solid #b8cdf5;
+  background: #f6f8f9;
+  border: 1px solid #becfd8;
   border-radius: 14px;
   font-size: 10px;
   font-weight: 650;
@@ -307,8 +307,8 @@ onMounted(() => load())
 }
 
 .preset-chip:hover {
-  background: #eaf2ff;
-  border-color: #7da4eb;
+  background: #e7eef1;
+  border-color: #8ca9b9;
 }
 
 .preset-chip.is-active {
@@ -355,7 +355,7 @@ onMounted(() => load())
   padding: 0 13px;
   color: var(--primary);
   background: var(--paper);
-  border: 1px solid #b8cdf5;
+  border: 1px solid #becfd8;
   border-radius: 5px;
   font-size: 10px;
 }

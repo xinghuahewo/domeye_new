@@ -6,7 +6,6 @@ import {
   normalizeAsOverview,
   normalizeCountryOverview,
   normalizeCountryOutageObservation,
-  normalizeDashboardOverview,
   normalizeEvidenceBundle,
   normalizeEventPage,
   normalizeEventObservation,
@@ -299,34 +298,6 @@ describe('API 数据归一化', () => {
     expect(observation.series[0]?.visible_prefix_vp_ratio).toBe(0.9)
     expect(observation.series.at(-1)?.observed_at_utc).toBe('2026-03-11T00:00:00Z')
     expect(observation.asn_page?.total).toBe(0)
-  })
-
-  it('归一化首页六类趋势、影响范围和排行', () => {
-    const overview = normalizeDashboardOverview({
-      start_time: '2026-03-31 00:00:00',
-      end_time: '2026-03-31 23:59:59',
-      timezone: 'Asia/Shanghai',
-      latest_observation: '2026-03-31 23:59:00',
-      event_count: 3,
-      previous_event_count: 1,
-      event_change_rate: 200,
-      high_risk_count: 1,
-      active_event_count: 1,
-      affected_asn_count: 2,
-      affected_country_count: 2,
-      event_series: [{
-        time: '2026-03-31 18:00:00',
-        counts: { 前缀劫持: 1, 路由泄漏: 1 },
-        total: 2,
-      }],
-      country_rankings: [{ name: '中国', event_count: 2, high_risk_count: 1 }],
-      asn_rankings: [{ asn: '4134', name: 'AS4134', event_count: 2, high_risk_count: 1 }],
-    })
-
-    expect(overview.eventCount).toBe(3)
-    expect(overview.eventSeries[0]?.counts['前缀中断']).toBe(0)
-    expect(overview.countryRankings[0]?.name).toBe('中国')
-    expect(overview.asnRankings[0]?.asn).toBe('4134')
   })
 
   it('归一化国家工作台排行、资源缺失和单国时序', () => {

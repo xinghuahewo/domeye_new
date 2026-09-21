@@ -30,8 +30,8 @@ import threading
 import zlib
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Sequence, Tuple
 
-from data_pipeline.metrics import METRIC_DEFINITIONS
-from data_pipeline.quality import QualityGateInputError, validate_report_semantics
+from data_pipeline.common.metrics import METRIC_DEFINITIONS
+from data_pipeline.common.quality import QualityGateInputError, validate_report_semantics
 
 
 P0_DATA_RELEASE_ENV = "P0_DATA_RELEASE_DIR"

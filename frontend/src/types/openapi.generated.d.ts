@@ -4,6 +4,74 @@
  */
 
 export interface paths {
+    "/rib-snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 已登记快照及业务日默认选择；只查显式绑定位置，缺日返回空目录，不跳到相邻日期。未配置与已配置损坏不同。 */
+        get: operations["discoverRibSnapshots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rib-snapshots/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 按不可变结果版本查询单RIB总体规模；与异常日准入独立，零仅表示此完整快照相应投影为空。 */
+        get: operations["getRibSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rib-snapshots/{version}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 原始路由条目审计分页；来源记录和条目从零计，Peer表位置不是稳定Peer Identity，Originated Time不是快照时点。 */
+        get: operations["getRibSnapshotObservations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rib-snapshots/{version}/asns/{asn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 同一完整RIB投影中指定明确起源ASN的去重前缀数；多起源各自关联。来源样本按地址族、前缀文本、条目序号稳定取前20条，sample_truncated表示另有观察；样本长度不是前缀总数。未配置、未知版本、来源失败不返回零；全查询执行上限2秒。 */
+        get: operations["getRibSnapshotAsn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/core-overview": {
         parameters: {
             query?: never;
@@ -548,6 +616,132 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RibSnapshotAsn: {
+            /** @constant */
+            state: "available";
+            version: string;
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** @enum {unknown} */
+            family: "all" | "ipv4" | "ipv6";
+            source: components["schemas"]["RibSnapshotSource"];
+            /** @constant */
+            origin_rule: "rib-attributed-origin/private-skip-v1";
+            limitations: string[];
+            asn: number;
+            /** @constant */
+            unit: "distinct_origin_prefix";
+            prefix_count: number;
+            /** @constant */
+            sample_limit: 20;
+            sample_truncated: boolean;
+            items: components["schemas"]["RibSnapshotObservation"][];
+        };
+        RibSnapshotNotConfigured: {
+            /** @constant */
+            state: "not_configured";
+            message: string;
+        };
+        RibSnapshotFailure: {
+            /** @enum {unknown} */
+            state: "unavailable" | "unknown_version" | "validation_failed";
+            message: string;
+        };
+        RibSnapshotReference: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            observed_at: string;
+            version: string;
+        };
+        RibSnapshotSource: {
+            /** @constant */
+            collector_id: "rrc25";
+            sha256: string;
+            /** @constant */
+            coverage: "unknown";
+        };
+        RibSnapshotMetrics: {
+            visible_prefixes: number;
+            visible_origin_ases: number;
+            attributed_prefixes: number;
+            unattributed_prefixes: number;
+            rib_entries: number;
+            unattributed_entries: number;
+        };
+        RibSnapshotDay: {
+            /** Format: date */
+            date: string;
+            /** @enum {unknown} */
+            state: "available" | "not_calculated" | "missing_input" | "validation_failed";
+            version?: string;
+            last_batch?: {
+                selection_id: string;
+                /** @enum {unknown} */
+                state: "available" | "missing_input" | "validation_failed";
+            };
+        };
+        RibSnapshotDiscovery: {
+            /** @constant */
+            state: "available";
+            snapshots: components["schemas"]["RibSnapshotReference"][];
+            days: components["schemas"]["RibSnapshotDay"][];
+        };
+        RibSnapshotSummary: {
+            /** @constant */
+            state: "available";
+            version: string;
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** @enum {unknown} */
+            family: "all" | "ipv4" | "ipv6";
+            source: components["schemas"]["RibSnapshotSource"];
+            /** @constant */
+            origin_rule: "rib-attributed-origin/private-skip-v1";
+            /** @constant */
+            unit: "distinct_prefix_and_origin_asn";
+            metrics: components["schemas"]["RibSnapshotMetrics"];
+            limitations: string[];
+        };
+        RibSnapshotObservation: {
+            /** @enum {unknown} */
+            family: "ipv4" | "ipv6";
+            prefix: string;
+            /** @constant */
+            safi: 1;
+            peer: {
+                index: number;
+                bgp_id: string;
+                ip: string;
+                asn: number;
+            };
+            physical_record: number;
+            decoded_offset: number;
+            entry_index: number;
+            originated_time_epoch: number;
+            as_path_hex: string | null;
+            as4_path_hex: string | null;
+            raw_origin_asn: number | null;
+            attributed_origin_asn: number | null;
+            /** @enum {unknown} */
+            reason: "as4_path_requires_separate_rule" | "missing_or_empty_path" | "as_set_ambiguous" | "confederation_ambiguous" | "special_asn_not_attributable" | "private_as_skipped" | "explicit_terminal_asn" | "only_excluded_asns";
+        };
+        RibSnapshotObservations: {
+            /** @constant */
+            state: "available";
+            version: string;
+            source: components["schemas"]["RibSnapshotSource"];
+            /** Format: date-time */
+            observed_at: string;
+            page: number;
+            page_size: number;
+            total: number;
+            items: components["schemas"]["RibSnapshotObservation"][];
+        };
         CoreOverviewSource: {
             instance: string;
             code: string;
@@ -3088,6 +3282,212 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    discoverRibSnapshots: {
+        parameters: {
+            query?: {
+                date?: string;
+                /** @description 仅核验范围内最新业务日的默认版本；与date互斥。所选版本损坏不回退旧版。省略date和latest保留全部日期发现。 */
+                latest?: "true";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 独立快照查询结果或明确未配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotDiscovery"] | components["schemas"]["RibSnapshotNotConfigured"];
+                };
+            };
+            /** @description 参数或日期范围无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 未知结果版本 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 已选登记或制品不可用，禁止回退其他版本或旧规模 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+        };
+    };
+    getRibSnapshot: {
+        parameters: {
+            query?: {
+                family?: "all" | "ipv4" | "ipv6";
+            };
+            header?: never;
+            path: {
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 独立快照查询结果或明确未配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotSummary"] | components["schemas"]["RibSnapshotNotConfigured"];
+                };
+            };
+            /** @description 参数或日期范围无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 未知结果版本 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 已选登记或制品不可用，禁止回退其他版本或旧规模 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+        };
+    };
+    getRibSnapshotObservations: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 独立快照查询结果或明确未配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotObservations"] | components["schemas"]["RibSnapshotNotConfigured"];
+                };
+            };
+            /** @description 参数或日期范围无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 未知结果版本 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 已选登记或制品不可用，禁止回退其他版本或旧规模 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+        };
+    };
+    getRibSnapshotAsn: {
+        parameters: {
+            query?: {
+                family?: "all" | "ipv4" | "ipv6";
+            };
+            header?: never;
+            path: {
+                version: string;
+                asn: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 独立快照查询结果或明确未配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotAsn"] | components["schemas"]["RibSnapshotNotConfigured"];
+                };
+            };
+            /** @description 参数或日期范围无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 未知结果版本 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+            /** @description 已选登记或制品不可用，禁止回退其他版本或旧规模 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RibSnapshotFailure"];
+                };
+            };
+        };
+    };
     getCoreOverview: {
         parameters: {
             query?: {

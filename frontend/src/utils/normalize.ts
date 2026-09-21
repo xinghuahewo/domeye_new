@@ -1,14 +1,10 @@
 import {
-  CORE_EVENT_TYPES,
   EVENT_KIND_LABELS,
   type AsnProfile,
   type AsOverview,
-  type CountPoint,
   type CountryOverview,
   type CountryProfile,
   type CountrySparkPoint,
-  type DashboardOverview,
-  type DashboardRanking,
   type CountryOutageAsnPage,
   type CountryOutageTrendProduct,
   type EvidenceBundle,
@@ -707,64 +703,6 @@ export const normalizeOutagePoints = (payload: unknown): OutagePoint[] =>
     const count = finiteNumber(value.outage_count ?? value.count)
     return time && count !== null ? [{ time, count }] : []
   })
-
-export const normalizeCountPoints = (payload: unknown): CountPoint[] =>
-  extractArray(payload, '事件统计').flatMap((value) => {
-    if (!isRecord(value)) return []
-    const time = normalizeTime(value.time)
-    const count = finiteNumber(value.num)
-    return time && count !== null ? [{ time, count }] : []
-  })
-
-const normalizeRanking = (value: unknown): DashboardRanking | null => {
-  if (!isRecord(value)) return null
-  const name = cleanText(value.name)
-  if (!name) return null
-  const asn = cleanText(value.asn)
-  return {
-    name,
-    ...(asn ? { asn } : {}),
-    eventCount: Math.max(0, finiteNumber(value.event_count) ?? 0),
-    highRiskCount: Math.max(0, finiteNumber(value.high_risk_count) ?? 0),
-  }
-}
-
-export const normalizeDashboardOverview = (payload: unknown): DashboardOverview => {
-  if (!isRecord(payload)) throw new Error('首页聚合响应格式异常')
-  if (payload.status === false) throw new Error(cleanText(payload.msg) || '首页聚合查询失败')
-  const rawSeries = Array.isArray(payload.event_series) ? payload.event_series : []
-  const eventSeries = rawSeries.flatMap((value) => {
-    if (!isRecord(value)) return []
-    const time = normalizeTime(value.time)
-    if (!time) return []
-    const rawCounts = isRecord(value.counts) ? value.counts : {}
-    const counts = Object.fromEntries(CORE_EVENT_TYPES.map((eventType) => [
-      eventType,
-      Math.max(0, finiteNumber(rawCounts[eventType]) ?? 0),
-    ])) as Record<(typeof CORE_EVENT_TYPES)[number], number>
-    return [{ time, counts, total: Math.max(0, finiteNumber(value.total) ?? 0) }]
-  })
-  const rankings = (value: unknown) => (Array.isArray(value) ? value : [])
-    .map(normalizeRanking)
-    .filter((item): item is DashboardRanking => item !== null)
-
-  return {
-    startTime: normalizeTime(payload.start_time) ?? '',
-    endTime: normalizeTime(payload.end_time) ?? '',
-    timezone: cleanText(payload.timezone) || 'Asia/Shanghai',
-    latestObservation: normalizeTime(payload.latest_observation),
-    eventCount: Math.max(0, finiteNumber(payload.event_count) ?? 0),
-    previousEventCount: Math.max(0, finiteNumber(payload.previous_event_count) ?? 0),
-    eventChangeRate: finiteNumber(payload.event_change_rate),
-    highRiskCount: Math.max(0, finiteNumber(payload.high_risk_count) ?? 0),
-    activeEventCount: Math.max(0, finiteNumber(payload.active_event_count) ?? 0),
-    affectedAsnCount: Math.max(0, finiteNumber(payload.affected_asn_count) ?? 0),
-    affectedCountryCount: Math.max(0, finiteNumber(payload.affected_country_count) ?? 0),
-    eventSeries,
-    countryRankings: rankings(payload.country_rankings),
-    asnRankings: rankings(payload.asn_rankings),
-  }
-}
 
 const normalizeCountrySparkPoint = (value: unknown): CountrySparkPoint | null => {
   if (!isRecord(value)) return null

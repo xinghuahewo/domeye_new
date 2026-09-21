@@ -58,7 +58,7 @@ const events: EventRow[] = [
 const chartSeries: ChartSeries[] = [
   {
     name: 'ANNOUNCE',
-    color: '#0b57b7',
+    color: '#3e6f89',
     data: [
       ['2026-02-01 00:00:00', 120],
       ['2026-02-01 00:03:00', 168],
@@ -68,7 +68,7 @@ const chartSeries: ChartSeries[] = [
   },
   {
     name: 'WITHDRAW',
-    color: '#f48120',
+    color: '#967431',
     data: [
       ['2026-02-01 00:00:00', 18],
       ['2026-02-01 00:03:00', 46],

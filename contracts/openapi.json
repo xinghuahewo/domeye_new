@@ -7,6 +7,334 @@
   },
   "servers": [{"url": "/api/v1"}],
   "paths": {
+    "/rib-snapshots": {
+      "get": {
+        "operationId": "discoverRibSnapshots",
+        "description": "已登记快照及业务日默认选择；只查显式绑定位置，缺日返回空目录，不跳到相邻日期。未配置与已配置损坏不同。",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "latest",
+            "in": "query",
+            "description": "仅核验范围内最新业务日的默认版本；与date互斥。所选版本损坏不回退旧版。省略date和latest保留全部日期发现。",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "独立快照查询结果或明确未配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotDiscovery"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotNotConfigured"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或日期范围无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未知结果版本",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "已选登记或制品不可用，禁止回退其他版本或旧规模",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rib-snapshots/{version}": {
+      "get": {
+        "operationId": "getRibSnapshot",
+        "description": "按不可变结果版本查询单RIB总体规模；与异常日准入独立，零仅表示此完整快照相应投影为空。",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "family",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "all",
+                "ipv4",
+                "ipv6"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "独立快照查询结果或明确未配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotSummary"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotNotConfigured"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或日期范围无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未知结果版本",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "已选登记或制品不可用，禁止回退其他版本或旧规模",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rib-snapshots/{version}/observations": {
+      "get": {
+        "operationId": "getRibSnapshotObservations",
+        "description": "原始路由条目审计分页；来源记录和条目从零计，Peer表位置不是稳定Peer Identity，Originated Time不是快照时点。",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 80000000,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "独立快照查询结果或明确未配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotObservations"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotNotConfigured"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或日期范围无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未知结果版本",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "已选登记或制品不可用，禁止回退其他版本或旧规模",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rib-snapshots/{version}/asns/{asn}": {
+      "get": {
+        "operationId": "getRibSnapshotAsn",
+        "description": "同一完整RIB投影中指定明确起源ASN的去重前缀数；多起源各自关联。来源样本按地址族、前缀文本、条目序号稳定取前20条，sample_truncated表示另有观察；样本长度不是前缀总数。未配置、未知版本、来源失败不返回零；全查询执行上限2秒。",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "asn",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          },
+          {
+            "name": "family",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "all",
+                "ipv4",
+                "ipv6"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "独立快照查询结果或明确未配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotAsn"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RibSnapshotNotConfigured"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或日期范围无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "未知结果版本",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "已选登记或制品不可用，禁止回退其他版本或旧规模",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RibSnapshotFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/core-overview": {
       "get": {
         "operationId": "getCoreOverview",
@@ -415,6 +743,502 @@
       "P0RepositoryUnavailable": {"description": "候选仓库未配置或不可用", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}}
     },
     "schemas": {
+      "RibSnapshotAsn": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "version",
+          "date",
+          "observed_at",
+          "family",
+          "source",
+          "origin_rule",
+          "limitations",
+          "asn",
+          "unit",
+          "prefix_count",
+          "sample_limit",
+          "sample_truncated",
+          "items"
+        ],
+        "properties": {
+          "state": {
+            "const": "available"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "family": {
+            "enum": [
+              "all",
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/RibSnapshotSource"
+          },
+          "origin_rule": {
+            "const": "rib-attributed-origin/private-skip-v1"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "asn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "unit": {
+            "const": "distinct_origin_prefix"
+          },
+          "prefix_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sample_limit": {
+            "const": 20
+          },
+          "sample_truncated": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/RibSnapshotObservation"
+            }
+          }
+        }
+      },
+      "RibSnapshotNotConfigured": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "message"
+        ],
+        "properties": {
+          "state": {
+            "const": "not_configured"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RibSnapshotFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "message"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "unavailable",
+              "unknown_version",
+              "validation_failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RibSnapshotReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "observed_at",
+          "version"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          }
+        }
+      },
+      "RibSnapshotSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collector_id",
+          "sha256",
+          "coverage"
+        ],
+        "properties": {
+          "collector_id": {
+            "const": "rrc25"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "coverage": {
+            "const": "unknown"
+          }
+        }
+      },
+      "RibSnapshotMetrics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "visible_prefixes",
+          "visible_origin_ases",
+          "attributed_prefixes",
+          "unattributed_prefixes",
+          "rib_entries",
+          "unattributed_entries"
+        ],
+        "properties": {
+          "visible_prefixes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "visible_origin_ases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attributed_prefixes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unattributed_prefixes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rib_entries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unattributed_entries": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "RibSnapshotDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "state"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "not_calculated",
+              "missing_input",
+              "validation_failed"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          },
+          "last_batch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "selection_id",
+              "state"
+            ],
+            "properties": {
+              "selection_id": {
+                "type": "string",
+                "pattern": "^rib_batch_v1_[0-9a-f]{64}$"
+              },
+              "state": {
+                "enum": [
+                  "available",
+                  "missing_input",
+                  "validation_failed"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "RibSnapshotDiscovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "snapshots",
+          "days"
+        ],
+        "properties": {
+          "state": {
+            "const": "available"
+          },
+          "snapshots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RibSnapshotReference"
+            }
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RibSnapshotDay"
+            }
+          }
+        }
+      },
+      "RibSnapshotSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "version",
+          "date",
+          "observed_at",
+          "family",
+          "source",
+          "origin_rule",
+          "unit",
+          "metrics",
+          "limitations"
+        ],
+        "properties": {
+          "state": {
+            "const": "available"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "family": {
+            "enum": [
+              "all",
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/RibSnapshotSource"
+          },
+          "origin_rule": {
+            "const": "rib-attributed-origin/private-skip-v1"
+          },
+          "unit": {
+            "const": "distinct_prefix_and_origin_asn"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/RibSnapshotMetrics"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RibSnapshotObservation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "prefix",
+          "safi",
+          "peer",
+          "physical_record",
+          "decoded_offset",
+          "entry_index",
+          "originated_time_epoch",
+          "as_path_hex",
+          "as4_path_hex",
+          "raw_origin_asn",
+          "attributed_origin_asn",
+          "reason"
+        ],
+        "properties": {
+          "family": {
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "safi": {
+            "const": 1
+          },
+          "peer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "bgp_id",
+              "ip",
+              "asn"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bgp_id": {
+                "type": "string"
+              },
+              "ip": {
+                "type": "string"
+              },
+              "asn": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          },
+          "physical_record": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decoded_offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "entry_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "originated_time_epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "as_path_hex": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "as4_path_hex": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "raw_origin_asn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "attributed_origin_asn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "reason": {
+            "enum": [
+              "as4_path_requires_separate_rule",
+              "missing_or_empty_path",
+              "as_set_ambiguous",
+              "confederation_ambiguous",
+              "special_asn_not_attributable",
+              "private_as_skipped",
+              "explicit_terminal_asn",
+              "only_excluded_asns"
+            ]
+          }
+        }
+      },
+      "RibSnapshotObservations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "version",
+          "source",
+          "observed_at",
+          "page",
+          "page_size",
+          "total",
+          "items"
+        ],
+        "properties": {
+          "state": {
+            "const": "available"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RibSnapshotSource"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/RibSnapshotObservation"
+            }
+          }
+        }
+      },
       "CoreOverviewSource": {
         "type": "object", "required": ["instance", "code", "collector_id", "collector_basis", "confirmed_on", "coverage", "detector_version"],
         "properties": {

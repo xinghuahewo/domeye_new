@@ -5,6 +5,7 @@ from flask_restful import Api
 
 from .dashboard.api import DashboardOverviewResource, EventCountResource, TypeEventCountResource
 from .core_overview import CoreOverviewResource, CoreOverviewRecordResource
+from .rib_snapshots import RibSnapshotsResource, RibSnapshotObservationsResource, RibSnapshotAsnResource
 from .events.api import (
     EventDetailResource,
     EventEvidenceBundleResource,
@@ -40,6 +41,9 @@ api = Api(api_v1_bp)
 api.add_resource(HealthzResource, '/healthz')
 api.add_resource(CoreOverviewResource, '/core-overview')
 api.add_resource(CoreOverviewRecordResource, '/core-overview/record')
+api.add_resource(RibSnapshotsResource, '/rib-snapshots', '/rib-snapshots/<version>')
+api.add_resource(RibSnapshotObservationsResource, '/rib-snapshots/<version>/observations')
+api.add_resource(RibSnapshotAsnResource, '/rib-snapshots/<version>/asns/<asn>')
 
 api.add_resource(P0StatusResource, '/p0/status')
 api.add_resource(P0MetricResource, '/p0/metrics/<metric_name>')

@@ -12,9 +12,10 @@ export interface FeatureRange {
   end_time: string
 }
 
-export async function getTopFeatures(target: string, range: FeatureRange) {
+export async function getTopFeatures(target: string, range: FeatureRange, signal?: AbortSignal) {
   const payload = await apiGet<unknown>('features/top', {
     params: { target, ...range },
+    signal,
   })
   return normalizeFeaturePoints(payload)
 }

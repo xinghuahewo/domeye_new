@@ -72,7 +72,7 @@ ssh -N -L 28471:127.0.0.1:28471 root@10.99.8.16
 输入必须在 Git 外显式绑定。已有审计目录可用时，用下列离线命令创建新的消费目录；目录存在会拒绝覆盖，不会连接数据库或重跑检测：
 
 ```bash
-backend/.venv/bin/python scripts/retain-core-overview-input.py \
+backend/.venv/bin/python scripts/core_overview/retain-core-overview-input.py \
   --audit-dir .local/core-overview-validation/20260910T120154Z \
   --output .local/core-overview-inputs/rrc25-20260227-v1
 ```
@@ -82,7 +82,7 @@ backend/.venv/bin/python scripts/retain-core-overview-input.py \
 多日期消费使用按日索引，避免每个请求解析整份记录。以下保留旧五日重建示例，输出已存在，不必重跑。当前选择 `.local/core-overview-validation/three-points-20260912-T53su1/combined-index-v2`（55可用日＋4失败日，六类型，另绑定规模和两次路径对照）；原49日及更早目录保留。新增日期须先完成源关联、原字段及小时桶核验，再选择新输出目录，不覆盖旧版本：
 
 ```bash
-backend/.venv/bin/python scripts/index-core-overview-inputs.py \
+backend/.venv/bin/python scripts/core_overview/index-core-overview-inputs.py \
   --input .local/core-overview-inputs/rrc25-20260224-v1/manifest.json \
   --input .local/core-overview-inputs/rrc25-20260225-v1/manifest.json \
   --input .local/core-overview-inputs/rrc25-20260226-v1/manifest.json \
@@ -128,11 +128,11 @@ DOMEYE_WEB_PORT=28492 DOMEYE_API_TARGET=http://127.0.0.1:28491 bash scripts/fron
 
 首页现显示03-31 **16:00北京时间单RIB**的可见前缀数：IPv4为1,133,653、IPv6为269,730、全部为1,403,383。可见起源AS数按已确认的末端跳过私用AS归属规则：IPv4为78,236、IPv6为36,483、全部并集85,565；不拆集合／联盟段或越过歧义猜测，8,429条未明确归属的路由条目另存，不是缺测ASN数。只适用于该业务日及相应地址族；其他日期或未知地址族为null，不把16:00延续为整日或日末。小时／类型／等级／搜索只筛选异常列表，不重算快照。来源、实际时点、规模及消费版本可点击卡片查看；观察覆盖仍未知。
 
-规模包原件`.local/core-overview-validation/rib-scale-consumption-v1/package-v1/`保留，不能单独替换异常manifest。显式离线入口为`backend/.venv/bin/python scripts/bind-core-overview-scale.py --help`：指定`--index`旧日期目录、`--scale`规模清单和独立新`--output`，复制并校验所有绑定字节，最后生成新清单，不覆盖旧目录。Web只读规模清单与摘要（各≤64KiB），不读取MRT、不重跑检测或完整审计；规模摘要损坏只使规模不可用，异常失败日仍阻断全部统计。完整核验证据见[台账第38节](../data-assets-and-admission.md#38-单rib前缀规模消费包准备)，接入边界见[第39节](../data-assets-and-admission.md#39-单rib前缀规模接入首页)。
+规模包原件`.local/core-overview-validation/rib-scale-consumption-v1/package-v1/`保留，不能单独替换异常manifest。显式离线入口为`backend/.venv/bin/python scripts/core_overview/bind-core-overview-scale.py --help`：指定`--index`旧日期目录、`--scale`规模清单和独立新`--output`，复制并校验所有绑定字节，最后生成新清单，不覆盖旧目录。Web只读规模清单与摘要（各≤64KiB），不读取MRT、不重跑检测或完整审计；规模摘要损坏只使规模不可用，异常失败日仍阻断全部统计。完整核验证据见[台账第38节](../data-assets-and-admission.md#38-单rib前缀规模消费包准备)，接入边界见[第39节](../data-assets-and-admission.md#39-单rib前缀规模接入首页)。
 
-起源入口为 `backend/.venv/bin/python scripts/retain-rib-origin-input.py --help`：显式指定单RIB、源SHA及新目录，完整复读后保存原路径目录、原始末端、归属结果及集合；只供离线运行。用 `backend/.venv/bin/python scripts/bind-core-overview-origin.py --help` 选择带前缀的旧索引、起源manifest和独立新输出，校验同源同一时点、成员与分母后另建消费版本。Web只读取新增的两个64KiB以内摘要，不读取路径SQLite／ASN集合或生产数据；起源损坏不影响原前缀与异常。
+起源入口为 `backend/.venv/bin/python scripts/rib/retain-rib-origin-input.py --help`：显式指定单RIB、源SHA及新目录，完整复读后保存原路径目录、原始末端、归属结果及集合；只供离线运行。用 `backend/.venv/bin/python scripts/core_overview/bind-core-overview-origin.py --help` 选择带前缀的旧索引、起源manifest和独立新输出，校验同源同一时点、成员与分母后另建消费版本。Web只读取新增的两个64KiB以内摘要，不读取路径SQLite／ASN集合或生产数据；起源损坏不影响原前缀与异常。
 
-路径区展示两次RIB观察中共同可比Peer／Prefix项：路径不同1,502,441／可比56,451,868；另列单端和不可比项，最多10个非代表性样本。观察覆盖、Session连续性未知，不把16小时内的变化次数或单端缺失推成撤回。离线绑定入口为 `scripts/bind-core-overview-paths.py`，实际完整证据及规则见台账第47—48节；Web只读有界摘要。可见性／起源变化未接入，不在本片扩建状态重构。
+路径区展示两次RIB观察中共同可比Peer／Prefix项：路径不同1,502,441／可比56,451,868；另列单端和不可比项，最多10个非代表性样本。观察覆盖、Session连续性未知，不把16小时内的变化次数或单端缺失推成撤回。离线绑定入口为 `scripts/core_overview/bind-core-overview-paths.py`，实际完整证据及规则见台账第47—48节；Web只读有界摘要。可见性／起源变化未接入，不在本片扩建状态重构。
 
 旧五类型 `.local/core-overview-inputs/rrc25-sub-hijack-v2/`、四类型 `rrc25-hijack-v3/` 及旧三类型目录原样保留，可显式切回；对应证据见台账第20、22节。剩余4日仍未通过准入。上方无数据库模式仅提供留存首页；本机共用预览见下节。
 

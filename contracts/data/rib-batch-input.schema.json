@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "title": "有界RIB批次固定候选输入",
+  "description": "人工或另行授权的离线输入；半开窗口须为数据档内完整业务日，最多31天；64条声明含路径别名。",
+  "required": [
+    "schema_version",
+    "window_start",
+    "window_end_exclusive",
+    "candidates"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rib-batch-input/v1"
+    },
+    "window_start": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "window_end_exclusive": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "collector",
+          "observed_at"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "collector": {
+            "const": "rrc25"
+          },
+          "observed_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+          }
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Domeye 路由异常检测核心精简版后端"
 requires-python = ">=3.10,<3.11"
 dependencies = [
+    "duckdb==1.4.4",
     "flask",
     "flask-cors",
     "flask-restful",
@@ -13,6 +14,7 @@ dependencies = [
     "openpyxl",
     "pandas",
     "psycopg2-binary",
+    "pyarrow==23.0.1",
     "pyinotify; sys_platform == 'linux'",
     "python-dateutil",
     "pytricia",
@@ -35,4 +37,4 @@ requires-dist = []
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["web/tests"]
+testpaths = ["tests"]

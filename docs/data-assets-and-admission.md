@@ -208,11 +208,11 @@
 
 | 登记项与来源 | 版本、粒度与范围 | 已验证内容与允许用途 | 限制 |
 |---|---|---|---|
-| P0 清单、对账与质量证据：[指标合同](../contracts/data/metric-series.schema.json)、[质量合同](../contracts/data/data-quality-report.schema.json)、[质量语义校验](../backend/data_pipeline/quality/gate.py) | `metric-series/v1`／`data-quality-report/v1`；每候选、组件、检查及失败项；实际报告版本和覆盖未知 | 源码要求清单、输入闭包、原始验证／RouteEvent／指标对账、复现摘要、执行上下文、数据档及失败明细等；可用于核对来源闭合和相应质量门 | 校验代码存在不等于报告存在或已通过；P0 的旧兼容／原始追溯准入不自动验证新 Peer Identity 或连续 Session |
+| P0 清单、对账与质量证据：[指标合同](../contracts/data/metric-series.schema.json)、[质量合同](../contracts/data/data-quality-report.schema.json)、[质量语义校验](../backend/data_pipeline/common/quality/gate.py) | `metric-series/v1`／`data-quality-report/v1`；每候选、组件、检查及失败项；实际报告版本和覆盖未知 | 源码要求清单、输入闭包、原始验证／RouteEvent／指标对账、复现摘要、执行上下文、数据档及失败明细等；可用于核对来源闭合和相应质量门 | 校验代码存在不等于报告存在或已通过；P0 的旧兼容／原始追溯准入不自动验证新 Peer Identity 或连续 Session |
 | 迁移清单、装载／验收回执及回滚绑定：[迁移合同](../contracts/data/rrc25-shadow-migration-manifest.schema.json)、[验收合同](../contracts/data/rrc25-shadow-migration-acceptance.schema.json) | `rrc25-shadow-migration/v1`／`rrc25-data-layer-end-to-end-acceptance/v1`；指定候选、数据库指纹及前后验证；RRC25 224-310 | 合同定义可供将来核对迁移血缘与回滚依据；实际回执、备份位置、保留完成情况未知 | 固定表数、字段数和测试期望不是实际迁移成功或备份可恢复的证据；不据此执行迁移或清理 |
 | 未证实当前入口消费的旧数据声明 | 数据版本与有效范围未知；粒度仅能按名称／模块推测，未确认 | [配置](../backend/config/config.py)保留 `as_dict.txt`、`top_nx.csv`、`top_ip.txt`、`ipv4_all_prefix.xls`、`ipv6_all_prefix.xls`、`pfx2as_dict.txt`、`as_rel_dict.txt`、`private_as_dict_new.json`、`triplet_20days.csv`、`as_rank.json`、`org_entity.csv`、`domain_cn_center.txt`；保留 raw 路径／`RIB_HISTORY_FILE` 与 `data/detection`、`data/feature`、`data/prefix_count` 默认输出路径 | 仅供有界定位，不算已生成资产；未证实被当前入口消费不等于无价值或可删除，也不启用检测／采集 |
 | 保留数据库模块与资源表线索 | 实际版本、实表粒度及范围未知；模块描述包括 VP 资源、拓扑、前缀计数、AS 信息、MOAS、泄漏现象和登录数据 | 可在 [database 目录](../backend/database)及配置找到 `bgp_vp_resource`、`bgp_routing_resource`、`bgp_boundary`、`bgp_connection`、`country_topology_edge`、`country_topology_snapshot`、`prefix_count_YYYYMM` 等线索 | 本轮未证实当前页面入口消费上述保留族，不将模块存在当成启用证明；登录数据不作 BGP 研究数据，也不读取内容或凭据 |
-| 合同样本与测试数据：[fixtures](../contracts/data/fixtures)、[API 测试](../backend/web/tests) | 仓库版本受上述提交约束；正反例、mock 或临时测试制品，范围以各案例为准 | 可以用于结构／语义回归和说明边界；本轮只确认相关文件与定义，未运行测试 | 不能作为真实覆盖、实际缺失率、生产质量通过或性能验收证据 |
+| 合同样本与测试数据：[fixtures](../contracts/data/fixtures)、[API 测试](../backend/tests) | 仓库版本受上述提交约束；正反例、mock 或临时测试制品，范围以各案例为准 | 可以用于结构／语义回归和说明边界；本轮只确认相关文件与定义，未运行测试 | 不能作为真实覆盖、实际缺失率、生产质量通过或性能验收证据 |
 | 运行配置、凭据、日志与缓存 | 独立后端配置定位 `/home/bgpdata/domeye-new-runtime/backend.env`；进程脱敏绑定见第 5.1 节；其他内容版本、日志／缓存保留状态未知 | [README](../README.md)及[启动器](../scripts/run_backend.py)说明配置留在 Git 外；本次仅核对目标进程非敏感绑定，不记录凭据或完整环境 | 配置不是数据发布清单，日志不是唯一业务事实源，缓存不是可恢复权威副本；不批准公开、搬迁或清理 |
 
 ## 7．仅计划或尚未验证的底层设计
@@ -335,7 +335,7 @@
 ### 9.6 方法、来源与验证记录
 
 - 数据结构／关联：本地 [事件详情服务](../backend/services/events_service.py)及六类详情查询；本轮实际表结构与主键交叉核对。列表隐含过滤见[事件查询](../backend/database/event.py)，并发与 INFO 过滤见[特征服务](../backend/services/features_service.py)及[旧统计函数](../backend/utils/get_event.py)。[首页聚合](../backend/database/dashboard.py)当前不含相同的 `source` 条件，不能直接拼接；本轮未改代码。
-- 合同冲突：[MetricSeries](../contracts/data/metric-series.schema.json)、[指标定义](../backend/data_pipeline/metrics/series.py)、[RRC25 Publication](../contracts/data/rrc25-event-publication.schema.json)。后者约束国家事件及 RRC25，不能包装本次全部异常。
+- 合同冲突：[MetricSeries](../contracts/data/metric-series.schema.json)、[指标定义](../backend/data_pipeline/common/metrics/series.py)、[RRC25 Publication](../contracts/data/rrc25-event-publication.schema.json)。后者约束国家事件及 RRC25，不能包装本次全部异常。
 - 来源检查：第 3.1 节三份发布 JSON、派生状态 JSON 和第 2.2 节 manifest／COMPLETE 的完整文件摘要复核；本轮读取发布清单正文，但不读取 dump、INFO 业务行或国家事件正文。官方 Core 固定提交的 `dev/database/README.md` 是派生流程说明，不是新的执行回执。
 - 业务核对：09:06:02 UTC 开始的只读事务完成五类关联、六类样本可得性与地址族检查；09:07:25 UTC 开始的另一只读事务复核分桶与过滤。两者分别记录，不宣称它们构成可长期恢复的数据库快照。
 
@@ -463,7 +463,7 @@ COMMIT;
 
 - `manifest.json` SHA256：`839e2fcde03801b0a4e0eb8f14263ffc04e9c2608a66ef7342ccae914a60500b`。
 - 消费版本：`overview_v1_839e2fcde03801b0a4e0eb8f14263ffc04e9c2608a66ef7342ccae914a60500b`，绑定上述记录摘要、项目数据档、窗口、三类范围、来源确认和解释版本 `recorded-anomaly-overview/v1`。
-- 留存包同时保留 `retainer.py` 及其摘要；[离线命令](../scripts/retain-core-overview-input.py)拒绝覆盖已有目录，校验源字节、映射与只读审计回执。摘要不是签名或不可变存储保证，备份／恢复演练仍未验证。
+- 留存包同时保留 `retainer.py` 及其摘要；[离线命令](../scripts/core_overview/retain-core-overview-input.py)拒绝覆盖已有目录，校验源字节、映射与只读审计回执。摘要不是签名或不可变存储保证，备份／恢复演练仍未验证。
 - 本轮消费实现及受影响测试／合同另留存于 `.local/core-overview-runtime/implementation-source.tar.gz`，SHA256 为 `3a34cca4164d023aa39036c2f494a31620cc3fd28ea34aa4a252375b877fd945`；代码基点仍为 `983f0d4ac5ed27c60183ce5a46d617a9c4828b4f`，未提交。这是本次实现证据，不是完整运行环境备份。
 - 后续输入或解释规则变化应使用新版本及新目录，不改被引用旧包；解释版本不是历史检测版本，也不是 P0 Publication。当前服务只加载一个明确绑定包；旧包可离线复读，不承诺多版本在线查询。
 
@@ -531,7 +531,7 @@ COMMIT;
 
 原始导出 `day.jsonl` 为 9,050,568 字节，SHA256 `d5e4b415d706ef2727d145a6174b1d542d558cfe3cfc9c0c43183ee3cd86f12d`；转换字节摘要 `f3475fe76cb160f4df02479528ac56151708a567b78fc993c18bc4de23b58cf8`。新单日包 `.local/core-overview-inputs/rrc25-20260228-v1/manifest.json` 摘要为 `4662e557cbbea1a94d0463473d735a872722cbcecb96f8886e6afdb835315e0c`。复用的原始映射保留当时 `formal_admission=REPAIR` 与旧未知，Collector 用户确认仍通过消费来源说明单列，不反写原记录。
 
-离线索引命令 `scripts/index-core-overview-inputs.py` 已生成 `.local/core-overview-inputs/rrc25-dates-v1/`，明确选择 02-27 和 02-28 两份单日包。消费版本为 `overview_index_v1_b35810b13c1542a4364aaf2483e2f4fbac9b47cbf96ddf8391cc525eedc50d64`。每个日期独立 SQLite 文件，保留原序列化记录与清单；列表只解析选定分页投影，详情只读指定原记录。不在请求中生成索引，不将百万条整窗 JSONL 塞进每次查询。旧单日包、旧原始输入及内容版本未改动。
+离线索引命令 `scripts/core_overview/index-core-overview-inputs.py` 已生成 `.local/core-overview-inputs/rrc25-dates-v1/`，明确选择 02-27 和 02-28 两份单日包。消费版本为 `overview_index_v1_b35810b13c1542a4364aaf2483e2f4fbac9b47cbf96ddf8391cc525eedc50d64`。每个日期独立 SQLite 文件，保留原序列化记录与清单；列表只解析选定分页投影，详情只读指定原记录。不在请求中生成索引，不将百万条整窗 JSONL 塞进每次查询。旧单日包、旧原始输入及内容版本未改动。
 
 日期目录不表示连续覆盖。未选择日期为 `window_not_retained`；日文件缺失或校验失败仍为 HTTP 503，指标全部 null，但已验证目录可供用户切换其他日期；整个目录失败则不返回伪造目录。筛选成功但无匹配的零值与上述状态不同。读取拒绝 WAL／共享内存／日志旁路和 WAL 文件头，用只读单文件模式且前后检查文件实体；摘要缓存不证明不可变保管，也不能保护被恶意同步改写的清单与输入。
 
@@ -667,7 +667,7 @@ AS时间原值例：`as_outage/2026-03-03 10:33:13/200436/5/r` 开始 `03-03 10:
 
 ### 16.2 最小实现、测试与审查
 
-只修改离线 `scripts/retain-core-overview-input.py` 并新增 `backend/web/tests/test_core_overview_empty_days.py`，复用既有索引、HTTP和页面空态，不修改API、OpenAPI、类型或前端设计。空结果额外要求：完整业务日、同源且闭合的读取回执、非抽样、三类源计数与审计桶汇总严格为整数零，以及非空来源实例。清单额外绑定审计与回执摘要；条件不满足时创建输出目录前拒绝。
+只修改离线 `scripts/core_overview/retain-core-overview-input.py` 并新增 `backend/tests/core_overview/test_core_overview_empty_days.py`，复用既有索引、HTTP和页面空态，不修改API、OpenAPI、类型或前端设计。空结果额外要求：完整业务日、同源且闭合的读取回执、非抽样、三类源计数与审计桶汇总严格为整数零，以及非空来源实例。清单额外绑定审计与回执摘要；条件不满足时创建输出目录前拒绝。
 
 按Matt TDD的既有离线CLI／只读HTTP边界先红后绿。真实执行发现Python3.10对PostgreSQL五位小数读取时间的兼容问题，新增回归测试后改用兼容解析，不改原始时间字符串。**Standards**复核无硬问题；测试重复构造建议经复核撤回，保留显式fixture。**Spec**指出“审计桶汇总非零仍放行”“空来源实例仍放行”两项P2，均补拒绝用例及证据摘要断言后修复，由原审查者复核关闭。审查范围固定为本轮修改前副本与新增测试，不混入整个dirty tree。
 
@@ -714,7 +714,7 @@ AS时间原值例：`as_outage/2026-03-03 10:33:13/200436/5/r` 开始 `03-03 10:
 
 复核发现原冻结转换器在项目Python3.10.20不能解析五位小数 `read_at`。冻结检查器用其可运行的Python3.12.14复读；当前转换器只对**元数据时间的解析副本**补位，不回写原字符串，不修改业务时间、等级或结束解释。Matt TDD实际先4失败／2通过，修复后1—6位小数6例均通过；相关文件58例、全后端297例和前端135例通过，5项既有警告，构建通过。
 
-产品只改 `backend/data_pipeline/anomaly_records.py` 的元数据解析与对应测试；API、合同、前端和留存／索引算法本轮未改。原冻结转换器摘要仍为 `d076beee9e22ffa325e0b5646f5cf0f2166a5c03258290bd5206289a2eda394d`，当前修复版为 `3115180e859a4e29f7b75e890986ebf33fb56d064096ef156c8e6fb9566da035`。全部38,112条用当前转换器重新转换，结果及序列化字节一致；未改原审计的旧源码绑定或已引用内容版本。
+产品只改 `backend/data_pipeline/common/event_records.py` 的元数据解析与对应测试；API、合同、前端和留存／索引算法本轮未改。原冻结转换器摘要仍为 `d076beee9e22ffa325e0b5646f5cf0f2166a5c03258290bd5206289a2eda394d`，当前修复版为 `3115180e859a4e29f7b75e890986ebf33fb56d064096ef156c8e6fb9566da035`。全部38,112条用当前转换器重新转换，结果及序列化字节一致；未改原审计的旧源码绑定或已引用内容版本。
 
 Matt code-review按本轮改前保留副本双轴审查，不把整个dirty tree算作本切片。**Standards：硬问题0、可选smell0。Spec：缺失、超范围及错实现均无发现。** 主验收另保留实际HTTP和浏览器结果，不将静态审查替代运行验收。
 
@@ -1346,7 +1346,7 @@ Matt双轴审查收口：Spec初审1项P2（父子对象检查遗漏），代码
 
 core_overview_input保留Web直接读取原包64MiB上限；仅显式离线入口按行校验至多2GiB／100万记录，不把整个日窗正文驻留内存。尾部摘要、实际数量、重复引用、来源、冲突引用闭合或文件身份失败抛错；build_index耗尽生成器、复核输入manifest身份后才完成日事务，全部完成后才写目录manifest。Web仍只读按日SQLite，不在启动或请求中构建。
 
-最终audit_day_v3.py对21日重新全量执行，与初审结果一致。14份GO输入经公开`scripts/index-core-overview-inputs.py`生成：
+最终audit_day_v3.py对21日重新全量执行，与初审结果一致。14份GO输入经公开`scripts/core_overview/index-core-overview-inputs.py`生成：
 
 `.local/core-overview-validation/march-dates-admission-v1/added-index-v1/manifest.json`
 
@@ -1518,7 +1518,7 @@ Matt双轴初审相对本轮`baseline/`，不是HEAD全部脏差异，commit lis
 
 ### 38.2 显式离线留存与证据范围
 
-新增公开CLI`scripts/retain-rib-scale-input.py`要求显式指定证据目录、原压缩文件、两份报告SHA和新输出目录。读取源原文件到gzip EOF、核对解压字节及压缩摘要；核对完整/非样本标志、读取成功回执、核验程序摘要、单一UTC时点、项目配置范围、双路Prefix集合摘要及逐Peer条目数。拒绝重复/空Prefix、重复Peer条目、越界或非规范位置、负数/布尔计数、JSON重复键、嵌套或既存输出。时间上限120秒，原文件512MiB、解压12GiB、单报告8MiB、输出摘要/清单64KiB；失败不生成最终manifest。
+新增公开CLI`scripts/rib/retain-rib-scale-input.py`要求显式指定证据目录、原压缩文件、两份报告SHA和新输出目录。读取源原文件到gzip EOF、核对解压字节及压缩摘要；核对完整/非样本标志、读取成功回执、核验程序摘要、单一UTC时点、项目配置范围、双路Prefix集合摘要及逐Peer条目数。拒绝重复/空Prefix、重复Peer条目、越界或非规范位置、负数/布尔计数、JSON重复键、嵌套或既存输出。时间上限120秒，原文件512MiB、解压12GiB、单报告8MiB、输出摘要/清单64KiB；失败不生成最终manifest。
 
 该入口**消费调用者明确选定的已有完整核验，不是独立MRT协议验证器**，不会执行证据目录中的代码，也不会再解释全量AS_PATH。本轮没有重查远端或源数据库。前序全流报告摘要`45e32b46…97f799`与独立结构报告`78d8582d…fb29f`在本轮完整复核；两者绑定同一原文件`7ab60c80…6fa419`。原始核验的完整范围与146条bgpdump样本对照边界仍见第32节，不扩大为全文件bgpdump复算。
 
@@ -1532,7 +1532,7 @@ Matt双轴初审相对本轮`baseline/`，不是HEAD全部脏差异，commit lis
 
 下一片须将已验前缀消费绑定到新的首页版本：日期及地址族决定适用快照，列表小时/类型/等级不能重算该快照；显示实际时点及来源。起源口径待确认后新增版本，原包保留。10日源问题、普通路由变化及同版独立恢复仍未完成，整体goal继续。没有提交、推送、部署、共享服务变更、源库写入或数据删除。
 
-收口审查：Standards发现README入口缺少Python解释器的一项P3；改为`backend/.venv/bin/python scripts/retain-rib-scale-input.py --help`并实测退出0，代理复核闭合，剩余0项。Spec为0项。已执行代码、包和笔记未因说明修复而改变；两名审查代理关闭，主28491/28492保持原运行选择，本轮没有临时Web服务。前缀离线包可继续接入；起源消费仍等待所述产品口径确认，不阻断前缀工作。
+收口审查：Standards发现README入口缺少Python解释器的一项P3；改为`backend/.venv/bin/python scripts/rib/retain-rib-scale-input.py --help`并实测退出0，代理复核闭合，剩余0项。Spec为0项。已执行代码、包和笔记未因说明修复而改变；两名审查代理关闭，主28491/28492保持原运行选择，本轮没有临时Web服务。前缀离线包可继续接入；起源消费仍等待所述产品口径确认，不阻断前缀工作。
 
 ## 39. 单RIB前缀规模接入首页
 
@@ -1542,7 +1542,7 @@ Matt双轴初审相对本轮`baseline/`，不是HEAD全部脏差异，commit lis
 
 新目录`.local/core-overview-validation/rib-scale-home-v1/combined-index-v1/manifest.json`，版本`overview_index_v2_37b9f13273d73b5c23572f6314d4a03aec327368f375cd3c22931b2d98f762a1`。原49日`f2d2…`异常／诊断按原字节复制，新清单通过可选`scale`绑定独立RIB包；规模版本仍为`rib_scale_v1_eb9fe611634867d4ee7d1647b4727e3f045ffed8d46d3012912297b43901e7f5`，未重新解释MRT。原件和被引用版本保留，49日863,708条六类记录及10失败日不变。
 
-公开离线入口`scripts/bind-core-overview-scale.py`接受`--index`、`--scale`及独立新`--output`。验证来源／配置／实际时间／双栈和、原清单、5份证据及日文件SHA；复制完成后才写最终manifest，失败副本不自动删除或假称可消费。拒绝覆盖、嵌套输出和未绑定路径，120秒上限；不连接源库、不执行证据代码、不读取原MRT。该副本约3.9GiB，同盘不同文件实体；不是灾备或独立环境恢复。
+公开离线入口`scripts/core_overview/bind-core-overview-scale.py`接受`--index`、`--scale`及独立新`--output`。验证来源／配置／实际时间／双栈和、原清单、5份证据及日文件SHA；复制完成后才写最终manifest，失败副本不自动删除或假称可消费。拒绝覆盖、嵌套输出和未绑定路径，120秒上限；不连接源库、不执行证据代码、不读取原MRT。该副本约3.9GiB，同盘不同文件实体；不是灾备或独立环境恢复。
 
 ### 39.2 HTTP与页面边界
 
@@ -1675,7 +1675,7 @@ HTTP复用原首页接口，新增可选`metadata.scale`，已有`overview.visib
 
 ### 43.1 来源、归属与完整复读
 
-沿用03-31 08:00UTC／16:00北京时间RRC25 RIB，源SHA256 `7ab60c80563b22350445b934ed055e44a0ffd98503de73f55f6b7dd20f6fa419`，438,316,014压缩字节／4,353,737,106解压字节。公开入口`scripts/retain-rib-origin-input.py`仅接受显式源文件、源SHA及独立新输出；结构、长度、Peer位置、属性段、gzip EOF、运行中源文件与代码变化均校验。TABLE_DUMP_V2 AS_PATH按四字节ASN解码，不运行旧应用或检测器。
+沿用03-31 08:00UTC／16:00北京时间RRC25 RIB，源SHA256 `7ab60c80563b22350445b934ed055e44a0ffd98503de73f55f6b7dd20f6fa419`，438,316,014压缩字节／4,353,737,106解压字节。公开入口`scripts/rib/retain-rib-origin-input.py`仅接受显式源文件、源SHA及独立新输出；结构、长度、Peer位置、属性段、gzip EOF、运行中源文件与代码变化均校验。TABLE_DUMP_V2 AS_PATH按四字节ASN解码，不运行旧应用或检测器。
 
 从末端AS_SEQUENCE跳过64512—65535及4200000000—4294967294；65535明确为旧规则附带排除的保留值，不错误称作RFC私有AS。0、23456、4294967295停止归属；AS_SET／联盟段不拆分、不越过歧义猜测。路径中较早出现集合，但末端已有明确序列ASN，可以归属末端。原AS_PATH／AS4_PATH字节、原始末端、归属ASN及原因分别保留；AS4_PATH在结构有效但缺乏另行解释规则时不猜测归属。解释版本`rib-attributed-origin/private-skip-v1`。
 
@@ -1693,7 +1693,7 @@ HTTP复用原首页接口，新增可选`metadata.scale`，已有`overview.visib
 
 ### 43.2 新版消费与兼容
 
-公开`scripts/bind-core-overview-origin.py`给旧`37b9…`前缀版添加可选`origin`绑定，复制原59份日数据／诊断、7份前缀包和5份起源包；不覆盖原输入。固定包根、SHA／字节数、合法ASN成员／排序去重、SQLite分母、同源文件／时点／Prefix集合及执行代码前后摘要均校验。最终清单使用临时名加原子无覆盖链接。审查前v1候选`515a…`未作为主输入，校验修复后另建v2`410c…`；起源数值与数据字节未变。
+公开`scripts/core_overview/bind-core-overview-origin.py`给旧`37b9…`前缀版添加可选`origin`绑定，复制原59份日数据／诊断、7份前缀包和5份起源包；不覆盖原输入。固定包根、SHA／字节数、合法ASN成员／排序去重、SQLite分母、同源文件／时点／Prefix集合及执行代码前后摘要均校验。最终清单使用临时名加原子无覆盖链接。审查前v1候选`515a…`未作为主输入，校验修复后另建v2`410c…`；起源数值与数据字节未变。
 
 Web只新增读取origin清单与summary，各≤64KiB；不读取原路径SQLite／ASN成员文件，不访问MRT、不生产数据。日期／地址族决定规模适用性，列表局部筛选不重算。起源损坏只使该指标null／unavailable，前缀与异常保留；异常日失败仍拦截全部统计。OpenAPI、生成类型、前端校验及卡片同步，旧无origin包仍可用。旧前缀包自身保留当时“起源待确认”历史限制，当前起源状态以独立origin版本与字段为准，不回写旧包。
 
@@ -1820,7 +1820,7 @@ Standards／Spec两轴独立审查均0项，仅认可本诊断范围；源与回
 
 左端为远端`/home/bgpdata/data/ripe/rrc25/2026.03/bview.20260330.1600.gz`的本次完整副本，源SHA为第45节`c7be3c…`；右端复用第43节完整留存的`bview.20260331.0800.retained.gz`，源SHA仍为`7ab60c…`。两端MRT时点分别为UTC03-30 16:00／03-31 08:00，即北京时间03-31 00:00／16:00；不能称业务日首尾。旧UTC03-31 00:00截断源没有准入或替换。
 
-`scripts/compare-rib-paths.py`提供单一离线命令，入口接收两文件／SHA和新的输出目录，使用当前数据配置。新模块复用本项目`rib_origin`的Peer表／AS段解码，不改变已有起源口径或代码。完整读取两份gzip／MRT、约束单Peer表作用域，按原始三元组配对，同组内共同单播Prefix且两端唯一entry才可能比较。只比较完整非空纯AS_SEQUENCE，无AS4_PATH；私用值、prepend及原始段保留。所有原始属性和Originated Time保留在解压原文，其他属性差异不属于本片指标。
+`scripts/rib/compare-rib-paths.py`提供单一离线命令，入口接收两文件／SHA和新的输出目录，使用当前数据配置。新模块复用本项目`rib_origin`的Peer表／AS段解码，不改变已有起源口径或代码。完整读取两份gzip／MRT、约束单Peer表作用域，按原始三元组配对，同组内共同单播Prefix且两端唯一entry才可能比较。只比较完整非空纯AS_SEQUENCE，无AS4_PATH；私用值、prepend及原始段保留。所有原始属性和Originated Time保留在解压原文，其他属性差异不属于本片指标。
 
 每个结果对象均保留两侧frame／entry零基引用，文件、Peer表、物理记录和解压偏移可追溯。重复、复杂路径或单端对象不从原始记录中删除；多Peer表／作用域不明则整份候选失败，保留原始副本和失败原因，不任意选表。源、代码及其前后身份核对；输入和输出均不得经过软链，输出不得覆盖。说明及资源边界见[离线接口说明](../.local/core-overview-validation/rib-path-comparison-20260912-OqlI6z/离线接口说明.md)。
 
@@ -1888,7 +1888,7 @@ Standards／Spec两轴独立审查均0项，仅认可本诊断范围；源与回
 
 ### 48.3 路径：两次观察对照已经接入
 
-复用第47节已验证的 `rib_path_comparison_v1_dd4a04f91975f23e867942a946b2df4251e89b97c69ce99e84b684925954d545`。新离线入口 `scripts/bind-core-overview-paths.py --index <明确索引清单> --comparison <明确比较清单> --output <新目录>`，完整核验八份源制品SHA／大小、逐行复算全部比较结果计数，并将每族最多5条差异样本定位回原MRT条目。31.77秒成功，命令与结果见 `path-binding-execution-v2.json`。不复制9.8GB原始证据到Web消费包，只复制有界摘要、样本及原清单；独立语义全量／抽核界限仍按47.3节，不把本次绑定冒充第二解析器全量复算。
+复用第47节已验证的 `rib_path_comparison_v1_dd4a04f91975f23e867942a946b2df4251e89b97c69ce99e84b684925954d545`。新离线入口 `scripts/core_overview/bind-core-overview-paths.py --index <明确索引清单> --comparison <明确比较清单> --output <新目录>`，完整核验八份源制品SHA／大小、逐行复算全部比较结果计数，并将每族最多5条差异样本定位回原MRT条目。31.77秒成功，命令与结果见 `path-binding-execution-v2.json`。不复制9.8GB原始证据到Web消费包，只复制有界摘要、样本及原清单；独立语义全量／抽核界限仍按47.3节，不把本次绑定冒充第二解析器全量复算。
 
 路径消费版本为 `rib_path_consumption_v1_923285261575c8752b380b5c04a45fa0510ea90354aa55f50f813ec79a637ba9`。页面明确显示北京时间03-31 00:00→16:00，路径不同1,502,441对／可比56,451,868对＝2.66%，相同54,949,427对；不可比8,398、仅左侧91,316、仅右侧190,810。单位是原始Peer属性组×AFI×SAFI×Prefix对象对，不是独立前缀数、期间次数或异常。两端相同不意味着期间稳定；单端缺项不证明撤回或网络消失；Session连续性／覆盖unknown、期间次数null。
 
@@ -2034,3 +2034,329 @@ agent-browser独立浏览器通过候选端口实际验证默认首页、路径�
 - #2的ASN特征无记录原因、#7的历史cohort／状态输入仍开放，单RIB及有限路径对照不替代其证据。相关任务正文顶部补充当前状态、链接现行成果；已关闭的历史调查及原评论保留原范围。
 
 GitHub仓库当前仅用于Issues；源码提交与合并发生在SSH主仓库，不公开上传源库、凭据、制品或全部源码，也不虚构GitHub文件链接。
+
+## 53. Issue #22 首次真实盘点因监控扫描超时停止
+
+本节保留06:46 UTC的首次失败；随后获准的扫描修复续作见[第54节](#54-issue-22-扫描修复续作与首候选提前停止)，不追改原始失败回执。
+
+2026-09-12，流程结论 **REPAIR**。用户在父任务明确确认了已审阅方案，授权指定窗口的只读盘点及独立目录内的有界离线试点；首次盘点在运行期磁盘统计超时后停止。尚未冻结输入清单，没有进入首候选准备或两批生产，12天实际MRT覆盖仍为 **Unknown**。这不是源文件损坏结论，也不是两批完成或产品验收。
+
+### 执行范围、基线与已完成准备
+
+真实执行任务为 `01a09454-581a-7021-b4be-ac36fda38719`，本地工作树 `/Users/botongwu/.codex/worktrees/63fd/domeye-new`，分支 `codex/issue-22-real-pilot`；父任务负责最终验收及 [Issue #22](https://github.com/xinghuahewo/domeye_new/issues/22) 状态。执行代码固定为 `40f66530643fd2032a2b5f94c976d75524f6f639`。目标为RRC25、Asia/Shanghai业务日02-27至03-10；UTC两批窗口分别是 `[2026-02-26T16:00:00Z,2026-02-28T16:00:00Z)` 与 `[2026-02-28T16:00:00Z,2026-03-10T16:00:00Z)`。
+
+新服务器代码／运行位置及终态见[运行手册](runbooks/运行与维护.md#issue-22-首次真实试点终态)。执行前核对两根未占用、28621／28623无监听；代码bundle SHA256 `b8ab164dd2a24215a2e175f68b30d24b8cdd6d1dfd4e92d01c7311cd0f708eb3`、工具归档SHA256 `21f72d4933f1a3c1533c3c2878614b1b0d85196ca60b00cb6f532333eca40f7e`在传输前后及解包后逐文件一致。Python依赖按本项目uv锁安装（449.020秒），前端按npm锁安装（5.024秒）；结束时跟踪代码、两个锁文件及工具摘要均未变，没有加载旧项目环境。
+
+两次安装编排失败单列保留：解包脚本错误假设归档顶层名为`issue22-tooling`，实际封包为`tooling`，目录断言失败后核对既有解包文件，未改工具或重新解包；npm在实际安装前拒绝user/global配置共用`/dev/null`，改为本次运行根中的两份独立空配置后完成安装。原失败日志仍保留，不作为生产器失败或真实离线重跑证据。
+
+### 临时单元、资源与停止证据
+
+唯一业务步骤为已审查runner的`inventory`，单元 `domeye-issue22-20260912-inventory-initial-5ea0365bca58.service`。单元内的`limits-verified.json`确认`system.slice`和实际`memory.max=8589934592`、`memory.swap.max=0`、`cpu.max=100000 100000`；运行1195秒、停止宽限5秒、Restart=no、KillMode=control-group均符合方案。限额已生效只证明本次单元约束成立，不表示后续业务能够承载。
+
+启动基线统计通过，代码与运行根合计548,968,657字节，可用磁盘2,134,941,577,216字节。随后已放行盘点进程，但第一次运行期`_scan`超过固定3秒预算；worker于06:46:21.784354 UTC保存`state=stopped`、`TimeoutExpired`，记录耗时4.372秒。systemd的主进程单调时钟起止差为4.534427秒，唯一离线步骤累计按该值计；没有开启下一步。
+
+失败触发链位于本次Git外[固定runner](../.local/issue-22/tooling/issue22_runner.py)：`sample()`调用有3秒超时的统计子进程，`worker()`在业务启动后调用它，异常先写`result.json`，再按已绑定的精确unit停止。`supervisor.log`还记录停止命令自身收到SIGTERM，unit最终ExecMainStatus=2；不能把预期退出码125当作已观测结果。终态为failed／failed，MainPID=0、ControlGroup为空，已核对无本次存活业务或预览进程。
+
+`result.json`的`samples=0`，没有`samples.jsonl`，`time.txt`为空。因此最大RSS、cgroup内存峰值、候选／登记／临时空间峰值、运行期间最低可用空间均为 **Unknown**，不能把初始化的`max_sampled_*=0`当成实测零。启动基线不是运行峰值；轮询也不是文件系统硬配额。当前证据只确认统计调用超时，具体性能原因留给后续诊断，未以此认定源坏、磁盘满或OOM。
+
+### 实际声明清单与12日覆盖
+
+只在授权的UTC二月、三月目录中列出36个窗内`bview`文件名声明：第一批6个，第二批30个；第二批包含`2026.02/bview.20260228.1600.gz`。残留`inventory.json`仍为中断前的`running`，36条均无完成SHA256，两个批次manifest均不存在，不能拿它直接驱动批次。摘要、普通文件核验、实际Collector／MRT时点及已读取的原始字节量均未形成完整回执。
+
+| 北京时间业务日 | 批次 | 文件名声明候选 | 已完成摘要 | 实际MRT时点 | 快照计算状态 |
+| --- | --- | ---: | ---: | --- | --- |
+| 2026-02-27 | 第一批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-02-28 | 第一批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-01 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-02 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-03 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-04 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-05 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-06 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-07 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-08 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-09 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+| 2026-03-10 | 第二批 | 3 | 0 | Unknown | `not_calculated` |
+
+表中`not_calculated`是本次覆盖汇总，未伪造成生产器已提交报告。每一天都是声明存在但未完成输入核验；没有“已证明缺输入”“校验失败日”或“有效空日”的新判定。prepare、独立原始audit、试登记、两批batch、重跑／故障注入、真实HTTP及实际浏览器均未执行；总体／ASN数值与多Peer、多起源、AS_SET、联盟、AS4等真实类别覆盖仍为Unknown，不以原fixture结果补齐。
+
+### 证据保管、检查与下一修复条件
+
+本地证据根为[`.local/issue-22`](../.local/issue-22/)；[句柄及终态](../.local/issue-22/live-handles.json)、[逐日覆盖](../.local/issue-22/coverage.json)、[21份服务器回执摘要](../.local/issue-22/remote-receipt-checksums.json)与[完整单元回执](../.local/issue-22/remote-receipts/receipts/domeye-issue22-20260912-inventory-initial-5ea0365bca58.service/)均保留。21份回执和盘点残留已在本地与服务器逐文件核对SHA256及字节数一致；原始MRT没有复制进本地或Git。
+
+本次停止后未重跑inventory、未改3秒扫描上限或其他资源边界，未生成snapshot或登记，也未启动28621／28623预览、切换共享服务／main／独立A或操作P0。本轮仅同步文档，无产品代码、接口或依赖锁定变更；检查范围为回执一致性、终态／路径、工具与锁文件摘要、逐日声明统计及文档差异，不声称重新通过全套测试、HTTP或浏览器验收。
+
+下一步先在本地诊断并审查扫描预算适配及中断回执完整性，证明监控在原有资源边界下可用；如修订工具，重新固定摘要并审阅新执行计划。原两个目录已占用且现场必须保留，重新真实执行需要明确的新路径／续作规则和授权范围，不能覆盖现场或沿用36条未冻结声明。当前没有足够测量值计算“全部候选工作量×1.5”的GO门槛，不能据候选数直接批准两批。#22与父规格#18的真实生产／消费验收仍未完成，Issue由父任务统一处理。
+
+## 54. Issue #22 扫描修复续作与首候选提前停止
+
+2026-09-12，阶段结论 **REPAIR**。同一授权范围内的续作完成了36个候选文件摘要冻结；首候选prepare开始真实处理，但按既定整批时长估算门槛被父任务明确要求提前停止。没有完成快照或登记，实际12日覆盖仍为Unknown。第53节的扫描超时现场和文档提交`13f7bc3`保留，不把本次盘点成功改写为首次成功。
+
+### 授权续作与固定材料
+
+父任务完成新runner的本地22项人工输入／mock测试及Standards、Spec独立审查，记录两轴剩余0项，随后明确派发一次同范围续作；本执行任务未重跑这22项，也不把本地基准当成服务器通过。范围继续使用RRC25、北京时间02-27至03-10及原两个UTC窗口，生产代码固定`40f66530643fd2032a2b5f94c976d75524f6f639`，复用本次已安装的独立环境，不重新安装依赖。
+
+新增`issue22_runner_scan_v2.py` SHA256为`cd49d9f6290024e57ddff067a44232735632e63376497df4217c3e2e03bf1434`；其完整遍历仍覆盖CODE＋RUN，保留原计数口径和全部失败现场。3秒扫描、1秒轮询、8GiB内存、Swap0、CPU100%、1195＋5秒、32／208GiB早停、40／200GiB目标及3小时累计限制均未扩大。代码及原`input_inventory.py`、audit和preview脚本未改。
+
+新归档9,707字节、SHA256 `83d2604ddb6cc2448f2eb66c60ffdc54ac12c23536f1f36fcb3ffc5dd3a9172f`，只允许两个普通文件成员：新runner和`plans/inventory-scan-v2.json`，排他创建且两端逐文件核对。新盘点计划SHA256为`0dff5035bb0bf18f80bd2a95f33c6915380ceb3681120b5f4360d7cc239b7c4c`；服务器review与冻结review除随机单元标识外一致。prepare计划也绑定新runner、固定入口及三份冻结盘点JSON，仍只调用正式`rib-snapshot.py prepare`，没有替换生产算法。
+
+### 真实盘点已完成，正文仍待核验
+
+新盘点单元后缀为`inventory-scan-v2-15b9e9f25872`，07:05:45—07:07:20 UTC正常退出，worker为succeeded、业务退出0、systemd退出0。单元内再次核验实际`memory.max=8589934592`、`memory.swap.max=0`、`cpu.max=100000 100000`，57次运行期扫描没有触发3秒上限。输出状态为`inventory_complete_content_unverified`。
+
+| 冻结批次 | 声明／不同SHA数量 | 压缩源总字节 | 清单SHA256 |
+| --- | ---: | ---: | --- |
+| 第一批，02-27—02-28 | 6／6 | 2,558,482,895 | `8b859ebdbb857f55257f1e47723322dd2491f9b5e3230ba61502d1f836b1b267` |
+| 第二批，03-01—03-10 | 30／30 | 13,096,322,733 | `d4157b9a6080c22b185e0286514f3a001ad47800b90a82974f4dd7b5c4543644` |
+
+第二批包含UTC二月目录的`bview.20260228.1600.gz`，未按月目录错误截断。36份均完成普通文件定位／摘要，12日各3份候选；这只冻结文件身份与声明，不证明gzip／MRT完整性、实际Collector／时点或业务覆盖。
+
+### 固定首候选与协调提前停止
+
+按冻结UTC时点＋SHA固定排序，唯一首候选为`2026.02/bview.20260226.1600.gz`，426,823,693字节，SHA256 `ffc7e9e86171bd850243bec3eecc50cae632f3918e47e6b81c8b5149b2442f0f`，声明时点2026-02-26T16:00:00Z。单元后缀为`pilot-prepare-scan-v2-f2fbeb4fa56f`，07:08:40 UTC启动并通过相同实际cgroup核验。
+
+截至07:12:52 UTC，该候选已运行超过4分钟且尚未完成。按本次约定的“全部6候选×完整首候选时长×1.5”估算，保守下界已超过`240×6×1.5=2160`秒，不能进入原1200秒整批门槛。父任务据此明确要求立即停止；这是约定估算规则下的准入结论，不是测得整批实际耗时，也没有把部分结果外推为完整处理速度。
+
+07:15:31.548910 UTC核对Meta／Id／Description／Slice后，通过新runner的精确stop入口终止上述首候选单元，stop CLI退出0。worker记录`InterruptedError: 本次 unit 收到信号 15`及stopped，systemd最终failed／failed、ExecMainStatus=125、MainPID=0、ControlGroup为空。停止决定另存`coordinator-stop-decision.json`，与`stop-request.json`区分调度决定和机械停止动作。该次不是扫描失败、自动耗尽20分钟、生产器完成或源损坏；完整源耗时、最终体积、投影正确性均为Unknown。
+
+最后一条**生产器进度**为解压268,437,637字节、89,091条物理记录、3,742,092条RIB观察条目；没有全流独立核对，不能把进度计数当作已验收数据。停止后仅残留190,406,656字节的`snapshot.sqlite`，没有`manifest.json`，没有任何登记目录或批次输出。残留字节数不等于最终投影大小，不用于计算虚假的完成吞吐。
+
+### 资源实测与累计账本
+
+| 步骤 | systemd实际单调时钟耗时 | 运行期采样 | cgroup内存采样最大值 | CODE＋RUN采样最大值 | 结论 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 首次旧runner盘点 | 4.534427秒 | 0 | Unknown | Unknown | 扫描超时，第53节 |
+| 新runner盘点 | 95.314181秒 | 57 | 8,582,463,488字节 | 549,222,609字节 | 摘要冻结成功，正文未验证 |
+| 首候选prepare | 411.135822秒 | 234 | 422,506,496字节 | 739,850,449字节 | 协调提前停止，未完成 |
+
+累计离线510.984430秒，未达到3小时预算；停止依据为上述批次准入门槛。新盘点业务`time.txt`给出93.67秒与最大RSS 19,832 KiB；首候选`time.txt`为空，业务最大RSS为Unknown。两个新单元均没有内核`memory.peak`数值，表中采样最大值不是连续峰值，也不能替代业务RSS。
+
+首候选采样的暂存目录最大值190,418,944字节，最低可用磁盘2,134,584,799,232字节；全程已保存的memory.events未见OOM或OOM kill。这些只覆盖实际运行时段与采样点，不保证轮询间没有更高瞬时占用，不证明4GiB SQLite或两批8GiB预算最终可满足。
+
+### 12日覆盖与未执行阶段
+
+| 北京时间业务日 | 批次 | 候选／完成摘要 | prepare状态 | 实际完整MRT覆盖 |
+| --- | --- | ---: | --- | --- |
+| 2026-02-27 | 第一批 | 3／3 | 首候选被协调提前停止 | Unknown |
+| 2026-02-28 | 第一批 | 3／3 | 未开始 | Unknown |
+| 2026-03-01 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-02 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-03 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-04 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-05 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-06 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-07 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-08 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-09 | 第二批 | 3／3 | 未开始 | Unknown |
+| 2026-03-10 | 第二批 | 3／3 | 未开始 | Unknown |
+
+上述12天均未生成可用快照，本次汇总状态为`not_calculated`；该状态没有伪装成生产器已提交批次报告。没有新增缺输入日、输入校验失败日或有效空日判定。独立原始audit、pilot register、两批batch、重跑／故障注入、真实HTTP与实际浏览器均未执行；总体／ASN计数、多Peer、多起源及集合／联盟／AS4等实际类别覆盖尚未验收。
+
+### 保管、核对与后续边界
+
+所有新材料位于[`.local/issue-22/scan-v2`](../.local/issue-22/scan-v2/)；[执行判定](../.local/issue-22/scan-v2/gate-result.json)、[累计时长](../.local/issue-22/scan-v2/budget-ledger.json)、[逐日覆盖](../.local/issue-22/scan-v2/coverage.json)、[完整性终态](../.local/issue-22/scan-v2/final-integrity.json)及[33份新回执摘要](../.local/issue-22/scan-v2/remote-new-receipt-checksums.json)可复核。两个新单元的limits／result／samples／time／unit-status及停止回执均已复制，新清单与计划也保存在本地`remote/`对应路径；33份材料逐文件SHA256及字节数与服务器一致。
+
+终态复核原21份失败回执、新冻结清单、原工具、新runner、处理代码及依赖锁均未变；36份源的实体属性与冻结盘点一致，没有再次散列MRT，不能由metadata推断全文再次复核。三个本次单元均无进程且cgroup目录不存在，成功盘点仅保留active／exited的systemd记录；预览28621／28623未启动。共享服务、服务器main、独立A与P0未切换，原MRT和残留SQLite未复制进本地或Git。
+
+本阶段只同步四份中文文档，未改生产代码、接口、锁文件或正在保管的工具。验证为真实盘点／受限测量、精确停止、清单／回执一致性、源码与工具绑定及文档差异／链接检查；没有重新执行全套产品测试或页面验收。父任务继续人工输入下的本地性能热点诊断，另行审查修复与真实续作条件。本执行任务不扩大预算、不换源或循环重跑，不进入后续消费验收；#22及父规格#18仍未完成，由父任务维护Issue。
+
+## 55. Issue #22 新版首候选在只读挂载门禁处停止
+
+2026-09-12，阶段结论 **STOP，prepare 业务未启动**。父任务完成 #23 优化及新 runner 的本地测试／双轴审查后，明确派发固定首候选的一次新版 prepare；本次在实际挂载只读门禁处拒绝，没有测得新版真实吞吐。第53节扫描超时、第54节盘点成功与旧版 prepare 提前停止的现场及原54份材料均保留。
+
+### 固定版本、输入与一次执行范围
+
+新版活动代码固定为 `6dd2d98d36194c215c756b778270ad9f89170b85`，包含 #23 优化；只排他安装到本次运行根 `code/issue23-first-pilot`，detached HEAD 与跟踪文件状态核对通过。旧代码根保持 `40f66530643fd2032a2b5f94c976d75524f6f639`，依赖锁相同且未安装新依赖。目录权威位置见[运行手册](runbooks/运行与维护.md#issue-22-新版首候选只读门禁终态)。本地文档分支在执行停止后快进到同一 `6dd2d98`，保留 #23 已合并的实现与架构说明。
+
+| 冻结材料 | SHA256 |
+| --- | --- |
+| `issue22-code-issue23.bundle`，1,115,655字节 | `f1b43b0622112e8083b0b3eeb20cdbbf7b40bba6fa40ae480162104803481135` |
+| `issue22-tooling-issue23.tar.gz`，11,716字节 | `48bcaca78d70b5622e4b8ff6639b23ffe11b316bd74f1cd775b43fb00a9caaf6` |
+| `tooling/issue22_runner_issue23.py` | `f2f396e463d4be183a753580ebe4bdad17f38571d3712cd09b5a87514097c270` |
+| `plans/pilot-prepare-issue23.json` | `2fb2dda0a3a20a5600b180963c89181552f7e90f6324f40935058b5e2cdeb27a` |
+
+代码包唯一 HEAD、工具包两个普通文件成员、传输前后摘要及服务器 review 均与冻结材料一致。首候选仍为第54节的 `bview.20260226.1600.gz`、426,823,693字节、SHA256 `ffc7e9e86171bd850243bec3eecc50cae632f3918e47e6b81c8b5149b2442f0f`，声明时点为2026-02-26T16:00:00Z，Collector为RRC25。计划仅运行正式 `rib-snapshot.py prepare`，输出绑定新的 `pilot-prepared/issue23-first`；没有换源或重新盘点。
+
+资源边界保留3秒完整扫描、1秒采样间隔、8GiB内存、Swap0、CPU100%、1195＋5秒、32／208GiB早停、40／200GiB目标及3小时累计限制；旧 CODE 与整个 RUN 都计入空间。协调器按15秒间隔观察，如超过150秒仍未完成则按授权条件精确停止。实际门禁在0.175165秒内拒绝，未触发150秒协调条件，后续阶段未获本次放行。
+
+### 已观测失败与不能补齐的 worker 证据
+
+唯一新增单元 `domeye-issue22-20260912-pilot-prepare-issue23-a42dfd38b1b5.service` 于07:48:35 UTC启动。worker 的 `readonly_mount_proof()` 对旧 CODE、tooling、新活动代码执行 `statvfs(...).f_flag & ST_RDONLY`，在 `all(proof.values())` 检查处抛出 `ValueError`，记录“旧代码／新代码／工具的实际挂载并非只读，业务未启动”。逐路径映射在异常前未保存，具体哪个路径为false仍为 **Unknown**，不能把合取失败写成三者均可写。
+
+systemd记录 `ProtectSystem=strict`、`ReadWritePaths=RUN`，`ReadOnlyPaths` 显式列出 tooling 与新活动代码，未列旧 CODE。门禁异常发生在完整 `limits-verified.json` 写出之前，`environment-verified.json`、`baseline-disk.json`、业务 stdout／stderr／time 与 `samples.jsonl` 均不存在。配置属性存在不等于已取得 worker 实际隔离及环境核验证据；宿主机通过的 Python／标准库预检也不能代替本轮缺失回执。
+
+worker `result.json` 为stopped、耗时0.011358952秒、样本0；初始化 `max_sampled_*=0` 不是实测零。业务最大RSS、内存／磁盘运行峰值、完整源耗时、最终投影大小与正确性均为Unknown。supervisor记录其停止命令自身收到SIGTERM；最终systemd为failed／failed、退出2、MainPID=0、ControlGroup为空，cgroup目录不存在。本次没有 `stop-request.json` 或协调停止决定文件，不能写成150秒早停、源损坏、OOM或 #23 性能失败。
+
+### 只读平台取证与诊断方向
+
+07:52:59 UTC只读补证确认实际 systemd 为 `249 (249.11-0ubuntu3.22)`，`systemd-detect-virt` 返回none（退出1）；PID1的有效能力包含CAP_SYS_ADMIN，NoNewPrivs=0、Seccomp=0。只读取该unit在07:48:30—07:49:10 UTC的限定日志，共6行启动／退出／停止记录，没有额外namespace、mount或权限失败消息；日志未报告不代表所有隔离步骤已通过。
+
+当前SSH与PID1挂载namespace均为 `mnt:[4026531841]`，旧 CODE、RUN、tooling和新活动代码在该视图命中根ext4挂载、rw，statvfs标志为4096。原worker挂载namespace已退出，以上是宿主机当前读数，不能充当worker内读数，也不能据此认定systemd命名空间未生效。补证未新建unit或写服务器文件。
+
+[systemd v249官方实现](https://github.com/systemd/systemd/blob/v249/src/core/namespace.c#L182-L198)将 `/home` 保留为 `READWRITE_IMPLICIT`，由 `ProtectHome` 单独控制。结合旧 CODE 位于 `/home` 且本次 `ReadOnlyPaths` 未显式列入它，**配置遗漏是待验证的诊断方向**。当前没有原worker逐路径证据，尚不能把该方向认定为全部失败根因或平台失去隔离能力；本轮不修订配置、不降低门禁、不重试。
+
+### 累计时间、覆盖与保管终态
+
+systemd主进程单调时钟起止为3299833837128／3299834012293微秒，本次耗时 **0.175165秒**；加此前三步510.984430秒，累计 **511.159595秒**。观察器等待到15秒才见终态，不将其等待时长计作离线业务耗时。本次停止由只读门禁触发，不是3小时预算耗尽或整批测量结论。
+
+沿用第54节冻结的36份摘要和12日各3份候选，本次结束仅复核源metadata不变，未重新全文散列或解析。新版输出目录不存在；旧partial SQLite仍为190,406,656字节且无manifest。12日完整MRT覆盖、总体／ASN计数及真实类别覆盖继续为Unknown；没有新增缺输入日、校验失败日或有效空日。独立audit、登记、两批、故障注入、HTTP与浏览器均未开始。
+
+新材料位于[`.local/issue-22/issue23-first`](../.local/issue-22/issue23-first/)；[执行判定](../.local/issue-22/issue23-first/gate-result.json)、[逐日覆盖](../.local/issue-22/issue23-first/coverage.json)、[累计时长](../.local/issue-22/issue23-first/budget-ledger.json)、[平台只读证据](../.local/issue-22/issue23-first/platform-readonly.json)、[完整性终态](../.local/issue-22/issue23-first/final-integrity.json)及[11份新服务器材料摘要](../.local/issue-22/issue23-first/remote-new-receipt-checksums.json)可复核。11份包含单元现存回执、安装／终态回执和计划，已逐文件核对本地与服务器字节及SHA256；缺失文件按上文明确列出，没有补造成功回执。
+
+终态确认原54份材料、20份旧小文件／清单、旧新代码与冻结新包均未变，四个本次单元均无进程或cgroup目录，28621／28623未启动。共享服务、服务器main、独立A与P0未修改；原MRT与SQLite未复制到本地或Git。本阶段仅改四份中文文档，检查回执一致性、绑定、时长、缺失证据及文档差异／链接；未重跑父任务测试或进行产品验收。后续修订及真实续作由父任务另行审查，#22／#18尚未完成，GitHub由父任务统一处理。
+
+## 56. Issue #22 只读对照通过与新版首候选按估时门槛停止
+
+2026-09-12，最新阶段 **REPAIR**。父任务先明确派发两个只读诊断单元，核对终态后再单独派发一次新版 prepare。两次对照与 prepare 实际门禁均通过；首候选在150秒仍未完成，按既定整批估时准入规则协调停止。第53—55节及原始失败回执保留；本次没有完成快照、独立audit或真实12日覆盖验收。
+
+### 两个只读单元的实测对照
+
+固定 `readonly_probe.py` 为2,476字节、SHA256 `7e08eab16105a283c23408f9303fa27378cc432796996fb3c55ecf370c3e69d7`；诊断计划SHA256 `cd73b6cdceedb6fb2f1fd68df6a4197e77b045a6a1d7b080b831ad8ae3f27272`。只排他安装新探针，保留原systemd资源／隔离属性，探针内部10秒alarm，不导入业务或读取MRT正文。两步使用现场新nonce，原始映射及终态通过后才进入下一步。
+
+| unit后缀／实际单调耗时 | 旧CODE | tooling | 新活动CODE | RUN |
+| --- | --- | --- | --- | --- |
+| `ro-probe-baseline-6e15be4d5aa8`／0.115955秒 | false，4098，命中`/home` rw | true，4099 | true，4099 | false，4098 |
+| `ro-probe-repaired-0af82d6e6c75`／0.119796秒 | true，4099，命中自身ro挂载 | true，4099 | true，4099 | false，4098 |
+
+表中数值为本unit内实存的statvfs `f_flag`，`ST_RDONLY=1`；对应mountinfo命中行同时保留。两个启动argv规范化身份字段后，唯一差异是 `ReadOnlyPaths` 追加旧CODE。两unit均退出0、active／exited、MainPID=0且cgroup目录不存在，实际限额均为 `memory.max=8589934592`、`memory.swap.max=0`、`cpu.max=100000 100000`。这确认了旧配置遗漏及最小修复在新诊断单元中的作用，不补造第55节原worker缺失映射；先后出现的相同namespace编号不能证明它们曾同时共享namespace。两步后累计511.395346秒。
+
+### 新版一次 prepare 的固定绑定与门禁
+
+父任务验收上述对照后，另行派发新 runner `issue22_runner_issue23_ro.py`（31,001字节，SHA256 `1f1c17789b737e152f59e354e4bf7c656720281cff5a79ea9f8c8f9ecab9a108`）与计划 `pilot-prepare-issue23-ro.json`（1,620字节，SHA256 `c246a0cc51c1b371d4c57c3af4d8c89aea1247cedeeb02c9e64a8f648752e45e`）。两文件排他安装且传输前后摘要一致；服务器review与冻结版本除nonce外完全相同。
+
+生产代码仍固定 `6dd2d98d36194c215c756b778270ad9f89170b85`，旧代码／解释器位置保持 `40f66530643fd2032a2b5f94c976d75524f6f639`。仍仅处理固定首源 `bview.20260226.1600.gz`、426,823,693字节、SHA256 `ffc7e9e86171bd850243bec3eecc50cae632f3918e47e6b81c8b5149b2442f0f`，正式prepare入口及完整源摘要校验规则未绕过。新输出绑定 `pilot-prepared/issue23-first-ro`；没有换源、安装依赖或修改生产代码。
+
+单元 `domeye-issue22-20260912-pilot-prepare-issue23-ro-0519de418823.service` 于08:07:13 UTC启动。`readonly-mounts.json`先保存三路径均4099／true；`limits-verified.json`记录原实际cgroup限额及三路径只读；`environment-verified.json`记录Python3.10.12、`-I -S -B`、新活动代码的四模块来源／摘要、无旧业务模块、固定锁及数据档。这次已取得worker成功门禁证据并启动正式业务，与第55节业务启动前STOP区分。
+
+3秒完整扫描、1秒采样间隔、8GiB／Swap0／一核、1195＋5秒、CODE＋整个RUN空间总账、32／208GiB早停及3小时累计均未放宽。启动前109份固定小文件及六个既有unit终态通过；代码加运行目录747,382,993字节、可用空间2,134,623,440,896字节，新输出尚不存在。
+
+### 150秒协调停止、资源与未完成结果
+
+08:09:43.703377 UTC，协调器按15秒间隔观察到unit实际已运行150.284976秒且仍无manifest。按约定“全部6候选×完整首候选时长×1.5”，估算下界超过 `150×6×1.5=1350` 秒，超出原1200秒整批门槛，随即保存协调决定并用新runner精确stop。决定与机械停止分别保存在 `coordinator-stop-decision.json` 和 `stop-request.json`；这不是1195秒自动超时、已知完整源耗时或源损坏。
+
+systemd主进程单调时钟3300951435011→3301101841002微秒，实际 **150.405991秒**；worker记录stopped、信号15、150.231058秒。终态failed／failed、退出125、MainPID=0、ControlGroup为空且cgroup目录不存在。加前六步511.395346秒，累计 **661.801337秒**，未耗尽3小时预算。
+
+| 已保存资源证据 | 本次值 | 适用边界 |
+| --- | ---: | --- |
+| 运行期样本 | 84 | 完整保留，未触发3秒扫描失败 |
+| cgroup内存采样最大值 | 223,289,344字节 | 非连续内存峰值或业务RSS |
+| CODE＋RUN采样最大值 | 847,734,993字节 | 包含原依赖、工具、回执及旧新半成品 |
+| 运行期最低可用空间 | 2,134,373,969,920字节 | 仅覆盖已采样时点 |
+| 全部`pilot-prepared`目录采样最大值 | 290,611,200字节 | 含旧残留，不能冒充本次单目录最终体积 |
+| 业务最大RSS／内核`memory.peak` | Unknown／Unknown | `time.txt`为空，全部样本peak为null |
+
+已保存memory.events未见OOM或OOM kill；采样不能排除轮询间更高瞬时占用。最后一条生产器进度为解压134,217,803字节、44,415条物理记录、1,873,711条RIB观察，未做全流独立audit，不能当作全文计数、完成比例或吞吐测量。
+
+本次只残留100,184,064字节的`snapshot.sqlite`，无manifest；旧partial仍为190,406,656字节且无manifest，第55节输出目录仍不存在。固定版本之间的partial字节或进度不能直接比较为完整源性能收益。12日各3份候选及36份冻结摘要沿用第54节；终态仅复核metadata不变，未重新全文散列。完整源耗时、最终投影大小、总体／ASN数值、实际完整MRT与类别覆盖仍为Unknown；没有新增有效空日、校验失败日或缺输入日判定。
+
+### 回执保管、验证与后续边界
+
+两诊断的[证据目录](../.local/issue-22/readonly-probe-live/)保存18份服务器回执及[对照结果](../.local/issue-22/readonly-probe-live/comparison-result.json)。各诊断的`result.json`只是兼容既有stop入口的非成功初始占位，原始证据用`probe-result.json`，终态用`coordinator-terminal.json`／`final-result.json`。新版prepare的[证据目录](../.local/issue-22/issue23-first-ro/)保存21份新服务器回执／计划及[判定](../.local/issue-22/issue23-first-ro/gate-result.json)、[资源](../.local/issue-22/issue23-first-ro/resources.json)、[累计账本](../.local/issue-22/issue23-first-ro/budget-ledger.json)、[逐日覆盖](../.local/issue-22/issue23-first-ro/coverage.json)、[终态绑定](../.local/issue-22/issue23-first-ro/final-integrity.json)和[文件摘要](../.local/issue-22/issue23-first-ro/remote-receipt-checksums.json)。两组共39份材料均逐文件核对本地与服务器字节／SHA256。
+
+终态111份固定小文件摘要未变，其中83份既有回执／计划／清单保留；36份源metadata不变，七个unit均无残余进程或cgroup目录。原MRT／SQLite未复制到本地或Git，28621／28623未启动，共享服务、main、独立A与P0未改。本阶段只同步四份中文文档，检查原始样本汇总、时间、绑定、回执、完整差异和新增链接，未重跑全套产品测试或进行产品验收。
+
+本轮不自动retry、audit、register、batch、故障注入、HTTP或浏览器验收，也不继续按150秒循环试跑。整批仍REPAIR，父侧评估原限额内的单源完整成本测量，尚未放行；该测量不等于两批准入，也不保证限额内必然完成。#22／#18仍未完成，GitHub由父任务统一维护。
+
+## 57. Issue #22 首源生产完成与验证收口
+
+2026-09-12，固定首源已完成 prepare 与内置完整验证，**单候选 GO**。用户随后明确「没必要为了“审计”再花接近一次完整生产的成本。验证部分就可以了」，额外全量重放审计已精确停止。正式候选保留，收口采用生产阶段已完成的验证及小文件绑定／终态检查；不再重复全流解析或全库核验。该结论不代表独立审计通过、登记完成或36份候选／12日全部生产完成。
+
+### 同源执行与时间决定
+
+沿用第54节冻结首源 `/home/bgpdata/data/ripe/rrc25/2026.02/bview.20260226.1600.gz`，426,823,693字节，SHA256 `ffc7e9e86171bd850243bec3eecc50cae632f3918e47e6b81c8b5149b2442f0f`。观察点为RRC25，时点 `2026-02-26T16:00:00Z`，业务日期为北京时间02-27；没有换源。运行根仍为 `/home/bgpdata/domeye-new-runtime/rib-pilot-20260912-issue22`，下表unit全名统一前缀 `domeye-issue22-20260912-`、后缀 `.service`。
+
+| 本阶段unit／UTC时间 | systemd实际单调耗时 | 结果 |
+| --- | ---: | --- |
+| `pilot-complete-issue23-ro-7a2af257d918`，08:20:12→08:40:07 | 1,195.208571秒 | 原1195秒运行限额超时；只保留942,014,464字节partial，无manifest |
+| `pilot-finish-explicit-time-112316fdded3`，08:57:24→10:53:56 | 6,992.037102秒 | worker succeeded、systemd success、退出0，正式manifest已生成 |
+| `pilot-audit-unlimited-00581458b973`，11:32:17→11:47:51 | 934.503313秒 | 用户主动取消，worker stopped、退出125，未生成独立审计报告 |
+
+完整成本测量沿用6dd代码，首行超时来自整个unit的Runtime限制；停止时扫描子进程收到SIGTERM不是再次发生3秒扫描故障。原残留及第53—56节失败现场均保留。成功生产另用新目录和固定 `95de9bbfececdad3554d215f4e9d1b02059a6468`，CLI摘要 `c6bc99105785bd15d365c2fa2be266d57d1285acb8460d4ce9347ad340a83c03`，复用原独立Python3.10.12；原40f／6dd代码、依赖和锁未替换。
+
+成功生产最初显式采用7200秒参数；累计上限先为10,800秒、后获准18,000秒。运行中用户又明确“不要限制时间，跑完数据为止”，撤销同源生产及当时必要验证的单步／累计截止，其他资源与来源边界保留。直接 `systemctl set-property` 修改被系统拒绝且未生效；随后仅为该unit写入 `/run/systemd/system/<unit>.d/90-user-unlimited-time.conf`，重载后实读Runtime为infinity。旧CLI的现场处置仅通过ptrace GETSIGMASK／SETSIGMASK为单线程业务进程增加SIGALRM阻塞位并分离，未修改指令或数据，也没有调用alarm(0)删除内核计时器。原始授权与操作回执保留；实际生产在原7200秒前已完成，不能声称验证了越过原截止的运行行为。
+
+当前源码另已支持原生 `prepare --max-seconds 0`，不是此次已完成候选的生产代码；审计工具使用原生0及systemd infinity。用户最新取消额外重放后即停止，不以取消时限为继续审计的理由。十个离线unit累计 **9,783.550323秒**，仅如实记账，不再按历史上限判定剩余额度。
+
+### 已完成候选、计数和验证
+
+候选目录为运行根 `pilot-prepared/first-explicit-time/`，版本为 `rib_snapshot_v1_64882fe01d19d942450814ace80382ef1676979d26017972d1ecd79a3f50a8c4`。
+
+| 完成文件／身份 | 大小或SHA256 |
+| --- | --- |
+| `snapshot.sqlite` | 2,553,282,560字节；`ecd8b28d7b79a59eed1ea29f9f212ae3dd8cced80a0b00e35c50c3fc3068ff62` |
+| `manifest.json` | 2,192字节；`4e4039ac494557b159bce08b05f2d58ecb1a60f8e477abb3d1241f4eae3ad29d` |
+| `execution.json` | 385字节；`dbae44b8296bf6d289fd652413e296ca3ad83a2b84d10e60a5b85c2512e1a1f6` |
+| 逻辑摘要 | `de042933304e77f87b5af98aeed080bbd74ad73c3f668c689afdca6309753495` |
+
+生产器完整读取gzip至EOF，解压 **4,339,022,582字节**，共 **1,398,417条MRT物理记录**。按固定实现完成源／数据库摘要、SQLite integrity_check、Prefix与起源关联双向对账、观察总数、分族统计和逻辑摘要核验后，原子建立正式manifest。数据库SHA取自该完整校验及完成清单；收口没有再次对2.55GB数据库或原源全文散列。`execution.finished_at=10:18:36.084249Z`处于内置完整验证之前，不能作为整个prepare完成时间；整步完成以10:53:56的unit成功终态为准。
+
+| 地址族 | 可见Prefix | 明确起源AS | RIB观察条目 | 无明确起源Prefix | 无明确起源观察 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| all | 1,398,416 | 85,395 | 55,715,497 | 251 | 8,434 |
+| IPv4 | 1,131,541 | 78,104 | 45,462,838 | 215 | 7,358 |
+| IPv6 | 266,875 | 36,264 | 10,252,659 | 36 | 1,076 |
+
+all的AS数为双栈并集，不能相加两个分族AS数。上述结果只覆盖这一RIB时点；Session与采集覆盖仍为Unknown，不代表连续RouteState、整日控制面完整性或实际网络／用户影响。12日各3个候选仍沿用原盘点，本次完成其中一个来源，未新增按日成功、有效空日、校验失败日或缺输入日判定。
+
+### 资源、取消记录与收口边界
+
+成功生产保留3,824个样本：cgroup内存采样最大2,883,321,856字节，业务进程最大RSS为233,660 KiB，CODE＋整个RUN采样最大4,355,266,769字节，最低可用空间2,130,193,457,152字节。全部prepared目录采样最大3,785,924,608字节包含旧partial，不是本候选体积。采样峰值与业务RSS口径不同；内核memory.peak为Unknown，已存样本未见OOM／OOM kill。一核、8GiB、Swap0、SQLite4GiB、3秒完整空间扫描、32／208GiB早停及原源／解压／记录数限制保留。
+
+审计取消请求原文与11:47:51.707291 UTC执行记录保存在该unit的 `user-stop-request.json`；随后通过固定runner的精确stop入口终止整个cgroup。systemd failed／退出125是本次协调取消的机械终态，**不表示发现数据校验失败**；独立报告不存在，也不产生独立审计PASS。审计运行521个样本，内存采样最大80,162,816字节，CODE＋RUN采样最大4,355,827,921字节，最低可用空间2,130,125,090,816字节；time文件为空，业务最大RSS与内核peak均Unknown。
+
+终态核对185份固定小文件SHA不变、三个代码HEAD不变、36份源metadata不变；十个unit均MainPID=0、cgroup目录不存在，完整候选及旧partial文件名／大小保持。源metadata不变不冒充再次全文校验。原MRT与SQLite正文仍留服务器，只回收小文件；前次成本测量18份、成功生产21份、审计取消23份服务器小文件各有本地／远端字节和摘要对照。
+
+Git外证据分别位于[完整成本测量](../.local/issue-22/issue23-first-complete/)、[成功生产](../.local/issue-22/first-explicit-time-complete/)及[审计取消与验证收口](../.local/issue-22/audit-unlimited-complete/)。各目录保留原始回执、`remote-receipt-checksums.json`、`final-integrity.json`、`resources.json`、`budget-ledger.json`和`handoff.json`；旧阶段摘要反映各自当时状态，最新用户决定见最后一组，不改写原始证据。
+
+本阶段只同步四份中文文档及Git外结果摘要；验证回执、数量、绑定、终态、完整差异和新增链接，未重复完整生产／核验或产品全套测试。未执行register、batch、新来源、故障注入、HTTP／浏览器或部署；共享服务、服务器main、独立A与P0未修改。#22／#18的两批与消费验收尚未完成，GitHub由父任务统一维护。
+
+
+## 58. Issue #22 无时限第一批启动
+
+最新状态：第一批真实6候选于2026-09-12 12:16:08 UTC启动，14:58:43 UTC因监控扫描超时停止，**REPAIR，尚未成功登记或验收**；第二批30候选未启动，12日覆盖仍为Unknown。用户取消的额外全量重放审计不再作为门禁，保留第57节首源生产内置完整验证和必要低成本检查。
+
+#24 产品提交`7226ff9c19a9393717fefcfd258a386db7a26326`，CLI SHA256 `a44f15743214352ea5fa363084092f186501c541a32f9e8ca80a1ba82d5f366b`。受影响109项、完整后端657／前端163项、类型检查通过；产品两轴0项。执行器14项fixture通过，唯一Spec边界P2修复并独立复审0剩余，Standards初审和父侧增量0项。它们证明本地实现，不代替真实两批验收。
+
+执行沿用第54节固定6／30来源与三清单摘要，代码新增至原运行根`code/issue24-batch-unlimited`；新工作根为`issue24-batch-unlimited`，输出`executions/batch-1`，登记`registry`。准确unit为`domeye-issue22-20260912-batch-1-10a196d9b5b7.service`，回执在新工作根`receipts/<unit>`。新runner SHA256 `bfe2fe85aab5f738451c63689c184f165b30ee20c5746cbe1fcf6651deaa81c5`，原始首批计划SHA256 `2ec878dc624f0c5eb6676667035e87578bfaef3764989f1e79ad8abfd712b41d`。两批均将绑定这套新代码，不改标95de已完成测量候选。
+
+父侧在用户已授权自主决定并完成本次数据的范围内，按独立复核的磁盘构成明确采用完整CODE+RUN的144GiB提前停止／160GiB保护线，替代本次两批的旧32／40GiB设置；原历史方案和旧工具不改写。单库4096MiB、第一批25600MiB／第二批91136MiB批次预算、空闲208／200GiB、一核、8GiB和Swap0保留。第一次装载要求既有≤16GiB，第二次≤36GiB并包含首批全部产物；两批计划峰值分别≤130／134GiB，均低于136GiB。临时日志16GiB是预留，扫描轮询不等于硬配额，不据此保证必然成功。业务单步／累计时间截止均取消，3秒单次扫描故障保护仍保留。
+
+12:13:42 UTC新鲜检查：完整占用4,355,864,785字节、空闲2,130,130,038,784字节；同设备、三清单SHA、36源stat和十旧unit无PID/cgroup均通过。12:15:57完成排他安装并核对新闭包。12:19:05只读启动检查确认active/running、业务进程处于同一cgroup，参数匹配完整首批；实际Runtime为infinity、Stop5秒、一核／8GiB／Swap0，九处只读／两处可写及实际新模块加载均通过。此处只有启动实证，尚无批次成功结论。
+
+本阶段材料在[本地交付目录](../.local/unified-data-foundation/issue24-batch-unlimited/)：执行决定、冻结清单、两轴报告、fresh-preflight、install-batch、batch-1-submit、startup及后续live-status。原始MRT和SQLite未回收至Git。第一批完整成功后，第二批只填写并冻结实际首批回执与四份小文件SHA，依同一runner核对登记及资源再派发；不减少候选或增加日期常量。共享服务、已发布C55／4、独立A及P0不切换；#22/#18与整体Goal保持开放。
+
+### 第一批停止的实际终态
+
+2026-09-12 15:01:59 UTC只读复核：上述同一unit为failed/failed、MainPID=0、ControlGroup为空、cgroup不存在；worker为stopped，实际运行9753.889434582088秒。直接停止原因是一次`_scan`子进程超过3秒，触发执行器的异常停止；不是业务单步或累计截止。`stop-request.json`不存在，journal记录了14:58:43 UTC停止与退出状态2；不能把systemd退出状态2改写为源数据验证失败。
+
+已成功记录5348次资源采样，采样最大完整CODE+RUN占用9,076,795,601字节，最低空闲2,125,180,407,808字节，最大cgroup内存5,493,297,152字节。最后一份样本的memory.events各项为0；这些记录没有显示磁盘或内存达到停止线，但不声称连续峰值，也不证明扫描变慢的具体系统原因。
+
+首源新7226候选已完成prepare及内置完整验证，manifest为2192字节、SHA256 `639cd4a04d191464b01c155bd55d845b432c306de3c88ec5746e4bad1b7fce5f`；与第57节旧首源的各项计数、来源和数据库声明摘要相同，版本保持各自生产身份。逻辑摘要因CLI实现身份进入summary而不同，已通过源码和小文件绑定核对，无须为此追加全量重放。第二源`8e48479441cd8f1766609244030ee7fed1a08f615206edbd08a958151adad1b5`仅留下2,159,386,624字节SQLite，没有完成manifest；整批没有report、提交回执或成功登记。已完成来源与中断来源均原位保留，没有重启或跳过候选。
+
+终态小回执及摘要位于[本地诊断目录](../.local/unified-data-foundation/issue24-scan-timeout-diagnosis/terminal-20260912T145843Z/)。现有batch不支持断点恢复；fixture已连续两次复现一次扫描超时即停止健康生产的策略，正在核查既有完成制品的安全复用。停止后同一扫描器三次只读耗时为0.358、0.267、0.258秒，未复现持续扫描迟缓；实际超时的系统原因仍为Unknown。恢复尚未实现或执行。原业务资源边界、36个候选和两批完成条件保持，#22/#18与整体Goal开放。
+
+## 迁移人工合流基线（2026-09-13，非真实数据验收）
+
+本地已接受的观察catalog增量与双Feature冻结源码完成独立人工联合验证；具体输入版本、合并差异、12项本次检查及Git外证据见[迁移人工集成记录](reviews/迁移人工集成基线-1d00-b4f.md)。该记录仅为人工合流GO，真实D、其他计算、全链发布与前端仍未验，不改变上述生产数据历史及原迁移计划范围。
+
+上述efb人工基线后，已接受的Resource d27b以固定双亲无冲突合入，并在同一人工观察/CSV上与Feature联合验证。当前增量及2项本次检查见[Resource人工合流记录](reviews/迁移人工集成增量-Resource-d27b.md)；仍不构成真实D、全部模块或页面验收。
+
+44e之后的Feature f1cf多视图人工合流已完成，见[Feature多视图集成记录](reviews/迁移人工集成增量-Feature-f1cf.md)。P/D固定观察上的连续私有状态与Resource共用输入通过2项本次联合测试；真实P/D、Detection集成及全链仍未验。Resource历史内容按未承诺行序的完整多重集合核对，文件与回执字节保全另验。
+
+90e后已接受Detection c133人工同源接入，详见[Detection联合记录](reviews/迁移人工集成增量-Detection-c133.md)。同一D保存11类参考供正式三计算读取，Detection产生非空修订/判定/状态并核对typed PG与固定湖历史；本次2项联合测试通过。Detection单run冷启动与Feature P/D连续初态分别保留，未建立业务publication或真实数据验收。
+
+8126之后仅将已接受Replay表示优化7449688合入未来候选，现有同源三计算人工用例1 passed、0 skipped，细节见[Replay人工增量记录](reviews/迁移人工集成增量-Replay-7449688.md)。运行变动仅state.py，真实D726未替换或停止；本片不提供真实Linux、全天或48GiB容量证明。
+
+4eeee9之后已接受Feature诊断810fb334人工合流，见[Feature诊断集成记录](reviews/迁移人工集成增量-Feature诊断-810fb334.md)。最终3项人工检查通过；非空诊断固定回读及后续三计算写入后的旧八表／文件保全通过，仍不构成真实处理或容量验收。
+
+bc95之后Country C1修复481cd7f完成同源人工输入集成，见[Country C1联合记录](reviews/迁移人工集成增量-CountryC1-481cd7f.md)。最终1项联合检查通过；同一D／Detection／11参考完整枚举为input_validated、complete_empty，旧历史与文件保全通过。仅输入适配，不代表国家计算或真实处理完成。
+
+d9fb之后Detection公共typed Reader 0f2完成人工联合，见[typed Reader集成记录](reviews/迁移人工集成增量-DetectionTyped-0f2d3f6.md)。本次2项检查通过（实际联合1＋mock预算兼容1）；原两表／旧Reader／C1输出保持，末尾scope漂移拒绝，仍非真实处理验收。
+
+ea249之后Q1.1修复1f352完成人工共享发布查询联合，见[Q1.1集成记录](reviews/迁移人工集成增量-Q11-1f352c9.md)。最终1项检查通过；仅fixture Resource／Feature经固定token发布读取，换head旧分页与组件文件保全通过。Detection／C1仍未业务发布，无真实处理或前端验收。
+
+e7a之后Country C2修复83837完成人工联合，见[C2集成记录](reviews/迁移人工集成增量-CountryC2-83837b0.md)。主同源链完整消费为空，独立两国附加链410条C2Row＋Completion通过；两项不同检查及批1/2多重集核验完成，原Q1旧token与文件保全。未业务发布Country或处理真实数据。
+
+49df之后Q3-A62669完成人工历史载体并存验证，见[Q3-A集成记录](reviews/迁移人工集成增量-Q3A-62669e9.md)。最终11项不同检查通过；源移除后五表完整重建、默认实际批读批写和最终门禁通过，现有联合/Q1旧token保持。不是历史业务发布或真实H导入。
+
+aa276之后Q2-b4消息证明修复完成人工联合，见[Q2集成记录](reviews/迁移人工集成增量-Q2-b4bc174.md)。真实旧Q1目录显式迁移v2后七页不变；主同源两事件与独立17消息异常链分别通过，最终5项不同检查通过。仅两个fixture选择器，非完整业务P或历史发布。

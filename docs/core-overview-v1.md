@@ -223,8 +223,8 @@ AS_SET已由独立任务完成固定历史版本的入口一致性修复与单�
 
 - 项目约束：[底层术语](../CONTEXT.md)、[观测证据边界](adr/0001-routing-observation-evidence-boundaries.md)、[数据台账](data-assets-and-admission.md)、[数据范围配置](../config/data-profile.json)。
 - 已确认原型：[C 页面](../frontend/src/pages/home-prototype/VariantC.vue)；[模拟数据](../frontend/src/pages/home-prototype/overviewFixture.ts)。
-- 本地查询和解释依据：[事件列表过滤](../backend/database/event.py)、[排序及旧中断统计](../backend/utils/get_event.py)、[事件语义约束](../backend/services/events_service.py)、[INFO 过滤入口](../backend/services/features_service.py)、[首页聚合](../backend/database/dashboard.py)、[覆盖块单位定义](../backend/data_pipeline/metrics/series.py)。
-- 可复用测试入口：[事件 API 测试](../backend/web/tests/test_events_api.py)、[前端事件客户端测试](../frontend/src/api/events.test.ts)。
+- 本地查询和解释依据：[事件列表过滤](../backend/database/event.py)、[排序及旧中断统计](../backend/utils/get_event.py)、[事件语义约束](../backend/services/events_service.py)、[INFO 过滤入口](../backend/services/features_service.py)、[首页聚合](../backend/database/dashboard.py)、[覆盖块单位定义](../backend/data_pipeline/common/metrics/series.py)。
+- 可复用测试入口：[事件 API 测试](../backend/tests/web/test_events_api.py)、[前端事件客户端测试](../frontend/src/api/events.test.ts)。
 - 现场来源记录：`/home/bgpdata/Domeye-Core-dev-data/state.json`，本次 SHA256 为 `353f1f42bb8108c1452f096afb4665a90529711128b6ecb55d2a2a236bc98fb1`；只证明该状态文件身份，不证明数据库内容不可变。
 
 <details>

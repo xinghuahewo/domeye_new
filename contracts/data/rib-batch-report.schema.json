@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "title": "RIB批次结果报告",
+  "description": "CLI成功回执与原子登记为committed；本地report.json仅ready，不能单凭本地文件断言已发布；程序失败为aborted。",
+  "required": [
+    "schema_version",
+    "selection_id",
+    "identity",
+    "state",
+    "coverage",
+    "days"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rib-batch-report/v1"
+    },
+    "selection_id": {
+      "type": "string",
+      "pattern": "^rib_batch_v1_[0-9a-f]{64}$"
+    },
+    "identity": {
+      "type": "object"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "committed",
+        "aborted"
+      ]
+    },
+    "coverage": {
+      "enum": [
+        "complete",
+        "gaps",
+        "unknown"
+      ]
+    },
+    "days": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 31,
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "state",
+          "candidates"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "missing_input",
+              "validation_failed",
+              "not_calculated"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+          },
+          "candidates": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sha256",
+                "observed_at",
+                "state"
+              ],
+              "properties": {
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "observed_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+                },
+                "state": {
+                  "enum": [
+                    "verified",
+                    "rejected"
+                  ]
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^rib_snapshot_v1_[0-9a-f]{64}$"
+                },
+                "rejection": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "stage",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "missing_input",
+                        "sha256_mismatch",
+                        "invalid_gzip",
+                        "invalid_mrt"
+                      ]
+                    },
+                    "stage": {
+                      "enum": [
+                        "source",
+                        "gzip",
+                        "mrt"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "type",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
