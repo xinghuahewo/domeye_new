@@ -8,11 +8,10 @@
 | 单 RIB 规模与路径对照 | `visible_prefixes`、`visible_origin_ases`、`prefix_count`、`different_fraction` | [快照与路径对照](snapshots.md) |
 | 路由活动和档案聚合 | `announce`、`withdraw`、`update_total`、`withdraw_rate`、`volatility` | [路由活动](activity.md) |
 | Feature 与独立 Resource | `v4Prefix_num`、`ipv4_prefixes`、`ipv6_prefix_count`、参考范围与拓扑 | [资源数量](resources.md) |
-| 异常及事件查询 | 六类事件、`record_count`、`event_count`、`active_event_count`、小时趋势 | [事件数量与生命周期](events.md) |
+| 异常及事件查询 | 六类事件、`record_count`、`anomaly_count`、`high_risk_count`、小时趋势 | [事件数量与生命周期](events.md) |
 | 已发布国家事件 | 现有国家接口的曲线、ASN 窗口名单、路径关联 | [已发布国家观测](country-published.md) |
 | 新国家计算 | 前缀状态、端点方向、互斥 ASN 分类、精确地址并集 | [新国家计算结果](country-calculation.md) |
 | 趋势计算 | 极值、下降、反弹、累计缺口、阶段、双栈差异及同期参照 | [趋势分析](trends.md) |
-| 旧 P0 指标时序 | 十项兼容指标、五分钟槽、0–1 比例、并发采样与覆盖率 | [旧 P0 指标](p0-compatibility.md) |
 
 ## 根据常见说法选择
 

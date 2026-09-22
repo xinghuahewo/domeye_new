@@ -51,16 +51,17 @@ def get_country_feature_aggregates(conn, previous_start, current_start, end_time
                 WHERE source = %s
                   AND country <> 'collect'
                   AND t >= %s
-                  AND t <= %s
+                  AND t < %s
             ),
             aggregated AS (
                 SELECT
                     country,
-                    COALESCE(SUM(announ_num) FILTER (WHERE t >= %s), 0)::bigint AS announce,
-                    COALESCE(SUM(withdraw_num) FILTER (WHERE t >= %s), 0)::bigint AS withdraw,
-                    COALESCE(SUM(announ_num) FILTER (WHERE t < %s), 0)::bigint AS previous_announce,
-                    COALESCE(SUM(withdraw_num) FILTER (WHERE t < %s), 0)::bigint AS previous_withdraw,
+                    (SUM(announ_num) FILTER (WHERE t >= %s))::bigint AS announce,
+                    (SUM(withdraw_num) FILTER (WHERE t >= %s))::bigint AS withdraw,
+                    (SUM(announ_num) FILTER (WHERE t < %s))::bigint AS previous_announce,
+                    (SUM(withdraw_num) FILTER (WHERE t < %s))::bigint AS previous_withdraw,
                     COUNT(*) FILTER (WHERE t >= %s)::integer AS sample_count,
+                    COUNT(*) FILTER (WHERE t < %s)::integer AS previous_sample_count,
                     MAX(t) FILTER (WHERE t >= %s) AS latest_observation,
                     (ARRAY_AGG(v4prefix_num ORDER BY t DESC) FILTER (WHERE t >= %s))[1] AS ipv4_prefixes,
                     (ARRAY_AGG(v6prefix_num ORDER BY t DESC) FILTER (WHERE t >= %s))[1] AS ipv6_prefixes,
@@ -78,7 +79,7 @@ def get_country_feature_aggregates(conn, previous_start, current_start, end_time
                     (COALESCE(announ_num, 0) + COALESCE(withdraw_num, 0))::bigint AS peak_updates
                 FROM ranged
                 WHERE t >= %s
-                ORDER BY country, peak_updates DESC, t DESC
+                ORDER BY country, peak_updates DESC, t ASC
             )
             SELECT aggregated.*, peaks.peak_updates, peaks.peak_time
             FROM aggregated
@@ -89,6 +90,7 @@ def get_country_feature_aggregates(conn, previous_start, current_start, end_time
                 SOURCE,
                 previous_start,
                 end_time,
+                current_start,
                 current_start,
                 current_start,
                 current_start,
@@ -131,7 +133,7 @@ def get_country_event_counts(conn, start_time, end_time):
                     FROM {}
                     WHERE event_type = ANY(%s)
                       AND s_time >= %s
-                      AND s_time <= %s
+                      AND s_time < %s
                       AND attacked_country IS NOT NULL
                     GROUP BY attacked_country, level
                     """.format(table_name),
@@ -168,7 +170,7 @@ def get_country_sparklines(conn, countries, start_time, end_time):
             WHERE source = %s
               AND country = ANY(%s)
               AND t >= %s
-              AND t <= %s
+              AND t < %s
             GROUP BY country, date_trunc('hour', t)
             ORDER BY country, bucket
             """.format(FEATURE_COUNTRY_TABLE),
@@ -205,7 +207,7 @@ def get_country_feature_series(conn, country, start_time, end_time):
             WHERE source = %s
               AND country = %s
               AND t >= %s
-              AND t <= %s
+              AND t < %s
             ORDER BY t
             """.format(FEATURE_COUNTRY_TABLE),
             (SOURCE, country, start_time, end_time),

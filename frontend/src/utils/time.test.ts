@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  rangeFromQuery,
   eventDateTimeRange,
   parseInputTime,
   recentDateRange,
@@ -84,4 +85,11 @@ describe('开发数据时间窗口', () => {
       end: '2026-03-31',
     })
   })
+})
+
+
+it('结果链接使用明确时间窗，无效链接保留默认范围', () => {
+  const fallback = { start: '2026-03-30T00:00:00', end: '2026-03-31T00:00:00' }
+  expect(rangeFromQuery('2026-02-24T08:00:00', '2026-02-24T11:35:00', fallback)).toEqual({ start: '2026-02-24T08:00:00', end: '2026-02-24T11:35:00' })
+  expect(rangeFromQuery('bad', '2026-02-24T11:35:00', fallback)).toEqual(fallback)
 })

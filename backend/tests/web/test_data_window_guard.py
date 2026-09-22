@@ -19,7 +19,6 @@ def enforced_window(monkeypatch):
         "/api/v1/features/top?target=collector",
         "/api/v1/features/countries",
         "/api/v1/features/outages/global-as",
-        "/api/v1/dashboard/overview",
     ],
 )
 def test_development_window_rejects_missing_query_times(client, enforced_window, path):
@@ -34,7 +33,6 @@ def test_development_window_rejects_missing_query_times(client, enforced_window,
         "/api/v1/events?date=2026-03-31_2026-04-01",
         "/api/v1/features/top?target=collector&start_time=2026-03-31%2023:59:59&end_time=2026-04-01%2000:00:00",
         "/api/v1/features/outages/global-prefix?start_time=2026-01-31%2023:59:59&end_time=2026-02-01%2000:00:00",
-        "/api/v1/dashboard/overview?start_time=2026-03-31%2023:59:59&end_time=2026-04-01%2000:00:00",
         "/api/v1/hijack/{}/203.0.113.0-24/1/r".format(
             quote("2026-04-01 00:00:00", safe="")
         ),

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from config.config import BIG_COUNTRY, FEATURE_OTHER_TABLE
 from config.database import conn_11
+from services.feature_statistics import activity_summary
 from database.asn_workbench import (
     get_as_event_counts,
     get_as_exact_event_rows,
@@ -275,12 +276,6 @@ def _static_profile(asn):
 def _asn_profile(row, anomaly_count=0, high_risk_count=0):
     asn = _normalize_asn(_row_value(row, 'asn'))
     profile = _static_profile(asn)
-    announce = _int_value(_row_value(row, 'announce'))
-    withdraw = _int_value(_row_value(row, 'withdraw'))
-    previous_announce = _int_value(_row_value(row, 'previous_announce'))
-    previous_withdraw = _int_value(_row_value(row, 'previous_withdraw'))
-    update_total = announce + withdraw
-    previous_update_total = previous_announce + previous_withdraw
     ipv4_prefixes = _nullable_int(_row_value(row, 'ipv4_prefixes'))
     ipv6_prefixes = _nullable_int(_row_value(row, 'ipv6_prefixes'))
     ipv4_addresses = _nullable_int(_row_value(row, 'ipv4_addresses'))
@@ -309,14 +304,9 @@ def _asn_profile(row, anomaly_count=0, high_risk_count=0):
     ]
     update_average = _float_value(_row_value(row, 'update_average'))
     update_stddev = _float_value(_row_value(row, 'update_stddev'))
+    activity = activity_summary(row)
     profile.update({
-        'announce': announce,
-        'withdraw': withdraw,
-        'update_total': update_total,
-        'withdraw_rate': round(withdraw / update_total * 100, 1) if update_total else 0.0,
-        'previous_update_total': previous_update_total,
-        'update_change_rate': _change_rate(update_total, previous_update_total),
-        'sample_count': _int_value(_row_value(row, 'sample_count')),
+        **activity,
         'latest_observation': _time_value(_row_value(row, 'latest_observation')),
         'ipv4_prefixes': ipv4_prefixes,
         'ipv6_prefixes': ipv6_prefixes,
@@ -324,11 +314,14 @@ def _asn_profile(row, anomaly_count=0, high_risk_count=0):
         'ipv4_prefix_change': ipv4_prefix_change,
         'ipv6_prefix_change': ipv6_prefix_change,
         'ipv4_address_change': ipv4_address_change,
-        'resource_change': max(resource_deltas) if resource_deltas else 0,
+        'resource_change': max(resource_deltas) if resource_deltas else None,
         'resource_change_rate': max(resource_change_rates) if resource_change_rates else None,
-        'peak_updates': _int_value(_row_value(row, 'peak_updates')),
         'peak_time': _time_value(_row_value(row, 'peak_time')),
-        'volatility': round(update_stddev / update_average * 100, 1) if update_average else 0.0,
+        'volatility': (
+            round(update_stddev / update_average * 100, 1)
+            if activity['sample_count'] > 1 and update_average
+            and _row_value(row, 'update_stddev') is not None else None
+        ),
         'anomaly_count': anomaly_count,
         'high_risk_count': high_risk_count,
         'sparkline': [],
@@ -338,7 +331,10 @@ def _asn_profile(row, anomaly_count=0, high_risk_count=0):
 
 
 def _ranking(profiles, key, limit, predicate=None):
-    candidates = [profile for profile in profiles if predicate is None or predicate(profile)]
+    candidates = [
+        profile for profile in profiles
+        if profile[key] is not None and (predicate is None or predicate(profile))
+    ]
     return sorted(
         candidates,
         key=lambda item: (-item[key], -item['high_risk_count'], int(item['asn'])),
@@ -498,6 +494,7 @@ def get_asn_workbench(
         'start_time': start.strftime('%Y-%m-%d %H:%M:%S'),
         'end_time': end.strftime('%Y-%m-%d %H:%M:%S'),
         'timezone': 'Asia/Shanghai',
+        'window_boundary': '[start,end)',
         'latest_observation': latest_observation,
         'scope_kind': 'event_window_selected_asn' if event_window else 'operational_asn_cohort',
         'scope_note': (

@@ -170,3 +170,36 @@ def test_openapi_only_exposes_read_only_data_operations():
         name.startswith("CountryOutageInteractive")
         for name in contract["components"]["schemas"]
     )
+
+
+def test_openapi_retirement_leaves_no_dangling_references():
+    project_root = Path(__file__).resolve().parents[3]
+    contract = json.loads((project_root / 'contracts/openapi.json').read_text())
+    assert not any(path.startswith(('/p0/', '/dashboard/')) for path in contract['paths'])
+    assert not any(name.startswith('P0') for name in contract['components']['schemas'])
+
+    def check(value):
+        if isinstance(value, dict):
+            reference = value.get('$ref', '')
+            if reference.startswith('#/'):
+                target = contract
+                for key in reference[2:].split('/'):
+                    target = target[key.replace('~1', '/').replace('~0', '~')]
+            for child in value.values():
+                check(child)
+        elif isinstance(value, list):
+            for child in value:
+                check(child)
+
+    check(contract)
+
+
+def test_event_window_options_and_result_scope_are_in_contract():
+    project_root = Path(__file__).resolve().parents[3]
+    contract = json.loads((project_root / 'contracts/openapi.json').read_text())
+    for path in ['/features/ases/overview', '/features/ases/events']:
+        parameters = {item.get('name'): item for item in contract['paths'][path]['get']['parameters']}
+        assert parameters['event_window']['schema']['type'] == 'boolean'
+        assert 'event_reference' in parameters
+        assert '503' in contract['paths'][path]['get']['responses']
+    assert 'event_window_selected_asn' in contract['components']['schemas']['AsOverview']['properties']['scope_kind']['enum']

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterView, useRoute } from 'vue-router'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
+import { toBusinessTime } from '@/utils/businessTime'
+import type { HealthPayload } from '@/types/api'
 import { getHealth } from '@/api/health'
 import { resolveDataWindow } from '@/utils/time'
 
@@ -9,6 +11,9 @@ const route = useRoute()
 const healthy = ref(false)
 const healthChecked = ref(false)
 const checkedAt = ref('')
+const delivery = ref<HealthPayload['result_delivery']>()
+const deliveryQuery = computed(() => delivery.value?.start && delivery.value?.end_exclusive ? { start: toBusinessTime(new Date(delivery.value.start)).replace(' ', 'T'), end: toBusinessTime(new Date(delivery.value.end_exclusive)).replace(' ', 'T') } : {})
+const deliveryTime = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未知'
 const dataWindow = resolveDataWindow(import.meta.env)
 const dataWindowLabel = dataWindow
   ? `${dataWindow.start.slice(0, 10)} 至 ${dataWindow.end.slice(0, 10)}`
@@ -22,6 +27,7 @@ async function checkHealth() {
   try {
     const payload = await getHealth()
     healthy.value = payload.status === 'ok'
+    delivery.value = payload.result_delivery
     checkedAt.value = new Date(payload.time).toLocaleTimeString('zh-CN', { hour12: false })
   } catch {
     healthy.value = false
@@ -39,6 +45,17 @@ onBeforeUnmount(() => { if (timer !== undefined) window.clearInterval(timer) })
 <template>
   <div class="app-shell">
     <SiteHeader />
+    <aside v-if="delivery" class="delivery-notice" role="status" aria-label="本批结果范围">
+      <template v-if="delivery.state === 'available'">
+        <strong>本批已接入 {{ delivery.files }} 份结果</strong>
+        <span>北京时间 {{ deliveryTime(delivery.start) }} 至 {{ deliveryTime(delivery.end_exclusive) }}（右端不含）</span>
+        <span>仅此时段有数据，窗口外未知；原任务未完成，归档暂停。</span>
+        <RouterLink :to="{ name: 'home', query: { date: deliveryQuery.start?.slice(0, 10) } }">本批首页</RouterLink>
+        <RouterLink :to="{ name: 'countries', query: deliveryQuery }">本批国家特征</RouterLink>
+        <RouterLink :to="{ name: 'ases', query: deliveryQuery }">本批 AS 特征</RouterLink>
+      </template>
+      <span v-else>本批结果{{ delivery.state === 'empty' ? '尚未交付' : '暂不可读' }}，不能解释为零。</span>
+    </aside>
     <RouterView v-if="route.name === 'home'" />
     <div v-else class="workspace">
       <div class="contextbar">
@@ -58,3 +75,7 @@ onBeforeUnmount(() => { if (timer !== undefined) window.clearInterval(timer) })
     </div>
   </div>
 </template>
+
+<style scoped>
+.delivery-notice { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem; padding: .8rem 2rem; background: #fff8e8; color: #5c461d; border-bottom: 1px solid #ead9b0; font-size: .85rem; }
+</style>

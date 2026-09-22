@@ -53,7 +53,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 
 <template>
   <section id="anomalies" class="core-anomalies" aria-labelledby="core-anomalies-title" :aria-busy="loading">
-    <div class="c-section-caption"><h2 id="core-anomalies-title">异常态势</h2><span>六类异常 · 当日新增记录</span></div>
+    <div class="c-section-caption"><h2 id="core-anomalies-title">异常态势</h2><span>六类异常 · {{ base?.metadata.result_delivery ? '本批时段新增记录' : '当日新增记录' }}</span></div>
     <div class="core-anomaly-grid">
       <article v-for="[kind, title] in anomalyKinds" :key="kind" class="core-anomaly-card" :data-testid="`anomaly-${kind}`">
         <header><h3>{{ title }}</h3><button :aria-label="`查看${title}记录`" :disabled="!usable || !base?.metadata.kinds.includes(kind)" @click="emit('select', kind)">↗</button></header>

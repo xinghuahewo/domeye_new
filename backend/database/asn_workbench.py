@@ -100,9 +100,10 @@ def get_as_feature_aggregates(conn, grouped_asns, previous_start, current_start,
                 'asn': str(asn),
                 'announce': int(current['announce'].sum()),
                 'withdraw': int(current['withdraw'].sum()),
-                'previous_announce': int(previous['announce'].sum()) if not previous.empty else 0,
-                'previous_withdraw': int(previous['withdraw'].sum()) if not previous.empty else 0,
+                'previous_announce': int(previous['announce'].sum()) if not previous.empty else None,
+                'previous_withdraw': int(previous['withdraw'].sum()) if not previous.empty else None,
                 'sample_count': int(len(current.index)),
+                'previous_sample_count': int(len(previous.index)),
                 'latest_observation': latest['t'],
                 'ipv4_prefixes': latest_value('v4Prefix_num'),
                 'ipv6_prefixes': latest_value('v6Prefix_num'),
@@ -141,7 +142,7 @@ def get_as_event_counts(conn, start_time, end_time):
                     FROM {}
                     WHERE event_type = ANY(%s)
                       AND s_time >= %s
-                      AND s_time <= %s
+                      AND s_time < %s
                       AND attacked_as IS NOT NULL
                     GROUP BY attacked_as, level
                     """.format(table_name),
@@ -178,7 +179,7 @@ def get_as_exact_event_rows(conn, asn, start_time, end_time, page_size=10):
                     FROM {}
                     WHERE event_type = ANY(%s)
                       AND s_time >= %s
-                      AND s_time <= %s
+                      AND s_time < %s
                       AND COALESCE(attacked_as, '') ~* %s
                     """.format(table_name),
                     (list(CORE_EVENT_TYPES), start_time, end_time, token_pattern),
@@ -195,7 +196,7 @@ def get_as_exact_event_rows(conn, asn, start_time, end_time, page_size=10):
                     FROM {}
                     WHERE event_type = ANY(%s)
                       AND s_time >= %s
-                      AND s_time <= %s
+                      AND s_time < %s
                       AND COALESCE(attacked_as, '') ~* %s
                     ORDER BY s_time DESC, detail_url DESC
                     LIMIT %s

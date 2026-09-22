@@ -17,24 +17,18 @@ from utils.get_event import (
 )
 
 
-def _parse_datetime_range(start_time, end_time, export_mode=False):
+def _parse_datetime_range(start_time, end_time):
     if not start_time or not end_time:
-        if export_mode:
-            return None, None, ({'status': False, 'msg': '开始时间和结束时间不能为空！'}, 400)
-        return None, None, {'status': False, 'msg': '开始时间和结束时间不能为空！'}
+        return None, None, ({'status': False, 'msg': '开始时间和结束时间不能为空！'}, 400)
 
     try:
         start_time_dt = datetime.datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
         end_time_dt = datetime.datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
     except ValueError:
-        if export_mode:
-            return None, None, ({'status': False, 'msg': '时间格式错误，应为 YYYY-MM-DD HH:MM:SS'}, 400)
-        return None, None, {'status': False, 'msg': '时间格式错误，应为 YYYY-MM-DD HH:MM:SS'}
+        return None, None, ({'status': False, 'msg': '时间格式错误，应为 YYYY-MM-DD HH:MM:SS'}, 400)
 
     if start_time_dt > end_time_dt:
-        if export_mode:
-            return None, None, ({'status': False, 'msg': '开始时间不能晚于结束时间！'}, 400)
-        return None, None, {'status': False, 'msg': '开始时间不能晚于结束时间！'}
+        return None, None, ({'status': False, 'msg': '开始时间不能晚于结束时间！'}, 400)
 
     return start_time_dt, end_time_dt, None
 
@@ -65,8 +59,11 @@ def _get_query_type(query):
 
 
 def get_top_feature_data(start_time, end_time, target, conn=conn_11):
-    if not all([start_time, end_time, target]):
-        return {'status': False, 'msg': '缺少必需参数：start_time, end_time, target'}
+    if not all([start_time, end_time, target]) or not str(target).strip():
+        return {'status': False, 'msg': '缺少必需参数：start_time, end_time, target'}, 400
+    _, _, error = _parse_datetime_range(start_time, end_time)
+    if error:
+        return error
 
     query_type = _get_query_type(target)
 
@@ -109,13 +106,14 @@ def get_top_feature_data(start_time, end_time, target, conn=conn_11):
 
     try:
         return deal_features(data)
-    except Exception as error:
-        return str(error), 500
+    except Exception:
+        return {'status': False, 'msg': '特征结果无法读取'}, 500
 
 
 def get_country_feature_series(start_time, end_time, country='', page_num=None, page_size=None, conn=conn_11):
-    if not start_time or not end_time:
-        return {'status': False, 'msg': '开始时间和结束时间不能为空！'}
+    _, _, error = _parse_datetime_range(start_time, end_time)
+    if error:
+        return error
 
     data_loader.ensure_core_data_loaded()
     return get_country_feature_list(
@@ -129,8 +127,9 @@ def get_country_feature_series(start_time, end_time, country='', page_num=None, 
     )
 
 def get_as_feature_series(start_time, end_time, asn='', country='', page_num=None, page_size=None, conn=conn_11):
-    if not start_time or not end_time:
-        return {'status': False, 'msg': '开始时间和结束时间不能为空！'}
+    _, _, error = _parse_datetime_range(start_time, end_time)
+    if error:
+        return error
 
     data_loader.ensure_core_data_loaded()
     if country:

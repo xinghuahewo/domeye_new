@@ -14,13 +14,16 @@ import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
 import SparklinePair from '@/components/SparklinePair.vue'
 import type { CountryOverview, CountryProfile, EventRow, OutagePoint } from '@/types/api'
+import { resultDelivery } from '@/api/health'
 import { errorMessage } from '@/utils/normalize'
-import { recentRange, toBackendTime } from '@/utils/time'
+import { recentRange, rangeFromQuery, toBackendTime } from '@/utils/time'
 
 const route = useRoute()
 const router = useRouter()
-const defaults = recentRange(24)
+const delivered = computed(() => resultDelivery.value?.state === 'available')
+const defaults = rangeFromQuery(route.query.start, route.query.end, recentRange(24))
 const query = reactive({ start: defaults.start, end: defaults.end })
+watch([() => route.query.start, () => route.query.end], ([start, end]) => Object.assign(query, rangeFromQuery(start, end, query)))
 const countryInput = ref('')
 const overview = ref<CountryOverview | null>(null)
 const asOutages = ref<OutagePoint[]>([])
@@ -68,7 +71,7 @@ const rankingSections = computed(() => [
     title: '撤回率最高',
     note: 'WITHDRAW / UPDATES',
     rows: overview.value?.withdrawRateRankings ?? [],
-    value: (profile: CountryProfile) => `${profile.withdrawRate.toFixed(1)}%`,
+    value: (profile: CountryProfile) => formatPercent(profile.withdrawRate),
     unit: '',
   },
   {
@@ -129,6 +132,10 @@ function featureRange(): FeatureRange {
 
 function formatNumber(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : value.toLocaleString('zh-CN')
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? '—' : `${value.toFixed(1)}%`
 }
 
 function changeLabel(value: number | null) {
@@ -224,13 +231,13 @@ watch(
         <h1>{{ selectedName || '国家路由态势' }}</h1>
       </div>
       <p class="page-heading-copy">
-        用于国家对象定位的历史探索视图；报文与资源快照来自独立历史数据，不与首页指标混算。
+        {{ delivered ? '按本批完成文件查询国家 Feature 与事件；与首页使用同一结果版本，各自保留指标口径。' : '用于国家对象定位的历史探索视图；报文与资源快照来自独立历史数据，不与首页指标混算。' }}
       </p>
     </header>
 
     <section class="legacy-boundary" aria-label="国家数据准入边界">
-      <b>历史数据 · 独立口径</b>
-      <p>本页用于历史对象定位，数据尚未统一发布；缺失值表示未知，不表示零。</p>
+      <b>{{ delivered ? '本批计算结果 · 有限时段' : '历史数据 · 独立口径' }}</b>
+      <p>{{ delivered ? '仅覆盖页首所列时段，窗口外未知；这不是整窗业务验收。缺失值不表示零。' : '本页用于历史对象定位，数据尚未统一发布；缺失值表示未知，不表示零。' }}</p>
     </section>
 
     <form class="country-console" @submit.prevent="openCountry()">
@@ -261,12 +268,12 @@ watch(
         <article>
           <span>撤回率最高</span>
           <strong>{{ overview.withdrawRateLeader?.country || '—' }}</strong>
-          <b>{{ overview.withdrawRateLeader ? `${overview.withdrawRateLeader.withdrawRate.toFixed(1)}%` : '—' }}</b>
+          <b>{{ formatPercent(overview.withdrawRateLeader?.withdrawRate) }}</b>
         </article>
         <article>
           <span>数据口径</span>
-          <strong>历史特征</strong>
-          <b>与核心态势分开统计</b>
+          <strong>{{ delivered ? '本批特征' : '历史特征' }}</strong>
+          <b>{{ delivered ? '与首页同版 · 指标口径各自保留' : '与核心态势分开统计' }}</b>
         </article>
         <article>
           <span>存在异常</span>
@@ -301,7 +308,7 @@ watch(
       <section v-if="selected" class="country-dossier" aria-labelledby="country-dossier-title">
         <header class="dossier-heading">
           <div>
-            <p>SELECTED COUNTRY / 24H DOSSIER</p>
+            <p>SELECTED COUNTRY / WINDOW DOSSIER</p>
             <h2 id="country-dossier-title">{{ selected.country }}</h2>
           </div>
           <div class="dossier-actions">
@@ -320,7 +327,7 @@ watch(
           </article>
           <article>
             <span>撤回率</span>
-            <strong>{{ selected.withdrawRate.toFixed(1) }}%</strong>
+            <strong>{{ formatPercent(selected.withdrawRate) }}</strong>
             <small>{{ formatNumber(selected.withdraw) }} WITHDRAW</small>
           </article>
           <article>

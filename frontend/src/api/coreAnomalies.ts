@@ -39,6 +39,9 @@ export async function getAnomalySummary(base: CoreOverview, kind: AnomalyKind, s
     const events = await read(page)
     if (total !== undefined && total !== events.total) throw new Error('异常记录数在分页期间发生变化')
     total = events.total
+    if (base.metadata.result_delivery?.coverage === 'partial_window') {
+      return { count: total, hours: null, note: '仅已交付时段；全天其余时段未知' }
+    }
     if (total > MAX_CHART_RECORDS) {
       const hours = Array<number>(24).fill(0)
       let nextHour = 0

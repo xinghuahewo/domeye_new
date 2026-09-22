@@ -68,3 +68,10 @@ it('切换日期取消后停止后续分页', async () => {
   await expect(getAnomalySummary(base, 'prefix_outage', controller.signal)).rejects.toThrow()
   expect(get).toHaveBeenCalledTimes(1)
 })
+
+it('部分交付窗口只给本批计数，不给窗口外补零小时', async () => {
+  const partial = { ...base, metadata: { ...base.metadata, result_delivery: { state: 'available', coverage: 'partial_window' } } } as CoreOverview
+  get.mockResolvedValue(page([item(1)], 30))
+  expect(await getAnomalySummary(partial, 'prefix_outage')).toEqual({ count: 30, hours: null, note: '仅已交付时段；全天其余时段未知' })
+  expect(get).toHaveBeenCalledTimes(1)
+})

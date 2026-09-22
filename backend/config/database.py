@@ -24,16 +24,21 @@ _CONNECTIONS = {}
 
 
 def _connect():
-    return psycopg2.connect(
+    connection = psycopg2.connect(
         database=DATABASE,
         user=USER,
         password=PASSWORD,
         host=HOST,
         port=PORT,
     )
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true':
+        connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
+    return connection
 
 
 def _get_connection(name):
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true':
+        name = 'result_delivery'
     if has_request_context():
         connections = request.environ.setdefault('domeye.database_connections', {})
         connection = connections.get(name)

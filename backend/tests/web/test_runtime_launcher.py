@@ -50,3 +50,21 @@ def test_legacy_config_does_not_inherit_an_ambient_overview_input(tmp_path, monk
     assert 'DOMEYE_CORE_OVERVIEW_MANIFEST' not in environment
     assert 'DOMEYE_RIB_SNAPSHOT_REGISTRY' not in environment
     assert environment['PGOPTIONS'] == '-c default_transaction_read_only=on'
+
+
+def test_retired_p0_configuration_does_not_block_start_or_reactivate_reader(tmp_path, monkeypatch):
+    runtime = tmp_path / 'backend.env'
+    runtime.write_text('\n'.join([
+        'DB_HOST=127.0.0.1', 'DB_PORT=31627', 'DB_NAME=fixture',
+        'DB_USER=fixture', 'DB_PASSWORD=fixture-only', 'SECRET_KEY=fixture-only',
+        'P0_DATA_RELEASE_DIR=/unused/retired', 'P0_DATA_PRODUCTION_ACTIVE=true',
+    ]))
+    runtime.chmod(0o600)
+    monkeypatch.setenv('P0_DATA_RELEASE_DIR', '/ambient/retired')
+    monkeypatch.setenv('P0_DATA_PRODUCTION_ACTIVE', 'true')
+
+    environment = launcher.build_environment(runtime)
+
+    assert environment['DB_NAME'] == 'fixture'
+    assert 'P0_DATA_RELEASE_DIR' not in environment
+    assert 'P0_DATA_PRODUCTION_ACTIVE' not in environment

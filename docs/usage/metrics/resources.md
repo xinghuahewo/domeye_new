@@ -21,8 +21,8 @@ Feature 的 `ipv4_prefixes` 是 IPv4 /24 覆盖块数，`ipv6_prefixes` 是 IPv6
 | 字段 | 当前含义 | 如何使用 |
 | --- | --- | --- |
 | `ipv4_prefix_change`、`ipv6_prefix_change`、`ipv4_address_change` | 当前窗口末值减前一窗口末值，沿用原单位 | 保留正负和两个实际有效时点；两端需可比 |
-| `resource_change` | 当前取两族前缀覆盖变化绝对值的最大值 | 混合 /24 和 /48 且丢失方向，仅作旧排序辅助 |
-| `resource_change_rate` | 两族可计算变化百分比绝对值的最大值 | 不是双栈总体下降率；回答下降时应看单族带符号变化 |
+| `resource_change` | 当前取两族前缀覆盖变化绝对值的最大值 | 已标记 deprecated；混合 /24 和 /48 且丢失方向，仅作旧排序辅助；无可用变化时为 null |
+| `resource_change_rate` | 两族可计算变化百分比绝对值的最大值 | 已标记 deprecated；不是双栈总体下降率；回答下降时应看单族带符号变化 |
 
 如果要回答“哪一族下降最多”，分别比较 IPv4 或 IPv6 的同一指标。当前综合字段不替代这个比较。
 

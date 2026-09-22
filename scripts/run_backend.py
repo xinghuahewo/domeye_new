@@ -21,13 +21,14 @@ ALLOWED_KEYS = {
     "DOMEYE_LOG_DIR", "DOMEYE_CORE_SKIP_LOCAL_ENV", "DOMEYE_ENFORCE_DATA_WINDOW",
     "DOMEYE_COUNTRY_OUTAGE_GENERAL_READ_MODEL", "DOMEYE_DATA_LAYER_224_310_SELECTION",
     "DOMEYE_COUNTRY_OUTAGE_REGISTRY", "DOMEYE_LEGACY_STORY_REPLAY_DIRECTORY",
-    "DOMEYE_RRC25_CONTEMPORANEOUS_REFERENCE", "P0_DATA_RELEASE_DIR",
-    "P0_DATA_PRODUCTION_ACTIVE", "FEATURE_COUNTRY_TABLE", "FEATURE_OTHER_TABLE",
+    "DOMEYE_RRC25_CONTEMPORANEOUS_REFERENCE", "FEATURE_COUNTRY_TABLE", "FEATURE_OTHER_TABLE",
     "FEATURE_ASN_MONTHLY_ENABLED", "SOURCE", "AUTO_INIT_DB",
     "LOAD_CORE_DATA_ON_STARTUP", "PGOPTIONS", "MAIL_ENABLED",
-    "DOMEYE_CORE_OVERVIEW_MANIFEST",
+    "DOMEYE_CORE_OVERVIEW_MANIFEST", "DOMEYE_RESULT_DELIVERY",
     "DOMEYE_RIB_SNAPSHOT_REGISTRY",
 }
+# 旧配置可以随源码升级，但不再向进程传入已退役能力的开关。
+RETIRED_KEYS = {"P0_DATA_RELEASE_DIR", "P0_DATA_PRODUCTION_ACTIVE"}
 
 
 def load_runtime_env(path: Path) -> dict[str, str]:
@@ -45,12 +46,12 @@ def load_runtime_env(path: Path) -> dict[str, str]:
             if len(fields) != 1 or "=" not in fields[0]:
                 raise RuntimeError(f"运行配置第 {line_number} 行格式无效")
             name, value = fields[0].split("=", 1)
-            if name not in ALLOWED_KEYS or name in values or "\0" in value:
+            if name not in ALLOWED_KEYS | RETIRED_KEYS or name in values or "\0" in value:
                 raise RuntimeError(f"运行配置第 {line_number} 行包含重复或不允许的键")
             values[name] = value
     if not {"DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "SECRET_KEY"}.issubset(values):
         raise RuntimeError("运行配置缺少必要的数据库或应用配置")
-    return values
+    return {name: value for name, value in values.items() if name not in RETIRED_KEYS}
 
 
 def build_environment(path: Path) -> dict[str, str]:

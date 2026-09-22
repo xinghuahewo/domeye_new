@@ -1067,13 +1067,14 @@ export interface CountrySparkPoint {
 
 export interface CountryProfile {
   country: string
-  announce: number
-  withdraw: number
-  updateTotal: number
-  withdrawRate: number
-  previousUpdateTotal: number
+  announce: number | null
+  withdraw: number | null
+  updateTotal: number | null
+  withdrawRate: number | null
+  previousUpdateTotal: number | null
   updateChangeRate: number | null
   sampleCount: number
+  previousSampleCount: number
   latestObservation: string | null
   ipv4Prefixes: number | null
   ipv6Prefixes: number | null
@@ -1081,9 +1082,9 @@ export interface CountryProfile {
   ipv4PrefixChange: number | null
   ipv6PrefixChange: number | null
   ipv4AddressChange: number | null
-  resourceChange: number
+  resourceChange: number | null
   resourceChangeRate: number | null
-  peakUpdates: number
+  peakUpdates: number | null
   peakTime: string | null
   anomalyCount: number
   highRiskCount: number
@@ -1095,6 +1096,7 @@ export interface CountryOverview {
   startTime: string
   endTime: string
   timezone: string
+  windowBoundary: '[start,end)' | null
   latestObservation: string | null
   countryCount: number
   countriesWithAnomalies: number
@@ -1117,13 +1119,14 @@ export interface AsnProfile {
   globalRank: number | null
   countryRank: number | null
   important: boolean
-  announce: number
-  withdraw: number
-  updateTotal: number
-  withdrawRate: number
-  previousUpdateTotal: number
+  announce: number | null
+  withdraw: number | null
+  updateTotal: number | null
+  withdrawRate: number | null
+  previousUpdateTotal: number | null
   updateChangeRate: number | null
   sampleCount: number
+  previousSampleCount: number
   latestObservation: string | null
   ipv4Prefixes: number | null
   ipv6Prefixes: number | null
@@ -1131,11 +1134,11 @@ export interface AsnProfile {
   ipv4PrefixChange: number | null
   ipv6PrefixChange: number | null
   ipv4AddressChange: number | null
-  resourceChange: number
+  resourceChange: number | null
   resourceChangeRate: number | null
-  peakUpdates: number
+  peakUpdates: number | null
   peakTime: string | null
-  volatility: number
+  volatility: number | null
   anomalyCount: number
   highRiskCount: number
   sparkline: CountrySparkPoint[]
@@ -1146,6 +1149,7 @@ export interface AsOverview {
   startTime: string
   endTime: string
   timezone: string
+  windowBoundary: '[start,end)' | null
   latestObservation: string | null
   scopeKind: string
   scopeNote: string

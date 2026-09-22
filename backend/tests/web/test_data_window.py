@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from config.data_window import configured_data_window, resolve_query_now
-from services.dashboard_service import get_total_event_counts, get_type_event_counts
 from services.events_service import get_top_event_items
 
 
@@ -66,33 +65,6 @@ def test_top_events_use_march_tables_and_snapshot_clock(monkeypatch):
     ) as query:
         assert get_top_event_items() == []
 
-    assert query.call_args.kwargs["last_month_table"] == "event_table_202602"
-    assert query.call_args.kwargs["event_table"] == "event_table_202603"
-    assert query.call_args.kwargs["now"] == datetime.datetime(2026, 3, 31, 23, 59, 59)
-
-
-def test_dashboard_uses_march_tables_and_snapshot_clock(monkeypatch):
-    monkeypatch.setenv("DOMEYE_DATA_SNAPSHOT_TIME", DEV_SNAPSHOT)
-    with patch(
-        "services.dashboard_service.get_event_count",
-        return_value=[],
-    ) as query:
-        assert get_total_event_counts() == []
-
-    assert query.call_args.kwargs["last_month_table"] == "event_table_202602"
-    assert query.call_args.kwargs["event_table"] == "event_table_202603"
-    assert query.call_args.kwargs["now"] == datetime.datetime(2026, 3, 31, 23, 59, 59)
-
-
-def test_type_dashboard_uses_march_tables_and_snapshot_clock(monkeypatch):
-    monkeypatch.setenv("DOMEYE_DATA_SNAPSHOT_TIME", DEV_SNAPSHOT)
-    with patch(
-        "services.dashboard_service.get_type_event_count",
-        return_value=([], []),
-    ) as query:
-        payload = get_type_event_counts(event_type="前缀劫持")
-
-    assert payload["event_type"] == "前缀劫持"
     assert query.call_args.kwargs["last_month_table"] == "event_table_202602"
     assert query.call_args.kwargs["event_table"] == "event_table_202603"
     assert query.call_args.kwargs["now"] == datetime.datetime(2026, 3, 31, 23, 59, 59)

@@ -1,6 +1,6 @@
 # 只读业务 API 导航
 
-本页把业务问题对应到已经实现的读取入口。所有下列入口均为 GET；路径存在不保证已经绑定可读数据。精确响应结构与正式参数见 [OpenAPI](../../../contracts/openapi.json)，已发现的实现差异在文末单列。
+本页把业务问题对应到已经实现的读取入口。现有 31 个入口均为 GET，其中 6 个标记 deprecated；路径存在不保证已经绑定可读数据。精确响应结构与正式参数见 [OpenAPI](../../../contracts/openapi.json)。
 
 以下路径均从站点根开始。`/api/v1` 与 `/api/v2` 分别是两组实际前缀，不要将 `/api/v1` 再加到完整 v2 路径前。花括号为需替换并正确 URL 编码的参数。
 
@@ -27,7 +27,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 | `/api/v1/{event_type}/{start_time}/{problem}/{event_id}/{source}` | 一条历史事件详情 | 身份各部分沿用列表记录；不能只凭对象名称生成 |
 | `/api/v1/events/evidence-bundle/{event_type}/{start_time}/{problem}/{event_id}/{source}` | 业务事实记录与其限制 | 保留语义约束；不是根因结论 |
 | `/api/v1/events/story/{event_type}/{start_time}/{problem}/{event_id}/{source}` | 已建立的事件研究叙事 | 只适用已配置事件；未配置不应伪装为通用生成能力 |
-| `/api/v1/events/observations/{event_type}/{start_time}/{problem}/{event_id}/{source}` | 兼容旧引用的国家观测读取 | 新调用优先沿明确国家事件解析流程选择可用能力 |
+| `/api/v1/events/observations/{event_type}/{start_time}/{problem}/{event_id}/{source}` | 兼容旧引用的国家观测读取（deprecated） | 新调用优先沿明确国家事件解析流程选择可用能力 |
 
 历史事件 `date` 常用 `YYYY-MM-DD_YYYY-MM-DD`，日期右边界按该日结束处理。返回 `record_count` 当前为字符串；程序需要按接口类型解析，不能用当前页长度代替总量。时区与窗口规则见[时间说明](../rules/time-and-aggregation.md)。
 
@@ -44,7 +44,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 时间参数按当前实现使用 `YYYY-MM-DD HH:MM:SS`，不假定所有旧入口都接受带时区 ISO 字符串。国家参数沿用该入口列表返回的名称，不能默认把中文名与国家代码互换。除单目标识别明确支持外，ASN 参数使用相应接口要求的数字形式。
 
-Feature 列表的页数按对象划分，不是时间覆盖证明。派生字段的单位及旧零值行为见[活动指标](../metrics/activity.md)和[资源指标](../metrics/resources.md)。
+国家和 ASN 档案、ASN 关联事件均使用 `[start_time,end_time)`；档案响应以 `window_boundary` 明示。Feature 列表的页数按对象划分，不是时间覆盖证明。档案保留缺失值，零分母比例返回 null；派生字段的单位及条件见[活动指标](../metrics/activity.md)和[资源指标](../metrics/resources.md)。
 
 ## 国家事件观测
 
@@ -60,9 +60,9 @@ Feature 列表的页数按对象划分，不是时间覆盖证明。派生字段
 
 不同国家响应家族对 `asns` 筛选与能力的支持不完全相同。先按返回能力选择，再按该家族校验参数；不把所有可见参数视为每个事件都支持。历史 ASN 窗口名单不当作某个时点的成员集合。
 
-## 兼容与辅助入口
+## 兼容中断曲线（deprecated）
 
-这些入口仍有实现，但不作为新的统一指标含义来源。使用时保留历史口径和实际数据状态。
+以下五个入口仍被现有页面或兼容调用使用，均已在 OpenAPI 标记 deprecated。使用时保留历史口径和实际数据状态；新增问数不以旧曲线证明确定的中断状态。
 
 | GET 路径 | 用途 | 限制 |
 | --- | --- | --- |
@@ -71,19 +71,17 @@ Feature 列表的页数按对象划分，不是时间覆盖证明。派生字段
 | `/api/v1/features/outages/as-prefix` | 历史 ASN 前缀中断采样 | `asn` 与起止时间 |
 | `/api/v1/features/outages/global-as` | 历史采集范围 AS 中断采样 | 起止时间；global 不表示全互联网 |
 | `/api/v1/features/outages/global-prefix` | 历史采集范围前缀中断采样 | 起止时间；不能用于确定当前真实中断规模 |
-| `/api/v1/dashboard/counts/total` | 历史事件数量辅助查询 | 不是 Core 按日筛选数量的别名 |
-| `/api/v1/dashboard/counts/type` | 历史事件按类型数量 | `event_type` |
-| `/api/v1/dashboard/overview` | 旧概览窗口聚合 | `start_time`、`end_time`；事件选择与生命周期解释见[事件指标](../metrics/events.md) |
-| `/api/v1/p0/status` | 旧 P0 制品状态 | 只说明相应旧制品 |
-| `/api/v1/p0/metrics/{metric_name}` | 旧 P0 指标时序 | [十项兼容指标](../metrics/p0-compatibility.md)，不是全系统指标目录 |
-| `/api/v1/p0/quality` | 旧 P0 质量信息 | 不代表所有历史数据通过验收 |
 
 ## 调用结束时检查什么
 
 同时检查 HTTP 状态和响应正文；部分兼容接口以 `status:false` 表示业务失败。状态正常后，再判断数值是否适用、是否还有分页、是否包含当前问题所需的对象与时间。详见[查询步骤](../guides/query-data.md)与[结果状态](../rules/result-states.md)。
 
-## 已知合同差异
+## ASN 事件窗口参数
 
-当前 `/api/v1/features/ases/overview` 和 `/api/v1/features/ases/events` 实现额外接收 `event_window=true`、`event_reference`。该模式要求指定单 ASN，起止时间与已解析国家事件窗口严格相同，最多 45 天。OpenAPI 尚未完整描述这些参数，`AsOverview.scope_kind` 的枚举也未包含实现中的 `event_window_selected_asn`。
+`/api/v1/features/ases/overview` 和 `/api/v1/features/ases/events` 正式支持 `event_window`、`event_reference`。布尔参数只能为 `true` 或 `false`，默认 `false`，不接受重复参数。`true` 时必须给出单个数字 ASN 和事件引用，起止时间与已解析国家事件原窗口严格相同，最多 45 天；普通模式最多 24 小时，不能附带非空事件引用。档案响应此时使用 `scope_kind=event_window_selected_asn`，不查询前窗，前窗活动与环比为 null。
 
-这是现有实现与正式合同的差异，不是本文新增的接口。调用方不能只依赖当前生成类型判断该模式已完整受支持；后续 API 整理需要同步合同、类型与验证。本次文档不改变现有接口行为。
+必需参数缺失、格式或窗口无效返回 HTTP 400；事件窗口无法核对时返回已有 503 状态。Feature 单目标读取失败返回结构化 500，不返回原始异常文本。部分旧事件入口仍需检查 HTTP 200 正文中的 `status:false`。
+
+## 已退役入口
+
+P0 与旧 dashboard 的六个入口已从源码和合同移除，返回 404。它们不自动重定向到不同来源或不同统计范围。退役路径、当前迁移选择和源代码／运行服务的区别见[业务 API 设计与退役](../../architecture/业务只读API设计与退役.md#退役与保留清单)。

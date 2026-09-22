@@ -11,14 +11,17 @@ import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
 import SparklinePair from '@/components/SparklinePair.vue'
 import type { AsnProfile, AsOverview, EventRow, OutagePoint } from '@/types/api'
+import { resultDelivery } from '@/api/health'
 import { errorMessage } from '@/utils/normalize'
-import { recentRange, toBackendTime } from '@/utils/time'
+import { recentRange, rangeFromQuery, toBackendTime } from '@/utils/time'
 import { businessTimezone, businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
 
 const route = useRoute()
 const router = useRouter()
-const defaults = recentRange(24)
+const delivered = computed(() => resultDelivery.value?.state === 'available')
+const defaults = rangeFromQuery(route.query.start, route.query.end, recentRange(24))
 const query = reactive({ start: defaults.start, end: defaults.end })
+watch([() => route.query.start, () => route.query.end], ([start, end]) => Object.assign(query, rangeFromQuery(start, end, query)))
 const asnInput = ref('')
 const overview = ref<AsOverview | null>(null)
 const prefixOutages = ref<OutagePoint[]>([])
@@ -121,7 +124,7 @@ const rankingSections = computed(() => [
     title: '撤回率最高',
     note: 'WITHDRAW / UPDATES',
     rows: overview.value?.withdrawRateRankings ?? [],
-    value: (profile: AsnProfile) => `${profile.withdrawRate.toFixed(1)}%`,
+    value: (profile: AsnProfile) => formatPercent(profile.withdrawRate),
     unit: '',
   },
   {
@@ -175,6 +178,10 @@ function featureRange(): FeatureRange {
 
 function formatNumber(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : value.toLocaleString('zh-CN')
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? '—' : `${value.toFixed(1)}%`
 }
 
 function changeLabel(value: number | null) {
@@ -294,13 +301,13 @@ watch(
         <h1>{{ selectedAsn ? `AS${selectedAsn}` : '重点 ASN 监测台' }}</h1>
       </div>
       <p class="page-heading-copy">
-        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图使用独立历史数据，不代表全网 ASN 排名。' }}
+        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : delivered ? '在运维候选集内查询本批 ASN Feature 与事件；与首页使用同一结果版本，不代表全网 ASN 排名。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图使用独立历史数据，不代表全网 ASN 排名。' }}
       </p>
     </header>
 
     <section v-if="!eventContext" class="legacy-boundary" aria-label="ASN 数据准入边界">
-      <b>历史数据 · 独立口径</b>
-      <p>本页用于历史对象定位，数据尚未统一发布，不与首页指标混算；缺失值表示未知。</p>
+      <b>{{ delivered ? '本批计算结果 · 有限时段' : '历史数据 · 独立口径' }}</b>
+      <p>{{ delivered ? '仅覆盖页首所列时段，窗口外未知；这不是整窗业务验收。缺失值不表示零。' : '本页用于历史对象定位，数据尚未统一发布，不与首页指标混算；缺失值表示未知。' }}</p>
     </section>
 
     <form class="asn-console" @submit.prevent="openAsn()">
@@ -380,7 +387,7 @@ watch(
       <section v-if="selected" class="asn-dossier" aria-labelledby="asn-dossier-title">
         <header class="dossier-heading">
           <div>
-            <p>{{ eventContext ? 'SELECTED ASN / EVENT WINDOW DOSSIER' : 'SELECTED ASN / 24H DOSSIER' }}</p>
+            <p>{{ eventContext ? 'SELECTED ASN / EVENT WINDOW DOSSIER' : 'SELECTED ASN / WINDOW DOSSIER' }}</p>
             <h2 id="asn-dossier-title">AS{{ selected.asn }} · {{ selected.asName || '名称未知' }}</h2>
             <span>{{ selected.orgName || '组织未知' }} · {{ selected.country || '国家未知' }} · {{ selected.asType || '类型未知' }}</span>
           </div>
@@ -406,7 +413,7 @@ watch(
           </article>
           <article>
             <span>撤回率</span>
-            <strong>{{ hasMessageSummary ? `${selected.withdrawRate.toFixed(1)}%` : '—' }}</strong>
+            <strong>{{ formatPercent(hasMessageSummary ? selected.withdrawRate : null) }}</strong>
             <small v-if="hasMessageSummary">{{ formatNumber(selected.withdraw) }} WITHDRAW</small>
             <small v-else>暂无报文汇总</small>
           </article>

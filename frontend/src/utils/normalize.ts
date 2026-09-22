@@ -715,6 +715,11 @@ const normalizeCountrySparkPoint = (value: unknown): CountrySparkPoint | null =>
   }
 }
 
+const nullableNonNegative = (value: unknown): number | null => {
+  const number = finiteNumber(value)
+  return number === null ? null : Math.max(0, number)
+}
+
 const normalizeCountryProfile = (value: unknown): CountryProfile | null => {
   if (!isRecord(value)) return null
   const country = cleanText(value.country)
@@ -724,13 +729,14 @@ const normalizeCountryProfile = (value: unknown): CountryProfile | null => {
     .filter((point): point is CountrySparkPoint => point !== null)
   return {
     country,
-    announce: Math.max(0, finiteNumber(value.announce) ?? 0),
-    withdraw: Math.max(0, finiteNumber(value.withdraw) ?? 0),
-    updateTotal: Math.max(0, finiteNumber(value.update_total) ?? 0),
-    withdrawRate: Math.max(0, finiteNumber(value.withdraw_rate) ?? 0),
-    previousUpdateTotal: Math.max(0, finiteNumber(value.previous_update_total) ?? 0),
+    announce: nullableNonNegative(value.announce),
+    withdraw: nullableNonNegative(value.withdraw),
+    updateTotal: nullableNonNegative(value.update_total),
+    withdrawRate: nullableNonNegative(value.withdraw_rate),
+    previousUpdateTotal: nullableNonNegative(value.previous_update_total),
     updateChangeRate: finiteNumber(value.update_change_rate),
     sampleCount: Math.max(0, finiteNumber(value.sample_count) ?? 0),
+    previousSampleCount: Math.max(0, finiteNumber(value.previous_sample_count) ?? 0),
     latestObservation: normalizeTime(value.latest_observation),
     ipv4Prefixes: finiteNumber(value.ipv4_prefixes),
     ipv6Prefixes: finiteNumber(value.ipv6_prefixes),
@@ -738,9 +744,9 @@ const normalizeCountryProfile = (value: unknown): CountryProfile | null => {
     ipv4PrefixChange: finiteNumber(value.ipv4_prefix_change),
     ipv6PrefixChange: finiteNumber(value.ipv6_prefix_change),
     ipv4AddressChange: finiteNumber(value.ipv4_address_change),
-    resourceChange: Math.max(0, finiteNumber(value.resource_change) ?? 0),
+    resourceChange: nullableNonNegative(value.resource_change),
     resourceChangeRate: finiteNumber(value.resource_change_rate),
-    peakUpdates: Math.max(0, finiteNumber(value.peak_updates) ?? 0),
+    peakUpdates: nullableNonNegative(value.peak_updates),
     peakTime: normalizeTime(value.peak_time),
     anomalyCount: Math.max(0, finiteNumber(value.anomaly_count) ?? 0),
     highRiskCount: Math.max(0, finiteNumber(value.high_risk_count) ?? 0),
@@ -759,6 +765,7 @@ export const normalizeCountryOverview = (payload: unknown): CountryOverview => {
     startTime: normalizeTime(payload.start_time) ?? '',
     endTime: normalizeTime(payload.end_time) ?? '',
     timezone: cleanText(payload.timezone) || 'Asia/Shanghai',
+    windowBoundary: payload.window_boundary === '[start,end)' ? '[start,end)' : null,
     latestObservation: normalizeTime(payload.latest_observation),
     countryCount: Math.max(0, finiteNumber(payload.country_count) ?? 0),
     countriesWithAnomalies: Math.max(0, finiteNumber(payload.countries_with_anomalies) ?? 0),
@@ -789,13 +796,14 @@ const normalizeAsnProfile = (value: unknown): AsnProfile | null => {
     globalRank: finiteNumber(value.global_rank),
     countryRank: finiteNumber(value.country_rank),
     important: value.important === true,
-    announce: Math.max(0, finiteNumber(value.announce) ?? 0),
-    withdraw: Math.max(0, finiteNumber(value.withdraw) ?? 0),
-    updateTotal: Math.max(0, finiteNumber(value.update_total) ?? 0),
-    withdrawRate: Math.max(0, finiteNumber(value.withdraw_rate) ?? 0),
-    previousUpdateTotal: Math.max(0, finiteNumber(value.previous_update_total) ?? 0),
+    announce: nullableNonNegative(value.announce),
+    withdraw: nullableNonNegative(value.withdraw),
+    updateTotal: nullableNonNegative(value.update_total),
+    withdrawRate: nullableNonNegative(value.withdraw_rate),
+    previousUpdateTotal: nullableNonNegative(value.previous_update_total),
     updateChangeRate: finiteNumber(value.update_change_rate),
     sampleCount: Math.max(0, finiteNumber(value.sample_count) ?? 0),
+    previousSampleCount: Math.max(0, finiteNumber(value.previous_sample_count) ?? 0),
     latestObservation: normalizeTime(value.latest_observation),
     ipv4Prefixes: finiteNumber(value.ipv4_prefixes),
     ipv6Prefixes: finiteNumber(value.ipv6_prefixes),
@@ -803,11 +811,11 @@ const normalizeAsnProfile = (value: unknown): AsnProfile | null => {
     ipv4PrefixChange: finiteNumber(value.ipv4_prefix_change),
     ipv6PrefixChange: finiteNumber(value.ipv6_prefix_change),
     ipv4AddressChange: finiteNumber(value.ipv4_address_change),
-    resourceChange: Math.max(0, finiteNumber(value.resource_change) ?? 0),
+    resourceChange: nullableNonNegative(value.resource_change),
     resourceChangeRate: finiteNumber(value.resource_change_rate),
-    peakUpdates: Math.max(0, finiteNumber(value.peak_updates) ?? 0),
+    peakUpdates: nullableNonNegative(value.peak_updates),
     peakTime: normalizeTime(value.peak_time),
-    volatility: Math.max(0, finiteNumber(value.volatility) ?? 0),
+    volatility: nullableNonNegative(value.volatility),
     anomalyCount: Math.max(0, finiteNumber(value.anomaly_count) ?? 0),
     highRiskCount: Math.max(0, finiteNumber(value.high_risk_count) ?? 0),
     sparkline,
@@ -825,6 +833,7 @@ export const normalizeAsOverview = (payload: unknown): AsOverview => {
     startTime: normalizeTime(payload.start_time) ?? '',
     endTime: normalizeTime(payload.end_time) ?? '',
     timezone: cleanText(payload.timezone) || 'Asia/Shanghai',
+    windowBoundary: payload.window_boundary === '[start,end)' ? '[start,end)' : null,
     latestObservation: normalizeTime(payload.latest_observation),
     scopeKind: cleanText(payload.scope_kind),
     scopeNote: cleanText(payload.scope_note),

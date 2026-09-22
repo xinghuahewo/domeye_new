@@ -8,6 +8,7 @@ import threading
 import time
 
 from config.database import conn_11
+from services.feature_statistics import activity_summary
 from database.country_workbench import (
     get_country_event_counts,
     get_country_feature_aggregates,
@@ -156,12 +157,6 @@ def _feature_point(row):
 
 def _country_profile(row, anomaly_count=0, high_risk_count=0):
     country = str(_row_value(row, 'country') or '').strip()
-    announce = _int_value(_row_value(row, 'announce'))
-    withdraw = _int_value(_row_value(row, 'withdraw'))
-    previous_announce = _int_value(_row_value(row, 'previous_announce'))
-    previous_withdraw = _int_value(_row_value(row, 'previous_withdraw'))
-    update_total = announce + withdraw
-    previous_update_total = previous_announce + previous_withdraw
     ipv4_prefixes = _nullable_int(_row_value(row, 'ipv4_prefixes'))
     ipv6_prefixes = _nullable_int(_row_value(row, 'ipv6_prefixes'))
     ipv4_addresses = _nullable_int(_row_value(row, 'ipv4_addresses'))
@@ -190,13 +185,7 @@ def _country_profile(row, anomaly_count=0, high_risk_count=0):
     ]
     return {
         'country': country,
-        'announce': announce,
-        'withdraw': withdraw,
-        'update_total': update_total,
-        'withdraw_rate': round(withdraw / update_total * 100, 1) if update_total else 0.0,
-        'previous_update_total': previous_update_total,
-        'update_change_rate': _change_rate(update_total, previous_update_total),
-        'sample_count': _int_value(_row_value(row, 'sample_count')),
+        **activity_summary(row),
         'latest_observation': _time_value(_row_value(row, 'latest_observation')),
         'ipv4_prefixes': ipv4_prefixes,
         'ipv6_prefixes': ipv6_prefixes,
@@ -204,9 +193,8 @@ def _country_profile(row, anomaly_count=0, high_risk_count=0):
         'ipv4_prefix_change': ipv4_prefix_change,
         'ipv6_prefix_change': ipv6_prefix_change,
         'ipv4_address_change': ipv4_address_change,
-        'resource_change': max(resource_deltas) if resource_deltas else 0,
+        'resource_change': max(resource_deltas) if resource_deltas else None,
         'resource_change_rate': max(resource_change_rates) if resource_change_rates else None,
-        'peak_updates': _int_value(_row_value(row, 'peak_updates')),
         'peak_time': _time_value(_row_value(row, 'peak_time')),
         'anomaly_count': anomaly_count,
         'high_risk_count': high_risk_count,
@@ -219,7 +207,7 @@ def _ranking(profiles, key, limit, predicate=None):
     candidates = [
         profile
         for profile in profiles
-        if predicate is None or predicate(profile)
+        if profile[key] is not None and (predicate is None or predicate(profile))
     ]
     return sorted(
         candidates,
@@ -344,6 +332,7 @@ def get_country_workbench(start_time, end_time, country='', limit=None, conn=con
         'start_time': start.strftime('%Y-%m-%d %H:%M:%S'),
         'end_time': end.strftime('%Y-%m-%d %H:%M:%S'),
         'timezone': 'Asia/Shanghai',
+        'window_boundary': '[start,end)',
         'latest_observation': latest_observation,
         'country_count': len(data_profiles),
         'countries_with_anomalies': sum(

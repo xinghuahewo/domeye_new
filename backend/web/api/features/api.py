@@ -12,6 +12,22 @@ from services.features_service import (
 )
 
 
+def _event_window_options():
+    """显式校验扩展模式，避免拼写错误被静默当成普通查询。"""
+    values = request.args.getlist('event_window')
+    references = request.args.getlist('event_reference')
+    if len(values) > 1 or len(references) > 1:
+        return None, ({'status': False, 'msg': '事件窗口参数不能重复'}, 400)
+    value = values[0] if values else 'false'
+    if value not in ('true', 'false'):
+        return None, ({'status': False, 'msg': 'event_window 必须为 true 或 false'}, 400)
+    enabled = value == 'true'
+    reference = references[0].strip() if references else ''
+    if reference and not enabled:
+        return None, ({'status': False, 'msg': 'event_reference 只能用于事件窗口查询'}, 400)
+    return {'event_window': enabled, 'event_reference': reference}, None
+
+
 class TopFeatureResource(Resource):
     """
     获取置顶/关键目标的时序特征图表数据
@@ -74,13 +90,15 @@ class ASWorkbenchResource(Resource):
     """获取优先监测 ASN 的报文、资源、静态信息与异常聚合。"""
 
     def get(self):
+        options, error = _event_window_options()
+        if error:
+            return error
         return get_asn_workbench(
             start_time=request.args.get('start_time'),
             end_time=request.args.get('end_time'),
             asn=request.args.get('asn', ''),
             limit=request.args.get('limit'),
-            event_window=request.args.get('event_window') == 'true',
-            event_reference=request.args.get('event_reference', ''),
+            **options,
         )
 
 
@@ -88,13 +106,15 @@ class ASRecentEventsResource(Resource):
     """获取数字边界精确匹配的 ASN 最近事件。"""
 
     def get(self):
+        options, error = _event_window_options()
+        if error:
+            return error
         return get_asn_recent_events(
             start_time=request.args.get('start_time'),
             end_time=request.args.get('end_time'),
             asn=request.args.get('asn', ''),
             page_size=request.args.get('page_size'),
-            event_window=request.args.get('event_window') == 'true',
-            event_reference=request.args.get('event_reference', ''),
+            **options,
         )
 
 

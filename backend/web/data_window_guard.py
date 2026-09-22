@@ -47,6 +47,9 @@ def _inside(start, end, window_start, window_end):
 
 
 def enforce_request_data_window():
+    # 未注册及已退役的地址保持 404，不让历史时间规则遮蔽路由状态。
+    if request.url_rule is None:
+        return None
     window = configured_data_window()
     if window is None or request.method == "OPTIONS":
         return None
@@ -56,8 +59,6 @@ def enforce_request_data_window():
     if path in (
         "/api/v1/healthz",
         "/api/v1/events/top",
-        "/api/v1/dashboard/counts/total",
-        "/api/v1/dashboard/counts/type",
     ):
         return None
 
@@ -77,17 +78,17 @@ def enforce_request_data_window():
         end = _timestamp(request.args.get("end_time"))
         if start is None or end is None:
             return _error(window_start, window_end, "特征接口必须提供秒级起止时间")
-        if not _inside(start, end, window_start, window_end):
+        half_open = path in {
+            "/api/v1/features/countries/overview",
+            "/api/v1/features/ases/overview",
+            "/api/v1/features/ases/events",
+        }
+        inside = (
+            window_start <= start < end <= window_end
+            if half_open else _inside(start, end, window_start, window_end)
+        )
+        if not inside:
             return _error(window_start, window_end, "特征时间超出窗口")
-        return None
-
-    if path == "/api/v1/dashboard/overview":
-        start = _timestamp(request.args.get("start_time"))
-        end = _timestamp(request.args.get("end_time"))
-        if start is None or end is None:
-            return _error(window_start, window_end, "首页聚合必须提供秒级起止时间")
-        if not _inside(start, end, window_start, window_end):
-            return _error(window_start, window_end, "首页聚合时间超出窗口")
         return None
 
     detail_start = (request.view_args or {}).get("start_time")

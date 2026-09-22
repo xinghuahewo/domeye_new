@@ -83,3 +83,10 @@ export const recentDateRange = (days = 7, env?: DataWindowEnv) => {
 
 export const eventDateTimeRange = (startDate: string, endDate: string): string =>
   `${startDate} 00:00:00_${endDate} 23:59:59`
+
+/** 链接可携带一个明确的业务时间窗，避免部分结果打开到默认快照日期。 */
+export function rangeFromQuery(start: unknown, end: unknown, fallback = recentRange(24)) {
+  if (typeof start !== 'string' || typeof end !== 'string') return fallback
+  const a = parseInputTime(start), b = parseInputTime(end)
+  return a && b && a < b ? { start, end } : fallback
+}

@@ -357,6 +357,34 @@ describe('API 数据归一化', () => {
     expect(overview.selectedCountry?.sparkline[0]?.withdraw).toBe(20)
   })
 
+  it('国家和 ASN 档案保留缺失与不可计算值，不补成零', () => {
+    const missing = {
+      country: '测试国', asn: '64500', announce: null, withdraw: null,
+      update_total: null, withdraw_rate: null, previous_update_total: null,
+      resource_change: null, peak_updates: null, volatility: null,
+      sample_count: 0, previous_sample_count: 0,
+    }
+    const country = normalizeCountryOverview({ selected_country: missing, window_boundary: '[start,end)' })
+    const asn = normalizeAsOverview({ selected_asn: missing, window_boundary: '[start,end)' })
+    for (const profile of [country.selectedCountry, asn.selectedAsn]) {
+      expect(profile?.announce).toBeNull()
+      expect(profile?.withdraw).toBeNull()
+      expect(profile?.updateTotal).toBeNull()
+      expect(profile?.withdrawRate).toBeNull()
+      expect(profile?.previousUpdateTotal).toBeNull()
+      expect(profile?.resourceChange).toBeNull()
+      expect(profile?.peakUpdates).toBeNull()
+      expect(profile?.previousSampleCount).toBe(0)
+    }
+    expect(asn.selectedAsn?.volatility).toBeNull()
+    expect(asn.windowBoundary).toBe('[start,end)')
+    expect(country.windowBoundary).toBe('[start,end)')
+    const zero = normalizeCountryOverview({ selected_country: { ...missing, announce: 0, withdraw: 0, update_total: 0, sample_count: 2 } })
+    expect(zero.selectedCountry?.updateTotal).toBe(0)
+    expect(zero.selectedCountry?.withdrawRate).toBeNull()
+    expect(zero.windowBoundary).toBeNull()
+  })
+
   it('归一化 ASN 候选集、静态信息、波动度和单 ASN 时序', () => {
     const profile = {
       asn: '3356',

@@ -10,11 +10,19 @@ from zoneinfo import ZoneInfo
 from data_pipeline.common.event_records import serialize_record
 from data_pipeline.overview.input import InputError as OverviewError, load_legacy_input, overview_item as _item, overview_search_text, overview_level_filter
 from data_pipeline.overview.index import DailyIndex
+from data_pipeline.results.delivery_read import DeliveredIndex
 from data_pipeline.overview.scale import attach_scale
 from data_pipeline.overview.paths import attach_comparison
 
 
 def _load():
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true':
+        import psycopg2
+        try:
+            index = DeliveredIndex()
+            return index.manifest, index, index.version
+        except psycopg2.Error as error:
+            raise OverviewError('结果交付库暂不可读') from error
     configured = os.environ.get('DOMEYE_CORE_OVERVIEW_MANIFEST')
     if not configured:
         raise OverviewError('未配置首页留存输入')
@@ -84,11 +92,13 @@ def get_core_overview(params):
         'metadata': {'source': manifest['source'], 'data_profile': profile,
                      'retained_window': manifest['window'], 'kinds': manifest['kinds'],
                      'interpretation_version': manifest['interpretation_version'],
-                     'available_dates': sorted(records.days) if isinstance(records, DailyIndex) else legacy_dates},
+                     'available_dates': sorted(records.days) if isinstance(records, (DailyIndex, DeliveredIndex)) else legacy_dates},
         'query': {'date': day, 'start': start.isoformat(), 'end_exclusive': end.isoformat(), 'kind': kind, 'hour': hour, 'family': family, 'excluded_unknown_family': None,
                   'level': level, 'sort': sort, 'q': query, 'page': page, 'page_size': page_size},
         'overview': None, 'trend': None, 'events': None,
     }
+    if isinstance(records, DeliveredIndex):
+        return records.query(response)
     if isinstance(records, DailyIndex):
         if records.diagnostics:
             response['metadata']['diagnostic_dates'] = sorted(records.diagnostics)
@@ -139,7 +149,7 @@ def get_core_overview_record(params):
     manifest, records, version = _load()
     if params['version'] != version:
         raise OverviewError('详情版本与当前留存输入不一致', 409)
-    if isinstance(records, DailyIndex):
+    if isinstance(records, (DailyIndex, DeliveredIndex)):
         return records.detail(params['ref'])
     for result in records:
         if result['record']['identity']['legacy_reference'] == params['ref']:

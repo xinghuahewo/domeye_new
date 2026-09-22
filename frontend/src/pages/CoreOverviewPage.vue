@@ -285,7 +285,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
       <button @click="load(true)" :disabled="loading">重新读取</button>
     </div>
     <main class="variant-c c-overview core-main" :aria-busy="loading">
-      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势</h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><div class="c-time-stamp"><span>观测日期</span><strong>{{ date }} · 00:00–24:00</strong><small>RRC25 · 观察覆盖未知</small></div></div>
+      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势</h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><div class="c-time-stamp"><span>观测日期</span><strong>{{ date }} · {{ metadata?.result_delivery ? '部分时段' : '00:00–24:00' }}</strong><small>RRC25 · 观察覆盖未知</small></div></div>
       <div v-if="data?.diagnostic" class="core-notice core-diagnostic" role="alert"><strong>{{ diagnosticTitle }}</strong><span>此日不提供异常统计和异常列表，不表示没有异常。</span><ul><li v-for="reason in data.diagnostic.reasons" :key="`${reason.kind}:${reason.code}`">{{ diagnosticTypes[reason.kind] }}：{{ failureLabels[reason.code] }}<template v-if="reason.count !== null">，{{ count(reason.count) }} 条</template>。</li></ul><small>核验阶段：{{ diagnosticStage }}。原始值保留，此日尚未准入。</small><button @click="showDiagnostic">核验依据与版本 ↗</button></div>
       <div v-else-if="error" class="core-notice" role="alert"><strong>数据不可用</strong><span>{{ error }}</span><button @click="load(true)">重新读取</button></div>
       <div v-else-if="data?.state === 'window_not_retained'" class="core-notice" role="status"><strong>选定日期尚未留存</strong><span>不是没有异常；本版本已留存 {{ availableDates.length }} 天，可在上方选择日期。</span><button @click="useRetainedWindow">查看最近已留存日期</button></div>
@@ -302,6 +302,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
           <button class="c-metric" @click="showScope"><span class="c-metric-label">新增异常记录 <span>↗</span></span><strong data-testid="core-record-count">{{ ready ? count(data?.overview?.record_count) : '—' }} <small v-if="ready">条</small></strong><span class="c-metric-note">{{ loading ? '正在读取' : ready ? `选定留存窗口 · ${availableTypes.length} 类记录` : '选定窗口不可用' }}</span></button>
         </div>
       </section>
+      <p v-if="metadata?.projection_unavailable_records" role="status">{{ metadata.projection_unavailable_records }} 条原始业务记录暂不能用于首页展示；保留原文，未计入下面的数量。</p>
       <CoreAnomalyCards :date="date" :family="family || 'all'" :base="anomalyBase" :refresh-key="snapshotRefresh" :request-loading="loading" @select="selectAnomaly" />
       <section id="events" class="c-panel c-events" aria-labelledby="c-events-title">
         <div class="c-panel-heading"><div><p class="overline">ROUTING ANOMALIES</p><h2 id="c-events-title">路由异常 <span class="c-event-count">{{ ready ? count(data?.events?.total) : '—' }}</span></h2></div><span class="c-tag">RRC25 · 留存记录</span></div>

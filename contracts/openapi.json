@@ -3,7 +3,7 @@
   "info": {
     "title": "Domeye New 只读数据 API",
     "version": "0.1.0",
-    "description": "当前传统前端使用的只读查询接口契约，定义原始 HTTP 响应结构，供类型生成与合同测试使用。产品能力和证据解释范围见项目 CONTEXT.md。"
+    "description": "当前传统前端使用的只读查询接口契约，定义原始 HTTP 响应结构，供类型生成与合同测试使用。产品能力和证据解释范围见项目 CONTEXT.md。\n\n显式结果交付模式的所有 GET 响应携带 X-Domeye-Result-State、Version、Start、End-Exclusive、Coverage 响应头（统一前缀 X-Domeye-Result-）；版本与查询使用同一个只读事务。partial_window 仅覆盖已完成文件，窗口外未知。"
   },
   "servers": [{"url": "/api/v1"}],
   "paths": {
@@ -377,44 +377,6 @@
         "responses": {"200": {"description": "服务正常", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthPayload"}}}}}
       }
     },
-    "/p0/status": {
-      "get": {
-        "operationId": "getP0DataStatus",
-        "description": "读取显式 P0 候选仓库的数据身份、门禁、覆盖和限制；不连接数据库，不表示生产已激活。",
-        "responses": {
-          "200": {"description": "可信仓库状态，包括显式生产激活、门禁失败或样本限制", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0DataStatus"}}}},
-          "409": {"$ref": "#/components/responses/P0ArtifactConflict"},
-          "503": {"$ref": "#/components/responses/P0RepositoryUnavailable"}
-        }
-      }
-    },
-    "/p0/metrics/{metric_name}": {
-      "get": {
-        "operationId": "getP0MetricSeries",
-        "description": "只返回已进入 P0 数据字典、manifest 已准入且 SHA 闭合的 MetricSeries。缺失点保持 null、value_state 和 missing_reason。",
-        "parameters": [
-          {"name": "metric_name", "in": "path", "required": true, "schema": {"type": "string", "enum": ["bgp_announce_record_count", "bgp_withdraw_record_count", "bgp_update_record_count", "bgp_withdraw_ratio", "ipv4_24_equivalent_count", "ipv6_48_equivalent_count", "ipv4_equivalent_address_count", "anomaly_incident_count", "prefix_outage_concurrent_count", "as_outage_concurrent_count"]}}
-        ],
-        "responses": {
-          "200": {"description": "已准入指标和完整缺失语义", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0MetricResponse"}}}},
-          "400": {"$ref": "#/components/responses/P0BadRequest"},
-          "404": {"$ref": "#/components/responses/P0ResourceNotFound"},
-          "409": {"$ref": "#/components/responses/P0ArtifactConflict"},
-          "503": {"$ref": "#/components/responses/P0RepositoryUnavailable"}
-        }
-      }
-    },
-    "/p0/quality": {
-      "get": {
-        "operationId": "getP0DataQualityReport",
-        "description": "返回 SHA、fingerprint 和检查引用闭合的完整质量报告；gate 失败仍是可信的 200 状态。",
-        "responses": {
-          "200": {"description": "完整 P0 数据质量报告", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0QualityResponse"}}}},
-          "409": {"$ref": "#/components/responses/P0ArtifactConflict"},
-          "503": {"$ref": "#/components/responses/P0RepositoryUnavailable"}
-        }
-      }
-    },
     "/events": {
       "get": {
         "operationId": "getEvents",
@@ -485,7 +447,7 @@
     "/events/observations/{event_type}/{start_time}/{problem}/{event_id}/{source}": {
       "get": {
         "operationId": "getEventObservation",
-        "description": "兼容旧引用路径的国家中断观测数据。事件身份和制品位置来自发布注册表，不在接口代码中绑定国家。",
+        "description": "旧事件引用的兼容读取入口。新调用通过 /api/v2/events/resolve 解析事件后，按同一 publication_id 读取国家事件资源。",
         "parameters": [
           {"name": "event_type", "in": "path", "required": true, "schema": {"type": "string", "const": "country_outage"}},
           {"name": "start_time", "in": "path", "required": true, "schema": {"type": "string"}},
@@ -497,7 +459,8 @@
           "200": {"description": "事件数据观测合同", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EventObservation"}}}},
           "404": {"description": "该事件尚未建立数据观测合同"},
           "503": {"description": "研究交付包或 Core 国家资源时序不可用"}
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/v2/events/resolve": {
@@ -628,7 +591,7 @@
           {"$ref": "#/components/parameters/StartTime"},
           {"$ref": "#/components/parameters/EndTime"}
         ],
-        "responses": {"200": {"description": "特征时序", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/FeaturePoint"}}}}}}
+        "responses": {"200": {"description": "特征时序", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/FeaturePoint"}}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}},"500": {"description": "现有特征数据查询或结果读取失败", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}}
       }
     },
     "/features/countries": {
@@ -641,7 +604,7 @@
           {"$ref": "#/components/parameters/StartTime"},
           {"$ref": "#/components/parameters/EndTime"}
         ],
-        "responses": {"200": {"description": "国家特征分页", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CountryFeaturePage"}}}}}
+        "responses": {"200": {"description": "国家特征分页", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CountryFeaturePage"}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}}
       }
     },
     "/features/countries/overview": {
@@ -653,7 +616,8 @@
           {"$ref": "#/components/parameters/StartTime"},
           {"$ref": "#/components/parameters/EndTime"}
         ],
-        "responses": {"200": {"description": "国家报文、资源和异常聚合", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CountryOverview"}}}}}
+        "responses": {"200": {"description": "国家报文、资源和异常聚合", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CountryOverview"}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询国家已观测样本，最多 24 小时。活动、末态资源和事件数量分别解释，不推定窗口完整覆盖。并列活动峰值取首次。"
       }
     },
     "/features/ases": {
@@ -667,80 +631,52 @@
           {"$ref": "#/components/parameters/StartTime"},
           {"$ref": "#/components/parameters/EndTime"}
         ],
-        "responses": {"200": {"description": "ASN 特征分页", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsFeaturePage"}}}}}
+        "responses": {"200": {"description": "ASN 特征分页", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsFeaturePage"}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}}
       }
     },
     "/features/ases/overview": {
       "get": {
         "operationId": "getAsWorkbenchOverview",
-        "parameters": [
-          {"name": "asn", "in": "query", "schema": {"type": "string"}},
-          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 3, "maximum": 12, "default": 6}},
-          {"$ref": "#/components/parameters/StartTime"},
-          {"$ref": "#/components/parameters/EndTime"}
-        ],
-        "responses": {"200": {"description": "运维候选 ASN 的报文、资源、波动和异常聚合", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsOverview"}}}}}
+        "parameters": [{"name": "asn", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 3, "maximum": 12, "default": 6}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}, {"name": "event_window", "in": "query", "schema": {"type": "boolean", "default": false}, "description": "URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时普通窗口最多 24 小时。"}, {"name": "event_reference", "in": "query", "schema": {"type": "string"}, "description": "event_window=true 时必需的国家中断事件引用，来自事件列表／解析。不得重复；普通模式不得传入非空引用。"}],
+        "responses": {"200": {"description": "运维候选 ASN 的报文、资源、波动和异常聚合", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsOverview"}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}},"503": {"description": "国家事件窗口所需的绑定未配置或无法可靠核对", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。"
       }
     },
     "/features/ases/events": {
       "get": {
         "operationId": "getAsExactRecentEvents",
-        "parameters": [
-          {"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}},
-          {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
-          {"$ref": "#/components/parameters/StartTime"},
-          {"$ref": "#/components/parameters/EndTime"}
-        ],
-        "responses": {"200": {"description": "数字边界精确匹配的 ASN 最近事件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsExactEventPage"}}}}}
+        "parameters": [{"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}}, {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}, {"name": "event_window", "in": "query", "schema": {"type": "boolean", "default": false}, "description": "URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时普通窗口最多 24 小时。"}, {"name": "event_reference", "in": "query", "schema": {"type": "string"}, "description": "event_window=true 时必需的国家中断事件引用，来自事件列表／解析。不得重复；普通模式不得传入非空引用。"}],
+        "responses": {"200": {"description": "数字边界精确匹配的 ASN 最近事件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsExactEventPage"}}}},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}},"503": {"description": "国家事件窗口所需的绑定未配置或无法可靠核对", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。"
       }
     },
     "/features/outages/country-as": {
-      "get": {"operationId": "getCountryAsOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"}}}
+      "get": {"operationId": "getCountryAsOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/country-prefix": {
-      "get": {"operationId": "getCountryPrefixOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"}}}
+      "get": {"operationId": "getCountryPrefixOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/as-prefix": {
-      "get": {"operationId": "getAsPrefixOutages", "parameters": [{"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"}}}
+      "get": {"operationId": "getAsPrefixOutages", "parameters": [{"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/global-as": {
-      "get": {"operationId": "getGlobalAsOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"}}}
+      "get": {"operationId": "getGlobalAsOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/global-prefix": {
-      "get": {"operationId": "getGlobalPrefixOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"}}}
-    },
-    "/dashboard/counts/total": {
-      "get": {"operationId": "getEventCounts", "responses": {"200": {"description": "每日事件数", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/CountPoint"}}}}}}}
-    },
-    "/dashboard/counts/type": {
-      "get": {"operationId": "getTypeCount", "parameters": [{"name": "event_type", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "事件类型统计", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TypeCount"}}}}}}
-    },
-    "/dashboard/overview": {
-      "get": {
-        "operationId": "getDashboardOverview",
-        "parameters": [
-          {"$ref": "#/components/parameters/StartTime"},
-          {"$ref": "#/components/parameters/EndTime"}
-        ],
-        "responses": {"200": {"description": "首页六类异常聚合", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardOverview"}}}}}
-      }
+      "get": {"operationId": "getGlobalPrefixOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
     }
   },
   "components": {
     "parameters": {
-      "StartTime": {"name": "start_time", "in": "query", "required": true, "schema": {"type": "string"}},
-      "EndTime": {"name": "end_time", "in": "query", "required": true, "schema": {"type": "string"}},
+      "StartTime": {"name": "start_time", "in": "query", "required": true, "schema": {"type": "string"},"description": "Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。"},
+      "EndTime": {"name": "end_time", "in": "query", "required": true, "schema": {"type": "string"},"description": "Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。"},
       "Target": {"name": "target", "in": "query", "required": true, "schema": {"type": "string"}},
       "Country": {"name": "country", "in": "query", "required": true, "schema": {"type": "string"}},
       "PageNum": {"name": "page_num", "in": "query", "schema": {"type": "integer", "minimum": 1}},
       "FeaturePageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "enum": [5, 10, 20, 50]}}
     },
     "responses": {
-      "OutageSeries": {"description": "中断时序", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/OutagePoint"}}}}},
-      "P0BadRequest": {"description": "标识符非法或尝试路径穿越", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}},
-      "P0ResourceNotFound": {"description": "合法资源未出现在当前已准入候选中", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}},
-      "P0ArtifactConflict": {"description": "候选制品 SHA、fingerprint、引用或跨组件身份不一致", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}},
-      "P0RepositoryUnavailable": {"description": "候选仓库未配置或不可用", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/P0ErrorResponse"}}}}
+      "OutageSeries": {"description": "中断时序", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/OutagePoint"}}}}}
     },
     "schemas": {
       "RibSnapshotAsn": {
@@ -1361,6 +1297,8 @@
               "source": {"$ref": "#/components/schemas/CoreOverviewSource"},
               "scale": {"$ref": "#/components/schemas/CoreOverviewScale"},
               "path_comparison": {"$ref": "#/components/schemas/CorePathComparison"},
+              "result_delivery": {"$ref": "#/components/schemas/ResultDeliveryStatus"},
+              "projection_unavailable_records": {"type": "integer", "minimum": 0, "description": "业务原文已留存，但不能按当前 Core 解释规则展示的记录数；不得视为无异常。"},
               "input_interpretation_version": {"type": "string", "description": "v3目录在可用日明确提供实际日输入的解释版本；复用旧日文件时仍保留旧值，不由目录版本覆盖。"},
               "data_profile": {"type": "object", "required": ["id", "timezone", "window_start", "window_end_exclusive", "snapshot_time"], "properties": {"id": {"type": "string"}, "timezone": {"type": "string"}, "window_start": {"type": "string"}, "window_end_exclusive": {"type": "string"}, "snapshot_time": {"type": "string"}}},
               "retained_window": {"type": "object", "description": "已留存日期的外包范围；不表示中间日期连续可用，以 available_dates 为准", "required": ["source", "start", "end_exclusive"], "properties": {"source": {"type": "string"}, "start": {"type": "string"}, "end_exclusive": {"type": "string"}}},
@@ -1392,7 +1330,7 @@
         "type": "object", "required": ["state", "version", "item", "metadata", "record"],
         "properties": {
           "state": {"type": "string", "enum": ["available"]}, "version": {"type": "string"}, "item": {"$ref": "#/components/schemas/CoreOverviewItem"},
-          "metadata": {"type": "object", "required": ["source", "interpretation_version"], "properties": {"source": {"$ref": "#/components/schemas/CoreOverviewSource"}, "interpretation_version": {"type": "string"}, "input_interpretation_version": {"type": "string"}}},
+          "metadata": {"type": "object", "required": ["source", "interpretation_version"], "properties": {"result_delivery": {"$ref": "#/components/schemas/ResultDeliveryStatus"}, "source": {"$ref": "#/components/schemas/CoreOverviewSource"}, "interpretation_version": {"type": "string"}, "input_interpretation_version": {"type": "string"}}},
           "record": {"type": "object", "required": ["content_version", "read_at", "record"], "properties": {"content_version": {"type": "string"}, "read_at": {"type": "string"}, "record": {"type": "object", "additionalProperties": true}}}
         }
       },
@@ -1496,201 +1434,69 @@
         "type": "object", "required": ["source", "start", "end_exclusive"],
         "properties": {"source": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end_exclusive": {"type": "string", "format": "date-time"}}
       },
-      "P0ErrorResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["schema_version", "status", "error"],
-        "properties": {
-          "schema_version": {"const": "p0_error_v1"},
-          "status": {"const": "error"},
-          "error": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["code", "message_zh"],
-            "properties": {
-              "code": {"enum": ["invalid_identifier", "candidate_resource_not_found", "candidate_artifact_conflict", "candidate_repository_unavailable", "p0_internal_error"]},
-              "message_zh": {"type": "string", "minLength": 1}
-            }
-          }
-        }
-      },
-      "P0Limitation": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["code", "severity", "message_zh"],
-        "properties": {
-          "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-          "severity": {"enum": ["blocking", "warning", "info"]},
-          "message_zh": {"type": "string", "minLength": 1}
-        }
-      },
-      "P0Profile": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "timezone", "window_start", "window_end_exclusive", "snapshot_time", "boundary"],
-        "properties": {
-          "id": {"type": "string", "minLength": 1},
-          "timezone": {"const": "Asia/Shanghai"},
-          "window_start": {"type": "string", "format": "date-time"},
-          "window_end_exclusive": {"type": "string", "format": "date-time"},
-          "snapshot_time": {"type": "string", "format": "date-time"},
-          "boundary": {"const": "[start,end)"}
-        }
-      },
-      "P0Releases": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["source_release_id", "normalization_candidate_fingerprint_sha256", "artifact_manifest_fingerprint_sha256", "metric_candidate_fingerprint_sha256", "quality_report_id", "quality_report_fingerprint_sha256", "repository_fingerprint_sha256"],
-        "properties": {
-          "source_release_id": {"type": "string", "minLength": 1},
-          "normalization_candidate_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "artifact_manifest_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "metric_candidate_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "quality_report_id": {"type": "string", "pattern": "^dqr-[a-z0-9][a-z0-9._-]*$"},
-          "quality_report_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "repository_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
-        }
-      },
-      "P0QualityDecision": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["status", "admission_level", "blocking_failed_check_ids", "blocking_pending_check_ids", "warning_check_ids", "decision_reasons_zh"],
-        "properties": {
-          "status": {"enum": ["passed", "failed", "pending"]},
-          "admission_level": {"enum": ["not_accepted", "legacy_compatible", "raw_traceable"]},
-          "blocking_failed_check_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
-          "blocking_pending_check_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
-          "warning_check_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
-          "decision_reasons_zh": {"type": "array", "items": {"type": "string", "minLength": 1}}
-        }
-      },
-      "P0AvailableMetric": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["metric_name", "unit", "aggregation", "formula", "formula_version", "subject", "window", "coverage"],
-        "properties": {
-          "metric_name": {"type": "string"},
-          "unit": {"type": "string"},
-          "aggregation": {"type": "string"},
-          "formula": {"type": "string"},
-          "formula_version": {"type": "string"},
-          "subject": {"$ref": "./data/metric-series.schema.json#/$defs/subject"},
-          "window": {"$ref": "./data/metric-series.schema.json#/$defs/window"},
-          "coverage": {"$ref": "./data/metric-series.schema.json#/$defs/coverage"}
-        }
-      },
-      "P0RawCoverage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["artifact_type", "collector_scope", "status", "expected_count", "observed_count", "present_count", "missing_count", "coverage_ratio", "presence_ratio", "missing_value_state", "missing_state_counts", "invalid_reason_counts"],
-        "properties": {
-          "artifact_type": {"const": "update"},
-          "collector_scope": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "minLength": 1}
-          },
-          "status": {"enum": ["complete", "partial"]},
-          "expected_count": {"type": "integer", "minimum": 1},
-          "observed_count": {"type": "integer", "minimum": 0, "description": "发现文件且通过压缩容器完整性校验的 UPDATE 槽数；不等同于全量 MRT 语义解析通过。"},
-          "present_count": {"type": "integer", "minimum": 0, "description": "发现 UPDATE 文件的槽数，等于 observed_count + parse_failed。"},
-          "missing_count": {"type": "integer", "minimum": 0},
-          "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
-          "presence_ratio": {"type": "number", "minimum": 0, "maximum": 1},
-          "missing_value_state": {
-            "enum": [null, "source_unavailable", "parse_failed", "mixed"],
-            "description": "缺口聚合状态；mixed 表示来源不可用与解析失败同时存在，精确计数以 missing_state_counts 为准。"
-          },
-          "missing_state_counts": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["source_unavailable", "parse_failed"],
-            "properties": {
-              "source_unavailable": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "未发现对应原始 UPDATE 制品的时间槽数。"
-              },
-              "parse_failed": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "发现原始 UPDATE 文件但因空文件、压缩 magic 错误或压缩流 EOF/CRC 完整性失败而不可用的时间槽数。"
-              }
-            },
-            "description": "原始 UPDATE 缺口的互斥分解；两项之和必须等于 missing_count。"
-          },
-          "invalid_reason_counts": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["compressed_stream_invalid", "compression_magic_mismatch", "empty_file"],
-            "properties": {
-              "compressed_stream_invalid": {"type": "integer", "minimum": 0},
-              "compression_magic_mismatch": {"type": "integer", "minimum": 0},
-              "empty_file": {"type": "integer", "minimum": 0}
-            },
-            "description": "仅针对 UPDATE 的 parse_failed 原因互斥分解；三项之和必须等于 missing_state_counts.parse_failed。"
-          }
-        }
-      },
-      "P0DataStatus": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["schema_version", "repository_state", "production_active", "profile", "releases", "quality_decision", "available_metrics", "raw_coverage", "limitations"],
-        "oneOf": [
-          {"properties": {"repository_state": {"const": "candidate"}, "production_active": {"const": false}}},
-          {"properties": {"repository_state": {"const": "production"}, "production_active": {"const": true}}}
-        ],
-        "properties": {
-          "schema_version": {"const": "p0_data_status_v1"},
-          "repository_state": {"enum": ["candidate", "production"]},
-          "production_active": {"type": "boolean"},
-          "profile": {"$ref": "#/components/schemas/P0Profile"},
-          "releases": {"$ref": "#/components/schemas/P0Releases"},
-          "quality_decision": {"$ref": "#/components/schemas/P0QualityDecision"},
-          "available_metrics": {"type": "array", "items": {"$ref": "#/components/schemas/P0AvailableMetric"}},
-          "raw_coverage": {"$ref": "#/components/schemas/P0RawCoverage"},
-          "limitations": {"type": "array", "items": {"$ref": "#/components/schemas/P0Limitation"}}
-        }
-      },
-      "P0MetricResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["schema_version", "repository_state", "production_active", "candidate_fingerprint_sha256", "admission_status", "metric", "limitations"],
-        "oneOf": [
-          {"properties": {"repository_state": {"const": "candidate"}, "production_active": {"const": false}}},
-          {"properties": {"repository_state": {"const": "production"}, "production_active": {"const": true}}}
-        ],
-        "properties": {
-          "schema_version": {"const": "p0_metric_response_v1"},
-          "repository_state": {"enum": ["candidate", "production"]},
-          "production_active": {"type": "boolean"},
-          "candidate_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "admission_status": {"const": "metric_candidate_ready"},
-          "metric": {"$ref": "./data/metric-series.schema.json"},
-          "limitations": {"type": "array", "items": {"$ref": "#/components/schemas/P0Limitation"}}
-        }
-      },
-      "P0QualityResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["schema_version", "repository_state", "production_active", "report", "limitations"],
-        "oneOf": [
-          {"properties": {"repository_state": {"const": "candidate"}, "production_active": {"const": false}}},
-          {"properties": {"repository_state": {"const": "production"}, "production_active": {"const": true}}}
-        ],
-        "properties": {
-          "schema_version": {"const": "p0_quality_response_v1"},
-          "repository_state": {"enum": ["candidate", "production"]},
-          "production_active": {"type": "boolean"},
-          "report": {"$ref": "./data/data-quality-report.schema.json"},
-          "limitations": {"type": "array", "items": {"$ref": "#/components/schemas/P0Limitation"}}
-        }
-      },
+      "ResultDeliveryStatus": {
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "available",
+        "empty",
+        "unavailable"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "files": {
+      "type": "integer"
+    },
+    "updates": {
+      "type": "integer"
+    },
+    "start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_exclusive": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "coverage": {
+      "type": "string",
+      "const": "partial_window"
+    },
+    "archive": {
+      "type": "string"
+    },
+    "rejected": {
+      "type": "integer"
+    },
+    "unsupported": {
+      "type": "integer"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+},
       "HealthPayload": {
         "type": "object",
         "required": ["status", "service", "time"],
-        "properties": {"status": {"type": "string"}, "service": {"type": "string"}, "time": {"type": "string"}}
+        "properties": {"status": {"type": "string"}, "service": {"type": "string"}, "time": {"type": "string"}, "result_delivery": {"$ref": "#/components/schemas/ResultDeliveryStatus"}}
       },
       "LegacyEventSemanticGuardrails": {
         "type": "object",
@@ -2320,36 +2126,37 @@
       },
       "CountryProfile": {
         "type": "object",
-        "required": ["country", "announce", "withdraw", "update_total", "withdraw_rate", "previous_update_total", "update_change_rate", "sample_count", "latest_observation", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses", "ipv4_prefix_change", "ipv6_prefix_change", "ipv4_address_change", "resource_change", "resource_change_rate", "peak_updates", "peak_time", "anomaly_count", "high_risk_count", "sparkline", "series"],
+        "required": ["country", "announce", "withdraw", "update_total", "withdraw_rate", "previous_update_total", "update_change_rate", "sample_count", "latest_observation", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses", "ipv4_prefix_change", "ipv6_prefix_change", "ipv4_address_change", "resource_change", "resource_change_rate", "peak_updates", "peak_time", "anomaly_count", "high_risk_count", "sparkline", "series", "previous_sample_count"],
         "properties": {
           "country": {"type": "string"},
-          "announce": {"type": "integer"},
-          "withdraw": {"type": "integer"},
-          "update_total": {"type": "integer"},
-          "withdraw_rate": {"type": "number"},
-          "previous_update_total": {"type": "integer"},
+          "announce": {"type": ["integer", "null"],"description": "当前窗口已观测样本的宣告路由元素计数，不是消息数；无适用样本时 null。"},
+          "withdraw": {"type": ["integer", "null"],"description": "当前窗口已观测样本的撤回路由元素计数；无适用样本时 null。"},
+          "update_total": {"type": ["integer", "null"],"description": "宣告与撤回元素计数之和；任一组成未知时 null。"},
+          "withdraw_rate": {"type": ["number", "null"],"description": "100×withdraw/update_total，单位 %；分母为零或未知时 null。"},
+          "previous_update_total": {"type": ["integer", "null"],"description": "前一等长窗口已观测样本的活动量；前窗无样本或未查询时 null。"},
           "update_change_rate": {"type": ["number", "null"]},
-          "sample_count": {"type": "integer"},
+          "sample_count": {"type": "integer","description": "实际当前样本行数，不是完整覆盖证明；缺行不能自动当作零活动。"},
           "latest_observation": {"type": ["string", "null"]},
-          "ipv4_prefixes": {"type": ["integer", "null"]},
-          "ipv6_prefixes": {"type": ["integer", "null"]},
-          "ipv4_addresses": {"type": ["integer", "null"]},
+          "ipv4_prefixes": {"type": ["integer", "null"],"description": "IPv4 /24 覆盖块数，不是唯一 CIDR 条数。"},
+          "ipv6_prefixes": {"type": ["integer", "null"],"description": "IPv6 /48 覆盖块数，不是精确 /48 分数等价量。"},
+          "ipv4_addresses": {"type": ["integer", "null"],"description": "Feature 的 /24 覆盖块数×256，不是所有情况下的精确地址并集。"},
           "ipv4_prefix_change": {"type": ["integer", "null"]},
           "ipv6_prefix_change": {"type": ["integer", "null"]},
           "ipv4_address_change": {"type": ["integer", "null"]},
-          "resource_change": {"type": "integer"},
-          "resource_change_rate": {"type": ["number", "null"]},
-          "peak_updates": {"type": "integer"},
+          "resource_change": {"type": ["integer", "null"],"description": "旧排序辅助：IPv4 /24 与 IPv6 /48 变化绝对值的最大值，混合单位且不含方向；未知时 null。","deprecated": true},
+          "resource_change_rate": {"type": ["number", "null"],"description": "旧排序辅助：两族可计算变化百分比绝对值的最大值，不是双栈总体下降率。","deprecated": true},
+          "peak_updates": {"type": ["integer", "null"],"description": "已观测样本中的活动最大值；无样本时 null。并列取首次。"},
           "peak_time": {"type": ["string", "null"]},
           "anomaly_count": {"type": "integer"},
           "high_risk_count": {"type": "integer"},
           "sparkline": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySparkPoint"}},
-          "series": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}}
+          "series": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}},
+          "previous_sample_count": {"type": "integer", "minimum": 0, "description": "前窗实际样本行数。零表示未取得前窗样本，不证明零活动。事件窗口模式不查询前窗。"}
         }
       },
       "CountryOverview": {
         "type": "object",
-        "required": ["start_time", "end_time", "timezone", "latest_observation", "country_count", "countries_with_anomalies", "update_leader", "withdraw_rate_leader", "resource_change_leader", "update_rankings", "withdraw_rate_rankings", "resource_change_rankings", "anomaly_rankings", "selected_country"],
+        "required": ["start_time", "end_time", "timezone", "latest_observation", "country_count", "countries_with_anomalies", "update_leader", "withdraw_rate_leader", "resource_change_leader", "update_rankings", "withdraw_rate_rankings", "resource_change_rankings", "anomaly_rankings", "selected_country", "window_boundary"],
         "properties": {
           "start_time": {"type": "string"},
           "end_time": {"type": "string"},
@@ -2364,12 +2171,13 @@
           "withdraw_rate_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/CountryProfile"}},
           "resource_change_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/CountryProfile"}},
           "anomaly_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/CountryProfile"}},
-          "selected_country": {"anyOf": [{"$ref": "#/components/schemas/CountryProfile"}, {"type": "null"}]}
+          "selected_country": {"anyOf": [{"$ref": "#/components/schemas/CountryProfile"}, {"type": "null"}]},
+          "window_boundary": {"const": "[start,end)", "description": "Feature 样本与窗口内开始的关联事件均排除结束时刻。"}
         }
       },
       "AsProfile": {
         "type": "object",
-        "required": ["asn", "as_name", "org_name", "country", "as_type", "global_rank", "country_rank", "important", "announce", "withdraw", "update_total", "withdraw_rate", "previous_update_total", "update_change_rate", "sample_count", "latest_observation", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses", "ipv4_prefix_change", "ipv6_prefix_change", "ipv4_address_change", "resource_change", "resource_change_rate", "peak_updates", "peak_time", "volatility", "anomaly_count", "high_risk_count", "sparkline", "series"],
+        "required": ["asn", "as_name", "org_name", "country", "as_type", "global_rank", "country_rank", "important", "announce", "withdraw", "update_total", "withdraw_rate", "previous_update_total", "update_change_rate", "sample_count", "latest_observation", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses", "ipv4_prefix_change", "ipv6_prefix_change", "ipv4_address_change", "resource_change", "resource_change_rate", "peak_updates", "peak_time", "volatility", "anomaly_count", "high_risk_count", "sparkline", "series", "previous_sample_count"],
         "properties": {
           "asn": {"type": "string"},
           "as_name": {"type": "string"},
@@ -2379,40 +2187,41 @@
           "global_rank": {"type": ["integer", "null"]},
           "country_rank": {"type": ["integer", "null"]},
           "important": {"type": "boolean"},
-          "announce": {"type": "integer"},
-          "withdraw": {"type": "integer"},
-          "update_total": {"type": "integer"},
-          "withdraw_rate": {"type": "number"},
-          "previous_update_total": {"type": "integer"},
+          "announce": {"type": ["integer", "null"],"description": "当前窗口已观测样本的宣告路由元素计数，不是消息数；无适用样本时 null。"},
+          "withdraw": {"type": ["integer", "null"],"description": "当前窗口已观测样本的撤回路由元素计数；无适用样本时 null。"},
+          "update_total": {"type": ["integer", "null"],"description": "宣告与撤回元素计数之和；任一组成未知时 null。"},
+          "withdraw_rate": {"type": ["number", "null"],"description": "100×withdraw/update_total，单位 %；分母为零或未知时 null。"},
+          "previous_update_total": {"type": ["integer", "null"],"description": "前一等长窗口已观测样本的活动量；前窗无样本或未查询时 null。"},
           "update_change_rate": {"type": ["number", "null"]},
-          "sample_count": {"type": "integer"},
+          "sample_count": {"type": "integer","description": "实际当前样本行数，不是完整覆盖证明；缺行不能自动当作零活动。"},
           "latest_observation": {"type": ["string", "null"]},
-          "ipv4_prefixes": {"type": ["integer", "null"]},
-          "ipv6_prefixes": {"type": ["integer", "null"]},
-          "ipv4_addresses": {"type": ["integer", "null"]},
+          "ipv4_prefixes": {"type": ["integer", "null"],"description": "IPv4 /24 覆盖块数，不是唯一 CIDR 条数。"},
+          "ipv6_prefixes": {"type": ["integer", "null"],"description": "IPv6 /48 覆盖块数，不是精确 /48 分数等价量。"},
+          "ipv4_addresses": {"type": ["integer", "null"],"description": "Feature 的 /24 覆盖块数×256，不是所有情况下的精确地址并集。"},
           "ipv4_prefix_change": {"type": ["integer", "null"]},
           "ipv6_prefix_change": {"type": ["integer", "null"]},
           "ipv4_address_change": {"type": ["integer", "null"]},
-          "resource_change": {"type": "integer"},
-          "resource_change_rate": {"type": ["number", "null"]},
-          "peak_updates": {"type": "integer"},
+          "resource_change": {"type": ["integer", "null"],"description": "旧排序辅助：IPv4 /24 与 IPv6 /48 变化绝对值的最大值，混合单位且不含方向；未知时 null。","deprecated": true},
+          "resource_change_rate": {"type": ["number", "null"],"description": "旧排序辅助：两族可计算变化百分比绝对值的最大值，不是双栈总体下降率。","deprecated": true},
+          "peak_updates": {"type": ["integer", "null"],"description": "已观测样本中的活动最大值；无样本时 null。并列取首次。"},
           "peak_time": {"type": ["string", "null"]},
-          "volatility": {"type": "number"},
+          "volatility": {"type": ["number", "null"],"description": "已观测活动样本总体标准差／均值×100。均值为零、样本少于两个或缺少标准差时 null；不是故障概率。"},
           "anomaly_count": {"type": "integer"},
           "high_risk_count": {"type": "integer"},
           "sparkline": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySparkPoint"}},
-          "series": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}}
+          "series": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}},
+          "previous_sample_count": {"type": "integer", "minimum": 0, "description": "前窗实际样本行数。零表示未取得前窗样本，不证明零活动。事件窗口模式不查询前窗。"}
         }
       },
       "AsOverview": {
         "type": "object",
-        "required": ["start_time", "end_time", "timezone", "latest_observation", "scope_kind", "scope_note", "candidate_pool_size", "scope_size", "feature_asn_count", "important_asn_count", "asns_with_anomalies", "update_leader", "withdraw_rate_leader", "resource_change_leader", "volatility_leader", "update_rankings", "withdraw_rate_rankings", "resource_change_rankings", "volatility_rankings", "anomaly_rankings", "selected_asn"],
+        "required": ["start_time", "end_time", "timezone", "latest_observation", "scope_kind", "scope_note", "candidate_pool_size", "scope_size", "feature_asn_count", "important_asn_count", "asns_with_anomalies", "update_leader", "withdraw_rate_leader", "resource_change_leader", "volatility_leader", "update_rankings", "withdraw_rate_rankings", "resource_change_rankings", "volatility_rankings", "anomaly_rankings", "selected_asn", "window_boundary"],
         "properties": {
           "start_time": {"type": "string"},
           "end_time": {"type": "string"},
           "timezone": {"type": "string"},
           "latest_observation": {"type": ["string", "null"]},
-          "scope_kind": {"type": "string", "enum": ["operational_asn_cohort"]},
+          "scope_kind": {"type": "string", "enum": ["operational_asn_cohort", "event_window_selected_asn"]},
           "scope_note": {"type": "string"},
           "candidate_pool_size": {"type": "integer"},
           "scope_size": {"type": "integer"},
@@ -2428,7 +2237,8 @@
           "resource_change_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/AsProfile"}},
           "volatility_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/AsProfile"}},
           "anomaly_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/AsProfile"}},
-          "selected_asn": {"anyOf": [{"$ref": "#/components/schemas/AsProfile"}, {"type": "null"}]}
+          "selected_asn": {"anyOf": [{"$ref": "#/components/schemas/AsProfile"}, {"type": "null"}]},
+          "window_boundary": {"const": "[start,end)", "description": "Feature 样本与窗口内开始的关联事件均排除结束时刻。"}
         }
       },
       "AsExactEventPage": {
@@ -2470,66 +2280,7 @@
         "type": "object", "required": ["time_slot", "outage_count"],
         "properties": {"time_slot": {"type": "string"}, "outage_count": {"type": "integer"}}
       },
-      "CountPoint": {
-        "type": "object", "required": ["time", "num"],
-        "properties": {"time": {"type": "string"}, "num": {"type": "integer"}}
-      },
-      "TypeCount": {
-        "type": "object", "required": ["event_type", "num", "amplitude_type", "amplitude", "icon"],
-        "properties": {"event_type": {"type": "string"}, "num": {"type": "integer"}, "amplitude_type": {"type": "boolean"}, "amplitude": {"type": "string"}, "icon": {"type": "string"}}
-      },
-      "EventTypeCounts": {
-        "type": "object",
-        "required": ["前缀劫持", "子前缀劫持", "前缀中断", "AS中断", "国家中断", "路由泄漏"],
-        "properties": {
-          "前缀劫持": {"type": "integer"}, "子前缀劫持": {"type": "integer"},
-          "前缀中断": {"type": "integer"}, "AS中断": {"type": "integer"},
-          "国家中断": {"type": "integer"}, "路由泄漏": {"type": "integer"}
-        }
-      },
-      "EventSeriesPoint": {
-        "type": "object",
-        "required": ["time", "counts", "total"],
-        "properties": {
-          "time": {"type": "string"},
-          "counts": {"$ref": "#/components/schemas/EventTypeCounts"},
-          "total": {"type": "integer"}
-        }
-      },
-      "CountryRanking": {
-        "type": "object",
-        "required": ["name", "event_count", "high_risk_count"],
-        "properties": {
-          "name": {"type": "string"}, "event_count": {"type": "integer"}, "high_risk_count": {"type": "integer"}
-        }
-      },
-      "AsRanking": {
-        "type": "object",
-        "required": ["asn", "name", "event_count", "high_risk_count"],
-        "properties": {
-          "asn": {"type": "string"}, "name": {"type": "string"},
-          "event_count": {"type": "integer"}, "high_risk_count": {"type": "integer"}
-        }
-      },
-      "DashboardOverview": {
-        "type": "object",
-        "required": [
-          "start_time", "end_time", "timezone", "latest_observation", "event_count",
-          "previous_event_count", "event_change_rate", "high_risk_count", "active_event_count",
-          "affected_asn_count", "affected_country_count", "event_series", "country_rankings", "asn_rankings"
-        ],
-        "properties": {
-          "start_time": {"type": "string"}, "end_time": {"type": "string"}, "timezone": {"type": "string"},
-          "latest_observation": {"type": ["string", "null"]},
-          "event_count": {"type": "integer"}, "previous_event_count": {"type": "integer"},
-          "event_change_rate": {"type": ["number", "null"]}, "high_risk_count": {"type": "integer"},
-          "active_event_count": {"type": "integer"}, "affected_asn_count": {"type": "integer"},
-          "affected_country_count": {"type": "integer"},
-          "event_series": {"type": "array", "items": {"$ref": "#/components/schemas/EventSeriesPoint"}},
-          "country_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/CountryRanking"}},
-          "asn_rankings": {"type": "array", "items": {"$ref": "#/components/schemas/AsRanking"}}
-        }
-      }
+      "FeatureQueryError": {"type": "object", "required": ["status", "msg"], "additionalProperties": false, "properties": {"status": {"const": false}, "msg": {"type": "string", "description": "中文错误说明"}}}
     }
   }
 }

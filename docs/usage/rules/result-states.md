@@ -24,8 +24,8 @@
 | Core | `state=available/window_not_retained/unavailable`；规模、路径等子结果另有 `date_not_retained`、`validation_failed` 等状态 | 分别检查主结果和所需子结果；失败日数值保持未知 |
 | 共享快照 | `not_configured` 或服务返回的不可用状态 | 接口存在不表示已登记快照；与异常列表的状态分别判断 |
 | 国家事件 | `observation_state`、`processing_status` 或 `quality_state`，并有 `data_through` | 按响应家族判断哪些观测已可用；不能把 `complete` 当作恢复 |
-| 兼容事件／特征接口 | `status:false`、`msg`，有些旧错误响应仍可能使用 HTTP 200 | 同时检查响应正文和 HTTP 状态 |
-| 旧 P0 指标时序 | 各点 `value_state`、`missing_reason` 与覆盖字段 | 区分零、来源或处理缺口、不可计算及历史未知；见 [P0 说明](../metrics/p0-compatibility.md) |
+| 兼容事件接口 | `status:false`、`msg`，有些旧错误响应仍可能使用 HTTP 200 | 同时检查响应正文和 HTTP 状态 |
+| 国家／ASN 档案与 Feature 查询 | 参数错误使用 HTTP 400；档案数值 null 与样本数一起返回 | 零分母比例、无样本活动、无前窗环比分别保持不可计算，不补零 |
 | 新资格化计算读取 | 可消费主值、raw 记录、未知原因、下界分别保留 | 用适用主值作答；raw 有值不代表它可用于业务结论 |
 
 不是每个接口都提供精细覆盖信息。缺少覆盖证据时，结论应限定于返回数据，不能自行宣称完整。

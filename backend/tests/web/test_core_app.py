@@ -13,9 +13,6 @@ EXPECTED_ROUTES = {
     '/api/v1/core-overview',
     '/api/v1/core-overview/record',
     '/api/v1/healthz',
-    '/api/v1/p0/status',
-    '/api/v1/p0/metrics/<metric_name>',
-    '/api/v1/p0/quality',
     '/api/v1/events',
     '/api/v1/events/top',
     '/api/v1/events/evidence-bundle/<event_type>/<start_time>/<problem>/<int:event_id>/<source>',
@@ -33,9 +30,6 @@ EXPECTED_ROUTES = {
     '/api/v1/features/outages/as-prefix',
     '/api/v1/features/outages/global-as',
     '/api/v1/features/outages/global-prefix',
-    '/api/v1/dashboard/counts/total',
-    '/api/v1/dashboard/counts/type',
-    '/api/v1/dashboard/overview',
     '/api/v2/events/resolve',
     '/api/v2/country-outages/<incident_id>/overview',
     '/api/v2/country-outages/<incident_id>/series',
@@ -87,6 +81,9 @@ def test_health_does_not_require_database_or_assets(client, assert_contract):
 
 
 def test_removed_services_are_not_imported(app):
+    assert 'services.p0_data_service' not in sys.modules
+    assert 'services.dashboard_service' not in sys.modules
+    assert 'web.api.p0.api' not in sys.modules
     assert 'services.auth_service' not in sys.modules
     assert 'services.data_query_service' not in sys.modules
     assert 'core.visualize.outage_topo' not in sys.modules

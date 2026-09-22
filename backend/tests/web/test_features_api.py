@@ -128,10 +128,10 @@ def test_top_feature_as_contract_and_lazy_static_loading(client, assert_contract
     assert query.call_args.kwargs['table_name'] == 'feature_other'
 
 
-def test_top_feature_missing_parameters_keeps_existing_error_contract(client, assert_contract):
+def test_top_feature_missing_parameters_returns_400(client, assert_contract):
     response = client.get('/api/v1/features/top', query_string={'target': 'collector'})
 
-    assert response.status_code == 200
+    assert response.status_code == 400
     payload = response.get_json()
     assert_contract(payload, {'status': bool, 'msg': str})
     assert payload == {
@@ -186,6 +186,7 @@ def test_country_workbench_overview_contract(client):
             'country': '中国',
             'announce': 100,
             'withdraw': 20,
+            'previous_sample_count': 2,
             'previous_announce': 80,
             'previous_withdraw': 10,
             'sample_count': 2,
@@ -203,6 +204,7 @@ def test_country_workbench_overview_contract(client):
             'country': '印度',
             'announce': 200,
             'withdraw': 50,
+            'previous_sample_count': 2,
             'previous_announce': 300,
             'previous_withdraw': 50,
             'sample_count': 2,
@@ -410,6 +412,7 @@ def test_as_workbench_overview_contract(client):
             'asn': '3356',
             'announce': 100,
             'withdraw': 20,
+            'previous_sample_count': 2,
             'previous_announce': 80,
             'previous_withdraw': 10,
             'sample_count': 2,
@@ -429,6 +432,7 @@ def test_as_workbench_overview_contract(client):
             'asn': '1299',
             'announce': 200,
             'withdraw': 50,
+            'previous_sample_count': 2,
             'previous_announce': 300,
             'previous_withdraw': 50,
             'sample_count': 2,
@@ -693,7 +697,7 @@ def test_as_feature_list_contract(client, assert_contract):
 def test_feature_lists_require_complete_time_range(client, assert_contract, path):
     response = client.get(path, query_string={'start_time': RANGE['start_time']})
 
-    assert response.status_code == 200
+    assert response.status_code == 400
     payload = response.get_json()
     assert_contract(payload, {'status': bool, 'msg': str})
     assert payload == {'status': False, 'msg': '开始时间和结束时间不能为空！'}
@@ -794,7 +798,7 @@ def test_five_outage_series_contracts(
 def test_five_outage_series_require_complete_time_range(client, assert_contract, path):
     response = client.get(path, query_string={'start_time': RANGE['start_time']})
 
-    assert response.status_code == 200
+    assert response.status_code == 400
     payload = response.get_json()
     assert_contract(payload, {'status': bool, 'msg': str})
     assert payload == {'status': False, 'msg': '开始时间和结束时间不能为空！'}

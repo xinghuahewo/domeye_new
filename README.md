@@ -45,6 +45,7 @@ make build
 | 数据来源、准入、验收证据与历史 | [数据制品台账](docs/data-assets-and-admission.md) |
 | 常驻服务、部署、回滚与恢复 | [运行与维护](docs/runbooks/运行与维护.md) |
 | 本机预览及既有独立恢复命令 | [C 本地验收与恢复历史](docs/runbooks/C本地验收与恢复.md) |
+| 业务查询边界、API 完善与遗留退役 | [业务只读 API 设计与退役](docs/architecture/业务只读API设计与退役.md) |
 | HTTP 合同与数据时间配置 | [OpenAPI](contracts/openapi.json)、[数据档](config/data-profile.json) |
 | 使用文档的源码映射、核对范围与未决口径 | [系统使用文档维护](docs/maintenance/系统使用文档维护.md) |
 | 底层身份与状态的已确认但未验证设计 | [路由观测证据 ADR](docs/adr/0001-routing-observation-evidence-boundaries.md) |
