@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getCoreOverview, getCoreOverviewRecord, type CoreOverview, type CoreOverviewDetail, type CoreOverviewItem, type CoreOverviewQuery } from '@/api/coreOverview'
 import { errorMessage } from '@/utils/normalize'
 import { toBusinessTime, formatBusinessEndTime } from '@/utils/businessTime'
@@ -141,6 +141,7 @@ const dialogTitle = ref('')
 const dialogRows = ref<[string, string][]>([])
 const dialogNote = ref('')
 const detail = ref<CoreOverviewDetail | null>(null)
+const countryDetailReference = ref('')
 const detailLoading = ref(false)
 const detailError = ref('')
 let detailRequest = 0
@@ -149,6 +150,7 @@ let trigger: HTMLElement | null = null
 async function openDialog(title: string, rows: [string, string][], note: string) {
   trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   detail.value = null
+  countryDetailReference.value = ''
   detailError.value = ''
   dialogTitle.value = title
   dialogRows.value = rows
@@ -304,7 +306,10 @@ async function showDetail(item: CoreOverviewItem) {
     : '详情来自与列表相同的留存记录。原记录中的未知状态保留；RRC25 来源映射是之后确认的解释，不反写原字段。')
   try {
     const result = await getCoreOverviewRecord(item.reference, version, request.signal)
-    if (current === detailRequest) detail.value = result
+    if (current === detailRequest) {
+      detail.value = result
+      countryDetailReference.value = item.kind === 'country_outage' ? item.reference : ''
+    }
   } catch (cause) {
     if (current === detailRequest && !request.signal.aborted) detailError.value = errorMessage(cause)
   } finally {
@@ -368,7 +373,9 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
       <dl><div v-for="[label, value] in dialogRows" :key="label"><dt>{{ label }}</dt><dd>{{ value }}</dd></div></dl>
       <p v-if="detailLoading" role="status">正在复读同版本详情…</p><p v-if="detailError" role="alert">详情不可用：{{ detailError }}</p>
       <details v-if="detail"><summary>完整源键、原字段与保留的解释</summary><pre>{{ JSON.stringify(detail.record.record, null, 2) }}</pre></details>
-      <p class="core-detail-note">{{ dialogNote }}</p><button class="core-dialog-done" @click="closeDialog">返回首页</button>
+      <p class="core-detail-note">{{ dialogNote }}</p>
+      <p v-if="countryDetailReference"><RouterLink :to="{ name: 'event-detail', query: { ref: countryDetailReference } }" @click="closeDialog">打开国家中断观测页 →</RouterLink></p>
+      <button class="core-dialog-done" @click="closeDialog">返回首页</button>
     </dialog>
   </div>
 </template>

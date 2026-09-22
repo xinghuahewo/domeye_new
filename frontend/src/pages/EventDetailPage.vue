@@ -25,7 +25,7 @@ import {
   decideCountryOutageObservationRefresh,
   validateCountryOutagePageObservationIdentity,
 } from '@/utils/countryOutageRuntime'
-import { cleanText, errorMessage, isRecord } from '@/utils/normalize'
+import { cleanText, errorMessage, isRecord, parseDetailUrl } from '@/utils/normalize'
 
 interface FactItem {
   label: string
@@ -53,6 +53,7 @@ let observationRefreshTimer: ReturnType<typeof setInterval> | undefined
 const observationRequests = new CountryOutageObservationRequestGate()
 
 const reference = computed(() => typeof route.query.ref === 'string' ? route.query.ref : '')
+const isCountryOutage = computed(() => parseDetailUrl(reference.value)?.kind === 'country_outage')
 const keyLabels: Record<string, string> = {
   hijacked_prefix: '被劫持前缀',
   hijacker_prefix: '异常子前缀',
@@ -253,6 +254,33 @@ onBeforeUnmount(() => {
 
 <template>
   <article class="page evidence-page">
+    <CountryOutageGeneralPage
+      v-if="isCountryOutage"
+      :key="reference"
+      :page="generalPage"
+      :reference="reference"
+      :detected-at="bundle?.event.eventTimeUtc"
+      :loading="loading"
+      :error="error"
+      @retry="load"
+    >
+      <template #source>
+        <details v-if="bundle" class="country-source">
+          <summary>已有事件记录与来源</summary>
+          <p>{{ bundle.event.summary }}</p>
+          <dl class="fact-list"><div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl>
+          <p>以上保留检测记录中的原始描述和字段，不作为固定集合时序、峰值或恢复结论。</p>
+          <details><summary>查看原始事实与证据定位</summary><pre>{{ JSON.stringify(bundle, null, 2) }}</pre></details>
+        </details>
+        <details v-if="observation" class="country-source">
+          <summary>查看已有增强观测与来源口径</summary>
+          <p>此来源的观测范围和指标口径单独保留，不换算为上方尚未接入的固定集合指标。</p>
+          <p v-if="observationRefreshNotice" role="alert">{{ observationRefreshNotice }}</p>
+          <CountryOutageDashboard :observation="observation" />
+        </details>
+      </template>
+    </CountryOutageGeneralPage>
+    <template v-else>
     <header v-if="!observation && !generalPage" class="incident-header">
       <div class="incident-title">
         <RouterLink class="back-link" to="/events">← 返回异常事件</RouterLink>
@@ -296,24 +324,6 @@ onBeforeUnmount(() => {
       :detail="error"
       @retry="load"
     />
-
-    <template v-else-if="generalPage">
-      <CountryOutageGeneralPage
-        :page="generalPage"
-        :reference="reference"
-      />
-    </template>
-
-    <template v-else-if="observation">
-      <p
-        v-if="observationRefreshNotice"
-        class="observation-refresh-notice"
-        role="alert"
-      >
-        {{ observationRefreshNotice }}
-      </p>
-      <CountryOutageDashboard :observation="observation" />
-    </template>
 
     <template v-else-if="bundle">
       <section class="evidence-boundary" aria-label="历史记录与原始证据边界">
@@ -478,10 +488,15 @@ onBeforeUnmount(() => {
         <pre>{{ JSON.stringify({ source_record: bundle.sourceRecord, fact_record: bundle.factRecord }, null, 2) }}</pre>
       </details>
     </template>
+    </template>
   </article>
 </template>
 
 <style scoped>
+.country-source { min-width: 0; padding: 20px 24px; background: #fff; border: 1px solid #d8dfe3; border-radius: 4px; }
+.country-source > summary { cursor: pointer; color: #176d8f; font-size: 14px; font-weight: 700; }
+.country-source p { color: #52616b; font-size: 12px; line-height: 1.8; }
+.country-source pre { overflow-x: auto; max-height: 480px; font-size: 11px; }
 .evidence-page { display: grid; gap: 16px; }
 
 .incident-header {

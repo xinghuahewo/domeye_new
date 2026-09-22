@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import {
@@ -16,14 +16,18 @@ import type {
   CountryOutageGeneralPathDownstreamPage,
   CountryOutageGeneralTrackKey,
 } from '@/types/api'
-import { errorMessage } from '@/utils/normalize'
+import { errorMessage, parseDetailUrl } from '@/utils/normalize'
 
 defineOptions({ name: 'CountryOutageGeneralPage' })
 
 const props = defineProps<{
-  page: CountryOutageGeneralPageModel
+  page?: CountryOutageGeneralPageModel | null
   reference: string
+  detectedAt?: string | null
+  loading?: boolean
+  error?: string
 }>()
+const emit = defineEmits<{ retry: [] }>()
 
 const route = useRoute()
 const asPageSize = 20
@@ -62,14 +66,21 @@ function readRouteChoice<T extends string>(key: string, choices: readonly T[], f
   return choices.includes(value as T) ? value as T : fallback
 }
 
+const requestedEvent = computed(() => parseDetailUrl(props.reference))
+const countryCode = computed(() => props.page?.resolution.country_code || requestedEvent.value?.problem || '')
 const countryName = computed(() => {
   try {
     return new Intl.DisplayNames(['zh-CN'], { type: 'region' })
-      .of(props.page.resolution.country_code) || props.page.resolution.country_code
+      .of(countryCode.value) || countryCode.value
   } catch {
-    return props.page.resolution.country_code
+    return countryCode.value
   }
 })
+const detectionTime = computed(() => props.page?.overview.event.detected_at_utc || props.detectedAt)
+const emptyDetail = computed(() => props.loading
+  ? '正在读取当前事件的数据。'
+  : props.error ? '事件数据读取失败，不能判断此项是否有数据。'
+    : '当前事件尚未接入此项观测数据，缺失不表示数量为零。')
 
 function formatNumber(value: number | null | undefined): string {
   return typeof value === 'number' ? value.toLocaleString('zh-CN') : '—'
@@ -91,7 +102,7 @@ function formatTime(value: string | null | undefined): string {
 }
 
 function track(key: CountryOutageGeneralTrackKey): number[] {
-  return props.page.series.tracks[key]
+  return props.page?.series.tracks[key] ?? []
 }
 
 function chartSeries(
@@ -101,7 +112,7 @@ function chartSeries(
     name: item.name,
     color: item.color,
     area: item.area,
-    data: props.page.series.timestamps.map((timestamp, index) => [
+    data: (props.page?.series.timestamps ?? []).map((timestamp, index) => [
       timestamp,
       track(item.key)[index] ?? null,
     ]),
@@ -131,10 +142,10 @@ const ipv6Series = computed(() => chartSeries([
   { key: 'new_visible_ipv6_slash48_count', name: '新出现前缀当前可见 /48 等价块', color: '#bd70a2' },
 ]))
 
-const overview = computed(() => props.page.overview)
-const peakPrefix = computed(() => overview.value.peaks.interrupted_prefix_count)
+const overview = computed(() => props.page?.overview)
+const peakPrefix = computed(() => overview.value?.peaks.interrupted_prefix_count)
 const peakIndex = computed(() => peakPrefix.value
-  ? props.page.series.timestamps.indexOf(peakPrefix.value.state_point_utc)
+  ? props.page?.series.timestamps.indexOf(peakPrefix.value.state_point_utc) ?? -1
   : -1)
 function atPeak(key: CountryOutageGeneralTrackKey): number | null {
   return peakIndex.value >= 0 ? track(key)[peakIndex.value] ?? null : null
@@ -147,11 +158,14 @@ const reading = computed(() => {
   return `${formatTime(peakPrefix.value.state_point_utc)}，${formatNumber(peakPrefix.value.value)} 个固定前缀在至少一个独立观察方向不可见；其中 ${formatNumber(complete)} 个在所有观察方向均不可见，共涉及 ${formatNumber(directions)} 条不可见观察方向。`
 })
 
-const lifecycleText = computed(() => props.page.resolution.is_final_in_data_range
+const lifecycleText = computed(() => !props.page
+  ? props.loading ? '正在读取事件观测' : props.error ? '事件数据暂不可用' : '时序观测待接入，结束状态以已有记录为准'
+  : props.page.resolution.is_final_in_data_range
   ? '该事件在当前数据范围内已结束'
   : '观测持续到当前数据范围末端，尚不能判定事件结束')
 
 async function loadAffectedAs() {
+  if (!props.page) return
   const token = ++asRequest
   asLoading.value = true
   asError.value = ''
@@ -191,6 +205,7 @@ function parseAffectedAsn(): number | undefined {
 }
 
 async function loadPaths() {
+  if (!props.page) return
   const affectedAsn = parseAffectedAsn()
   if (pathAffectedAsn.value.trim() && affectedAsn === undefined) {
     pathError.value = '请输入纯数字 ASN 或 AS 加数字'
@@ -234,6 +249,7 @@ function classificationLabel(value: string): string {
 }
 
 function asProfileLink(asn: number) {
+  if (!props.page) return { name: 'events' }
   return {
     name: 'asn-detail',
     params: { asn: String(asn) },
@@ -249,9 +265,16 @@ function asProfileLink(asn: number) {
   }
 }
 
+watch(() => [props.reference, props.page?.resolution.publication_id], () => {
+  asRequest++; pathRequest++
+  asResult.value = null; pathResult.value = null
+  asLoading.value = false; pathLoading.value = false
+  asError.value = ''; pathError.value = ''
+  comparisonMarkers.value = []
+  if (props.page) { void loadAffectedAs(); void loadPaths() }
+}, { immediate: true })
+onBeforeUnmount(() => { asRequest++; pathRequest++ })
 onMounted(() => {
-  void loadAffectedAs()
-  void loadPaths()
   if (readRouteText('focus')) {
     void nextTick(() => document.getElementById(readRouteText('focus'))?.scrollIntoView())
   }
@@ -268,36 +291,44 @@ onMounted(() => {
         <strong>{{ lifecycleText }}</strong>
       </div>
       <dl class="event-window">
-        <div><dt>检测时间</dt><dd>{{ formatTime(overview.event.detected_at_utc) }}</dd></div>
-        <div><dt>观测窗口</dt><dd>{{ formatTime(page.resolution.window_start_utc) }} — {{ formatTime(page.resolution.window_end_utc) }}</dd></div>
+        <div><dt>检测时间</dt><dd>{{ detectionTime ? formatTime(detectionTime) : `${requestedEvent?.startTime || '未知'}（事件引用）` }}</dd></div>
+        <div><dt>观测窗口</dt><dd>{{ page ? `${formatTime(page.resolution.window_start_utc)} — ${formatTime(page.resolution.window_end_utc)}` : '暂无可用观测窗口' }}</dd></div>
       </dl>
     </header>
 
+    <PageState v-if="loading" kind="loading" title="正在读取事件观测" role="status" />
+    <PageState v-else-if="error" kind="error" title="事件观测暂不可用" :detail="error" role="alert" @retry="emit('retry')" />
+
     <section class="reading-card" aria-labelledby="event-reading-title">
       <div>
-        <span>本次观测最值得注意的时点</span>
+        <span>{{ page ? '本次观测最值得注意的时点' : '观测概览' }}</span>
         <h2 id="event-reading-title">路由不可见的集中变化</h2>
-        <p>{{ reading }}</p>
+        <p>{{ page ? reading : emptyDetail }}</p>
       </div>
       <dl>
-        <div><dt>固定前缀</dt><dd>{{ formatNumber(overview.cohort.fixed_prefix_count) }}</dd></div>
-        <div><dt>窗口相关 AS</dt><dd>{{ formatNumber(overview.affected_as_count) }}</dd></div>
-        <div><dt>实际路径关联</dt><dd>{{ formatNumber(overview.path_downstream_relation_count) }}</dd></div>
+        <div><dt>固定前缀</dt><dd>{{ formatNumber(overview?.cohort.fixed_prefix_count) }}</dd></div>
+        <div><dt>窗口相关 AS</dt><dd>{{ formatNumber(overview?.affected_as_count) }}</dd></div>
+        <div><dt>实际路径关联</dt><dd>{{ formatNumber(overview?.path_downstream_relation_count) }}</dd></div>
       </dl>
     </section>
 
-    <CountryOutageTimeline :series="page.series" :overview="page.overview" @range-change="comparisonMarkers = $event" />
+    <CountryOutageTimeline v-if="page" :key="page.resolution.publication_id" :series="page.series" :overview="page.overview" @range-change="comparisonMarkers = $event" />
+    <section v-else class="sheet" aria-labelledby="timeline-title">
+      <header class="section-heading"><div><h2 id="timeline-title">路由变化 · 时段核对</h2></div><p>沿时间核对观测</p></header>
+      <PageState title="暂无可核对的状态点" :detail="emptyDetail" />
+    </section>
 
     <section class="sheet" aria-labelledby="prefix-trend-title">
       <header class="section-heading">
         <div><span>01</span><h2 id="prefix-trend-title">前缀中断数量变化</h2></div>
         <p>只要某个固定前缀在至少一个独立观察方向看不到路由，就计入中断。</p>
       </header>
-      <ObservationChart :series="prefixSeries" :markers="comparisonMarkers" unit="个前缀" :height="330" />
+      <ObservationChart v-if="page" :series="prefixSeries" :markers="comparisonMarkers" unit="个前缀" :height="330" />
+      <PageState v-else class="empty-chart" title="暂无前缀中断时序" :detail="emptyDetail" />
       <div class="inline-facts">
-        <p><span>中断前缀峰值</span><b>{{ formatNumber(overview.peaks.interrupted_prefix_count?.value) }}</b></p>
-        <p><span>完全不可见峰值</span><b>{{ formatNumber(overview.peaks.completely_interrupted_prefix_count?.value) }}</b></p>
-        <p><span>不可见观察方向峰值</span><b>{{ formatNumber(overview.peaks.invisible_direction_count?.value) }}</b></p>
+        <p><span>中断前缀峰值</span><b>{{ formatNumber(overview?.peaks.interrupted_prefix_count?.value) }}</b></p>
+        <p><span>完全不可见峰值</span><b>{{ formatNumber(overview?.peaks.completely_interrupted_prefix_count?.value) }}</b></p>
+        <p><span>不可见观察方向峰值</span><b>{{ formatNumber(overview?.peaks.invisible_direction_count?.value) }}</b></p>
       </div>
     </section>
 
@@ -306,16 +337,17 @@ onMounted(() => {
         <div><span>02</span><h2 id="as-trend-title">AS 分类数量变化</h2></div>
         <p>曲线显示每个时点的来源分类数量；不等于整个窗口的名单人数。</p>
       </header>
-      <p class="scope-caveat">两类是否互斥、分类优先级及未知前缀处理仍为 Unknown，不将两条曲线相加或按包含关系解释。</p>
-      <ObservationChart :series="asSeries" :markers="comparisonMarkers" unit="个 AS" :height="320" />
+      <p v-if="page" class="scope-caveat">两类是否互斥、分类优先级及未知前缀处理仍为 Unknown，不将两条曲线相加或按包含关系解释。</p>
+      <ObservationChart v-if="page" :series="asSeries" :markers="comparisonMarkers" unit="个 AS" :height="320" />
+      <PageState v-else class="empty-chart" title="暂无 AS 分类时序" :detail="emptyDetail" />
       <div class="as-count-summary">
         <article v-for="metric in asMetrics" :key="metric.key" class="as-count-card">
           <h3>{{ classificationLabel(metric.classification) }}</h3>
-          <p>窗口峰值：{{ formatNumber(overview.peaks[metric.key]?.value) }} 个 AS · {{ formatTime(overview.peaks[metric.key]?.state_point_utc) }}</p>
-          <p>窗口末点：{{ formatNumber(track(metric.key).at(-1)) }} 个 AS · {{ formatTime(page.series.timestamps.at(-1)) }}</p>
+          <p>窗口峰值：{{ formatNumber(overview?.peaks[metric.key]?.value) }} 个 AS · {{ formatTime(overview?.peaks[metric.key]?.state_point_utc) }}</p>
+          <p>窗口末点：{{ formatNumber(track(metric.key).at(-1)) }} 个 AS · {{ formatTime(page?.series.timestamps.at(-1)) }}</p>
         </article>
       </div>
-      <details class="classification-definitions">
+      <details v-if="page" class="classification-definitions">
         <summary>查看来源的分类说明</summary>
         <p v-for="metric in asMetrics" :key="metric.key"><b>{{ classificationLabel(metric.classification) }}（{{ metric.classification }}）</b>：{{ page.series.track_definitions[metric.key]?.definition || 'Unknown：当前发布未提供说明。' }}</p>
         <p>以上为当前发布所附文字，尚不能据此确认两类的包含关系、互斥规则或窗口名单的纳入算法。</p>
@@ -330,13 +362,15 @@ onMounted(() => {
       <div class="ip-grid">
         <figure>
           <figcaption><b>IPv4 可见地址</b><span>地址数</span></figcaption>
-          <ObservationChart :series="ipv4Series" :markers="comparisonMarkers" unit="个地址" :height="285" />
-          <p>窗口内累计新出现 {{ formatNumber(overview.current.new_cumulative_ipv4_prefix_count) }} 个 IPv4 前缀。</p>
+          <ObservationChart v-if="page" :series="ipv4Series" :markers="comparisonMarkers" unit="个地址" :height="285" />
+          <PageState v-else class="empty-chart" title="暂无 IPv4 观测时序" :detail="emptyDetail" />
+          <p>窗口内累计新出现 {{ formatNumber(overview?.current.new_cumulative_ipv4_prefix_count) }} 个 IPv4 前缀。</p>
         </figure>
         <figure>
           <figcaption><b>IPv6 可见地址规模</b><span>/48 等价块</span></figcaption>
-          <ObservationChart :series="ipv6Series" :markers="comparisonMarkers" unit="个 /48 等价块" :height="285" />
-          <p>窗口内累计新出现 {{ formatNumber(overview.current.new_cumulative_ipv6_prefix_count) }} 个 IPv6 前缀。</p>
+          <ObservationChart v-if="page" :series="ipv6Series" :markers="comparisonMarkers" unit="个 /48 等价块" :height="285" />
+          <PageState v-else class="empty-chart" title="暂无 IPv6 观测时序" :detail="emptyDetail" />
+          <p>窗口内累计新出现 {{ formatNumber(overview?.current.new_cumulative_ipv6_prefix_count) }} 个 IPv6 前缀。</p>
         </figure>
       </div>
     </section>
@@ -346,13 +380,14 @@ onMounted(() => {
         <div><span>04</span><h2 id="affected-as-title">事件窗口中的相关 AS</h2></div>
         <p>这里是整个窗口的相关名单。点击 AS 可在同一时间范围查看其独立特征。</p>
       </header>
-      <p class="scope-caveat">窗口分类和峰值不能定位单个 ASN 的状态转换时刻；当前名单未提供逐时点分类、峰值时间或完整纳入规则，不能将其当作选中时点的 AS 集合。</p>
+      <p v-if="page" class="scope-caveat">窗口分类和峰值不能定位单个 ASN 的状态转换时刻；当前名单未提供逐时点分类、峰值时间或完整纳入规则，不能将其当作选中时点的 AS 集合。</p>
       <form class="filter-bar" @submit.prevent="applyAsFilters">
-        <label><span>查找 AS</span><input v-model="asQuery" placeholder="ASN、名称或机构" /></label>
-        <label><span>窗口分类</span><select v-model="asClassification"><option value="all">全部</option><option value="affected">{{ classificationLabel('affected') }}</option><option value="route_interrupted">{{ classificationLabel('route_interrupted') }}</option></select></label>
-        <button type="submit">筛选</button>
+        <label><span>查找 AS</span><input v-model="asQuery" :disabled="!page" placeholder="ASN、名称或机构" /></label>
+        <label><span>窗口分类</span><select v-model="asClassification" :disabled="!page"><option value="all">全部</option><option value="affected">{{ classificationLabel('affected') }}</option><option value="route_interrupted">{{ classificationLabel('route_interrupted') }}</option></select></label>
+        <button type="submit" :disabled="!page">筛选</button>
       </form>
-      <PageState v-if="asLoading" kind="loading" title="正在读取相关 AS" />
+      <PageState v-if="!page" title="暂无事件窗口相关 AS 数据" :detail="emptyDetail" />
+      <PageState v-else-if="asLoading" kind="loading" title="正在读取相关 AS" />
       <PageState v-else-if="asError" kind="error" title="相关 AS 暂不可用" :detail="asError" @retry="loadAffectedAs" />
       <PageState v-else-if="!asResult?.items.length" title="当前条件下没有相关 AS" />
       <div v-else class="table-scroll">
@@ -384,12 +419,13 @@ onMounted(() => {
         <p>这里展示有序 AS_PATH 中与受影响 AS 关联出现的网络；两端之间可能存在其他 ASN。</p>
       </header>
       <form class="filter-bar is-path" @submit.prevent="applyPathFilters">
-        <label><span>受影响 AS</span><input v-model="pathAffectedAsn" placeholder="例如 AS48159" /></label>
-        <label><span>查找关联网络</span><input v-model="pathQuery" placeholder="ASN、名称或机构" /></label>
-        <label><span>出现时机</span><select v-model="pathScope"><option value="all">窗口内全部</option><option value="concurrent">与中断同期出现</option></select></label>
-        <button type="submit">筛选</button>
+        <label><span>受影响 AS</span><input v-model="pathAffectedAsn" :disabled="!page" placeholder="例如 AS48159" /></label>
+        <label><span>查找关联网络</span><input v-model="pathQuery" :disabled="!page" placeholder="ASN、名称或机构" /></label>
+        <label><span>出现时机</span><select v-model="pathScope" :disabled="!page"><option value="all">窗口内全部</option><option value="concurrent">与中断同期出现</option></select></label>
+        <button type="submit" :disabled="!page">筛选</button>
       </form>
-      <PageState v-if="pathLoading" kind="loading" title="正在读取实际路径关联" />
+      <PageState v-if="!page" title="暂无实际路径关联数据" :detail="emptyDetail" />
+      <PageState v-else-if="pathLoading" kind="loading" title="正在读取实际路径关联" />
       <PageState v-else-if="pathError" kind="error" title="路径关联暂不可用" :detail="pathError" @retry="loadPaths" />
       <PageState v-else-if="!pathResult?.items.length" title="当前条件下没有路径关联" />
       <div v-else class="relation-list">
@@ -416,11 +452,16 @@ onMounted(() => {
         <button type="button" :disabled="pathPage >= pathResult.page_count" @click="changePathPage(pathPage + 1)">下一页 →</button>
       </nav>
     </section>
+    <slot name="source" />
   </article>
 </template>
 
 <style scoped>
 .general-page { --navy: #122b3b; --blue: #176d8f; --orange: #df6b2d; --cream: #f6f2ea; min-width: 0; width: 100%; display: grid; gap: 18px; color: #1d2b35; }
+.empty-chart { min-height: 200px; align-content: center; }
+.general-page :deep(.page-state[data-kind='empty']) { grid-template-columns: minmax(0, 1fr); }
+.general-page :deep(.page-state[data-kind='empty'] .page-state-code) { display: none; }
+.filter-bar :disabled { cursor: not-allowed; opacity: .5; }
 .event-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, .72fr); gap: 38px; align-items: end; padding: 30px 34px; color: #f8fbfc; background: linear-gradient(122deg, #102a3a, #173f51); border-radius: 4px; box-shadow: 0 18px 42px rgba(20, 48, 63, .16); }
 .back-link { color: #a9d9e7; font-size: 11px; font-weight: 700; text-decoration: none; }
 .hero-copy p { margin: 28px 0 7px; color: #83c4d7; font: 750 10px/1.2 var(--mono); letter-spacing: .11em; }
