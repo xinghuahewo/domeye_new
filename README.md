@@ -1,14 +1,14 @@
 # Domeye New
 
-Domeye 的路由观测工作台：Vue 前端、Flask 只读 API，以及显式离线的数据留存与核验工具。首页 C 面向整体控制面态势，不围绕单个 ASN 展开；单观察点的数据不能当作全网或实际用户影响。
+Domeye 的路由观测工作台：Vue 前端、Flask 只读 API，以及独立的数据计算、结果交付与核验工具。首页 C 面向整体控制面态势，不围绕单个 ASN 展开；单观察点的数据不能当作全网或实际用户影响。
 
 ## 当前交付
 
-2026-09-12 已接受“55天可用、4天明确隔离”的本轮边界：六类留存异常、前缀与明确归属起源 AS 的单 RIB 规模，以及两次路径观察对照已交付。四个失败日未修复，覆盖仍未知；精确版本、数量和验收证据以[数据台账](docs/data-assets-and-admission.md#51-用户确认交付边界与本轮收口)为准。
+2026-09-22 已将 44 份完成结果及独立 RIB 统计接入[常驻系统](http://10.99.8.16:28471/)，独立交付服务按顺序等待新完成回执；API 只读共享查询库。当前为部分时段，原多日计算和归档仍暂停，不代表在线采集或整日完整数据。当前版本、范围与验证见[接入台账](docs/data-assets-and-admission.md#同日自动交付与常驻系统接线)，操作与回滚见[运行手册](docs/runbooks/运行与维护.md#自动交付与系统切换)。
 
-已合入服务器main并部署至[服务器C首页](http://10.99.8.16:28471/)，28473后端保持仅本机可达。发布结果与任务进度见[Issue #15](https://github.com/xinghuahewo/domeye_new/issues/15)，运行版本、回滚与验收边界见[运行与维护](docs/runbooks/运行与维护.md)。原本机28492预览保留，独立 A 问答服务未切换。
+此前 2026-09-12 接受的“55 天可用、4 天明确隔离”及路径对照交付保留为[历史发布记录](docs/data-assets-and-admission.md#51-用户确认交付边界与本轮收口)，旧源码和数据库未覆盖。当前运行使用独立源码发布目录，不以服务器主检出的 Git HEAD 推定线上版本；28473 后端仍仅本机可达，独立 A 问答服务未切换。
 
-统一数据生产与消费底座按[规格 #18](https://github.com/xinghuahewo/domeye_new/issues/18)分阶段实施。[首条 RIB 到 C 首页共享快照链 #19](https://github.com/xinghuahewo/domeye_new/issues/19)、[同版 ASN 查询 #20](https://github.com/xinghuahewo/domeye_new/issues/20)与[跨月批次复用及失败隔离 #21](https://github.com/xinghuahewo/domeye_new/issues/21)已完成人工输入与隔离接口／页面验收，实现和边界见[系统结构](docs/architecture/系统结构与数据流.md#固定候选批次21fixture-实现)。[真实两批试点 #22](https://github.com/xinghuahewo/domeye_new/issues/22)已冻结36个候选摘要；固定首源已完成 prepare 和内置完整验证，单候选结论为 GO。按用户要求停止额外全量重放审计；#24 无时限批次修订已完成，真实第一批6候选在监控扫描超时后已停止，尚未完成登记，12天覆盖仍为 Unknown，最新执行状态见[数据台账](docs/data-assets-and-admission.md#58-issue-22-无时限第一批启动)。需求、验收和依赖以规格及其子任务为准。新链尚未部署，不改变上述 C 有限交付。
+统一数据生产与消费底座按[规格 #18](https://github.com/xinghuahewo/domeye_new/issues/18)分阶段实施。[首条 RIB 到 C 首页共享快照链 #19](https://github.com/xinghuahewo/domeye_new/issues/19)、[同版 ASN 查询 #20](https://github.com/xinghuahewo/domeye_new/issues/20)与[跨月批次复用及失败隔离 #21](https://github.com/xinghuahewo/domeye_new/issues/21)已完成人工输入与隔离接口／页面验收，实现和边界见[系统结构](docs/architecture/系统结构与数据流.md#固定候选批次21fixture-实现)。[真实两批试点 #22](https://github.com/xinghuahewo/domeye_new/issues/22)已冻结36个候选摘要；固定首源已完成 prepare 和内置完整验证，单候选结论为 GO。按用户要求停止额外全量重放审计；#24 无时限批次修订已完成，真实第一批6候选在监控扫描超时后已停止，尚未完成登记，12天覆盖仍为 Unknown，执行状态见[数据台账](docs/data-assets-and-admission.md#58-issue-22-无时限第一批启动)。需求、验收和依赖以规格及其子任务为准；这些批次未完成的完整发布与本次完成文件接入分别记录。
 
 ## 快速开始
 

@@ -139,3 +139,113 @@ def test_rib_statistics_cli_transaction_retry_and_conflict(db,tmp_path,monkeypat
     with db.cursor() as cur:
         cur.execute('SELECT count(*),min(observed_at) FROM result_delivery.rib_statistics')
         assert cur.fetchone()==(1,t)
+
+
+def make_worker(db, tmp_path, files=2):
+    from data_pipeline.results.delivery_worker import DeliveryWorker
+    run=tmp_path/'run'; run.mkdir(); spool=tmp_path/'spool'; spool.mkdir()
+    manifest={'collector':'rrc25','inputs':[
+        {'source_id':'source'+str(n),'sha256':'input-sha','role':'baseline' if n==0 else 'update',
+         'path':f'/fixture/{"bview" if n==0 else "updates"}.20260224.0000.gz'} for n in range(files)]}
+    (run/'manifest.json').write_text(json.dumps(manifest))
+    dsn=tmp_path/'writer.dsn'; dsn.write_text(os.environ['DOMEYE_DELIVERY_TEST_DSN'])
+    worker=DeliveryWorker(run,dsn,tmp_path/'progress.json',receipt_dir=spool)
+    from psycopg2.extras import Json
+    with db,db.cursor() as c:
+        c.execute('UPDATE result_delivery.binding SET body=%s WHERE id=1',(Json(worker.binding),))
+    return worker, spool
+
+
+def test_worker_waits_for_atomic_complete_and_reads_new_update(db,tmp_path):
+    worker,spool=make_worker(db,tmp_path)
+    try:
+        assert worker.step()['state']=='waiting_source'
+        source=receipt(tmp_path,[('feature_result',feature())])
+        pending=spool/'file-0000.json.tmp'; pending.write_bytes(source.read_bytes())
+        assert worker.step()['state']=='waiting_source'
+        pending.replace(spool/'file-0000.json')
+        assert worker.step()['files']==1
+        (worker.run/'execution-end.json').write_text('{"status":"failed"}')
+        status=worker.step()
+        assert status['state']=='waiting_source' and status['source_status']=='failed' and status['files']==1
+        row=feature(n=3); row['source_id']='source1'
+        source=receipt(tmp_path,[('feature_result',row)],ordinal=1)
+        (spool/'file-0001.json').write_bytes(source.read_bytes())
+        assert worker.step()['files']==2
+        assert worker.step()['state']=='complete'
+        with db,db.cursor() as c:
+            c.execute('SELECT announ_num FROM feature_country ORDER BY announ_num')
+            assert c.fetchall()==[(1,),(3,)]
+    finally:worker.close()
+
+
+def test_worker_recovers_database_loss_after_committed_file_without_duplicate(db,tmp_path,monkeypatch):
+    import threading
+    from data_pipeline.results import delivery_worker
+    worker,spool=make_worker(db,tmp_path,files=1)
+    source=receipt(tmp_path,[('feature_result',feature())])
+    (spool/'file-0000.json').write_bytes(source.read_bytes())
+    original=delivery_worker.import_file; calls=[]
+    def lost_ack(*args,**kwargs):
+        result=original(*args,**kwargs); calls.append(result)
+        raise psycopg2.OperationalError('fixture: commit 后连接中断')
+    monkeypatch.setattr(delivery_worker,'import_file',lost_ack)
+    assert worker.follow(threading.Event(),poll_seconds=0)==0
+    assert len(calls)==1
+    with db,db.cursor() as c:
+        c.execute('SELECT count(*) FROM result_delivery.files'); assert c.fetchone()==(1,)
+        c.execute('SELECT count(*) FROM result_delivery.features'); assert c.fetchone()==(1,)
+    assert json.loads(worker.progress.read_text())['state']=='complete'
+
+
+def test_worker_blocks_invalid_file_and_preserves_previous_data(db,tmp_path):
+    import threading
+    worker,spool=make_worker(db,tmp_path)
+    source=receipt(tmp_path,[('feature_result',feature())])
+    (spool/'file-0000.json').write_bytes(source.read_bytes())
+    row=feature(); row['source_id']='source1'
+    source=receipt(tmp_path,[('feature_result',row)],ordinal=1)
+    invalid=json.loads(source.read_bytes()); invalid['file']['sha256']='0'*64
+    (spool/'file-0001.json').write_text(json.dumps(invalid))
+    assert worker.follow(threading.Event())==2
+    assert json.loads(worker.progress.read_text())['state']=='blocked'
+    with db,db.cursor() as c:
+        c.execute('SELECT count(*) FROM result_delivery.files'); assert c.fetchone()==(1,)
+        c.execute('SELECT announ_num FROM feature_country'); assert c.fetchone()==(1,)
+
+
+def test_worker_rejects_changed_manifest_before_consuming(db,tmp_path):
+    worker,_=make_worker(db,tmp_path)
+    path=worker.run/'manifest.json'; path.write_text(path.read_text()+' ')
+    with pytest.raises(ValueError,match='清单发生变化'):worker.step()
+
+
+def test_legacy_partial_receipt_waits_then_blocks_only_if_unchanged(db,tmp_path,monkeypatch):
+    from data_pipeline.results import delivery_worker
+    worker,spool=make_worker(db,tmp_path,files=1)
+    clock=[0]; monkeypatch.setattr(delivery_worker.time,'monotonic',lambda:clock[0])
+    path=spool/'file-0000.json'; path.write_text('{')
+    try:
+        assert worker.step()['state']=='waiting_receipt'
+        clock[0]=31
+        with pytest.raises(ValueError,match='持续不完整'):worker.step()
+        source=receipt(tmp_path,[('feature_result',feature())])
+        path.write_bytes(source.read_bytes())
+        assert worker.step()['state']=='delivered'
+    finally:worker.close()
+
+
+def test_completed_receipt_publication_is_atomic_and_never_overwrites(tmp_path,monkeypatch):
+    from data_pipeline.bgp.archive import checkpoint
+    target=tmp_path/'file-0000.json'; original=checkpoint.json.dump
+    def observe(value,stream,**kwargs):
+        assert not target.exists()
+        original(value,stream,**kwargs)
+        assert not target.exists()
+    monkeypatch.setattr(checkpoint.json,'dump',observe)
+    checkpoint.durable(target,{'complete':True})
+    assert json.loads(target.read_text())=={'complete':True}
+    monkeypatch.setattr(checkpoint.json,'dump',original)
+    with pytest.raises(FileExistsError):checkpoint.durable(target,{'complete':False})
+    assert json.loads(target.read_text())=={'complete':True}
+    assert list(tmp_path.iterdir())==[target]

@@ -1,0 +1,23 @@
+[Unit]
+Description=Domeye 完成文件自动交付
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/home/bgpdata/domeye-new-runtime/result-delivery.env
+ExecStart=/usr/bin/bash -c 'exec "$DOMEYE_DELIVERY_PYTHON" "$DOMEYE_DELIVERY_CODE/scripts/pipeline/deliver_results.py" --run "$DOMEYE_DELIVERY_RUN" --dsn-file "$DOMEYE_DELIVERY_DSN_FILE" --follow --progress "$DOMEYE_DELIVERY_PROGRESS"'
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=15
+TimeoutStopSec=120
+CPUQuota=200%
+MemoryMax=2G
+MemorySwapMax=0
+UMask=0077
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -50,8 +50,14 @@ def file_sha(path):
 
 def durable(path, value):
     path=Path(path)
-    with path.open('x') as f:
-        json.dump(value,f,ensure_ascii=False,indent=2);f.flush();os.fsync(f.fileno())
+    temporary=path.with_name(f'.{path.name}.{uuid.uuid4().hex}.tmp')
+    try:
+        with temporary.open('x') as f:
+            json.dump(value,f,ensure_ascii=False,indent=2);f.flush();os.fsync(f.fileno())
+        # 同目录原子发布，仍保留原来的 exclusive 语义，不能覆盖已有回执。
+        os.link(temporary,path)
+    finally:
+        temporary.unlink(missing_ok=True)
     fd=os.open(path.parent,os.O_RDONLY)
     try: os.fsync(fd)
     finally: os.close(fd)

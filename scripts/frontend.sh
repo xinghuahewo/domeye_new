@@ -23,10 +23,10 @@ if [[ $# -gt 0 ]]; then shift; fi
 case "$command_name" in
   install) exec npm ci "$@" ;;
   test|build|api:types|typecheck) exec npm run "$command_name" -- "$@" ;;
-  dev)
+  dev|preview)
     export VITE_API_PROXY_TARGET="${DOMEYE_API_TARGET:-http://127.0.0.1:28473}"
     export VITE_API_V2_PROXY_TARGET="$VITE_API_PROXY_TARGET"
-    exec npm run dev -- --host "${DOMEYE_WEB_HOST:-127.0.0.1}" --port "${DOMEYE_WEB_PORT:-28471}" --strictPort "$@"
+    exec npm run "$command_name" -- --host "${DOMEYE_WEB_HOST:-127.0.0.1}" --port "${DOMEYE_WEB_PORT:-28471}" --strictPort "$@"
     ;;
-  *) printf '%s\n' '允许命令：dev、install、test、build、api:types、typecheck。' >&2; exit 2 ;;
+  *) printf '%s\n' '允许命令：dev、preview、install、test、build、api:types、typecheck。' >&2; exit 2 ;;
 esac

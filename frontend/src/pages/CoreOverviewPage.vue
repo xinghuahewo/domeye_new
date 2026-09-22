@@ -9,6 +9,7 @@ import RibSnapshotScale from '@/components/RibSnapshotScale.vue'
 import CoreAnomalyCards from '@/components/CoreAnomalyCards.vue'
 import CoreDailyTrends from '@/components/CoreDailyTrends.vue'
 import type { AnomalyKind } from '@/api/coreAnomalies'
+import { resultDelivery } from '@/api/health'
 import './home-prototype/overview.css'
 import './coreOverview.css'
 
@@ -127,6 +128,13 @@ watch(date, value => {
   if (route.query.date !== value) void router.replace({ query: { ...route.query, date: value, snapshot_version: undefined } })
 })
 watch(() => route.query.date, value => { date.value = typeof value === 'string' ? value : profile.snapshot_time.slice(0, 10) })
+let pendingDeliveryRefresh = false
+watch(() => resultDelivery.value?.version, (version, previous) => {
+  if (!version || !previous || version === previous || version === pinnedVersion.value) return
+  if (dialog.value?.open) { pendingDeliveryRefresh = true; return }
+  page.value = 1
+  void load(true)
+})
 
 const dialog = ref<HTMLDialogElement>()
 const dialogTitle = ref('')
@@ -149,7 +157,10 @@ async function openDialog(title: string, rows: [string, string][], note: string)
   dialog.value?.showModal()
 }
 function closeDialog() { dialog.value?.close() }
-function afterClose() { detailController?.abort(); detailRequest++; detailLoading.value = false; trigger?.focus() }
+function afterClose() {
+  detailController?.abort(); detailRequest++; detailLoading.value = false; trigger?.focus()
+  if (pendingDeliveryRefresh) { pendingDeliveryRefresh = false; page.value = 1; void load(true) }
+}
 function showScope() {
   const delivery = metadata.value?.result_delivery
   if (delivery) {

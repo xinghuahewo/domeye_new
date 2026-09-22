@@ -2363,7 +2363,7 @@ aa276之后Q2-b4消息证明修复完成人工联合，见[Q2集成记录](revie
 
 ## 44 份完成文件的系统接入验证（2026-09-22）
 
-**结论：44 份业务结果及独立 RIB 统计已在隔离查询与页面中可用，常驻系统未切换。** 初次接入复用既有完成文件；随后补齐 API 时只读取已保留的同源 RIB 归档，没有重算 UPDATE。历史计算及原监控仍暂停。迁移范围、实现和重试方式见[迁移计划](architecture/新架构一日全链路迁移计划.md#2026-09-22先用-44-份完成文件验证交付流程)与[运行手册](runbooks/运行与维护.md#完成文件结果交付隔离流程验证)。
+**当前结论：44 份业务结果及独立 RIB 统计已接入常驻前后端，自动交付服务已启用。** 初次先完成隔离查询与页面验证；随后按用户授权完成下述[常驻系统接线](#同日自动交付与常驻系统接线)。复用既有完成文件，补齐 RIB 统计时只读取同源保留归档，没有重算 UPDATE。历史计算及原监控仍暂停。迁移范围、实现和重试方式见[迁移计划](architecture/新架构一日全链路迁移计划.md#2026-09-22先用-44-份完成文件验证交付流程)与[运行手册](runbooks/运行与维护.md#完成文件结果交付隔离流程验证)。
 
 输入为 `iran-business-20260921d/run/results/file-0000.json` 至 `file-0043.json`，即 1 RIB＋43 UPDATE；源运行仍保留失败状态，ordinal 44 不纳入。北京时间 2026-02-24 08:00—11:35（右端不含），来源 RRC25。当前交付内容来自当时的全球计算，伊朗通过国家／ASN 页面筛选；不是仅含伊朗的 4,169 条事件。
 
@@ -2409,4 +2409,28 @@ aa276之后Q2-b4消息证明修复完成人工联合，见[Q2集成记录](revie
 
 本轮修复包括早期路径段登记缺少逐文件行数字段、离线命令递归进入数据库事务，以及 UTC 源覆盖端点造成 Core 桶偏移格式不一致。分别以 Parquet 页脚加原段计数闭合、单层事务入口和统一业务时区解决；保留各次失败记录。前端接入新规模来源和资源散点，异常趋势只画实际桶；导航、国家排行与 ASN 档案保留所选时段。浏览器已确认两项规模、六类趋势、资源点和伊朗档案。
 
-统计回执在 `dev/runs/results-rib-statistics-20260922c/`；API、数据库与启动回执在 `dev/runs/results-api-20260922b/`，包括 `API核验.json`、`交付库核对.json`、`statistics-delivery.json`、`backend-tests-complete.log` 和 `preview-binding.json`。本次只重启原有隔离预览服务，其运行源码指向后者的 `code-complete/`，端口保持 28544；原首轮源码及失败证据保留。Resource 只提供一个真实 RIB 时点，不能画连续状态、正常范围或国家拓扑；这也不代表共享快照观察分页、完整 Resource 16 表资格或生产验收。
+统计回执在 `dev/runs/results-rib-statistics-20260922c/`；API、数据库与启动回执在 `dev/runs/results-api-20260922b/`，包括 `API核验.json`、`交付库核对.json`、`statistics-delivery.json`、`backend-tests-complete.log` 和 `preview-binding.json`。这一步只重启原有隔离预览服务，其运行源码指向后者的 `code-complete/`，端口保持 28544；原首轮源码及失败证据保留。Resource 只提供一个真实 RIB 时点，不能画连续状态、正常范围或国家拓扑；这一步也不代表共享快照观察分页、完整 Resource 16 表资格或生产验收。
+
+### 同日自动交付与常驻系统接线
+
+**已实现并完成 44 份范围的常驻接线。** 用户授权将完成文件自动交付接入系统。计算端与交付进程通过既有完成回执连接，数据库暂不可用不拖停计算；新回执原子发布，旧格式短暂写入被等待而非误判。业务规则与输入窗口未变，旧多日计算失败回执保留。
+
+验证使用同一批真实结果：新查询库先接入 ordinal 0—42，共 43 份；自动交付服务先等待，再通过 pipeline 的回执发布函数投递已完成的 ordinal 43。其后未执行人工导入命令，服务自动交付最后一份，浏览器未手动刷新即从 43 份／4,123 条事件／11:30 终点更新为 44 份／4,169 条事件／11:35 终点。43 份准备交付耗时 318.418 秒。这验证完成结果到系统的自动接线，没有重建 RIB、重算 UPDATE 或证明原任务可断点续算。
+
+新库与原隔离库对文件来源回执、全部普通 Feature 值、事件业务内容、事件修订及独立 RIB 统计逐行排序后摘要对照，相等；导入时间与查询版本保留各自身份。最终查询版本为 `delivery_7b370f1e5aba00f327483f06e277114872ea8aa1f84755812783df0bd01b937c`，数据数量与上节一致。
+
+| 环节 | 已确认结果 |
+| --- | --- |
+| 后端检查 | Web／Core／结果交付／RIB 统计 432 项通过；受影响 checkpoint 检查另 49 项通过，共 481 个不同测试。包含真实临时 PG 的提交后断连、重复交付、无效文件隔离、旧回执未写完与原子发布不覆盖 |
+| 前端检查 | 169 项、类型检查与构建通过；首页感知交付版本后刷新，查看详情时保持原证据版本 |
+| 实际查询 | 验证入口 30 项通过；切换后通过常驻前端代理再次执行 30 项 HTTP 检查，均通过 |
+| 常驻前后端 | `domeye-new-backend.service`、`domeye-new-frontend.service` 均 active／running、enabled；工作目录改为 `/home/bgpdata/domeye-new-releases/results-live-20260922b`，保留 28473／28471 端口及原监听范围；前端服务读取本次已构建静态文件 |
+| 自动交付 | `domeye-result-delivery.service` 已启用；绑定原 D 的完成目录与新查询库，已提交 44 份，等待 ordinal 44，原来源状态单列 failed。未启动原计算器 |
+| 查询库 | `domeye_results_live_20260922`，复用自有 `domeye-results44-20260922a` PostgreSQL 容器的独立数据库；数据已有主机绑定卷，容器策略改为 `unless-stopped`。未执行整机重启演练 |
+| 权限与资源 | Web 账号保持 SELECT，无 INSERT／UPDATE／DELETE／public 建表权限；后端 2 CPU／4 GiB，交付器 2 CPU／2 GiB，均无 Swap；PG 原有 2 CPU／4 GiB 配额保持 |
+
+验证 API 的初始 2 GiB 配额在 ASN 总览请求时发生 memcg OOM；恢复此前隔离 API 已验证的 4 GiB 配额后完整检查通过。失败现场保存在 `validation/API-2GiB-OOM.json`，不能把提高到 4 GiB 解释为 ASN 查询已优化。ASN 总览的速度与内存问题仍需单独优化。
+
+运行配置与回执根为 `/home/bgpdata/domeye-new-runtime/releases/results-live-20260922a/`，主要包括 `系统切换.json`、`切换前.json`、`API核验.json`、`delivery-progress.json`、`validation/自动交付-before.json`、`validation/自动交付-after.json`、`validation/页面自动刷新.json`、`validation/全量查询投影对照.json`、`validation/backend-tests-v2.log`、`validation/checkpoint-tests.log`。源码归档 `source-v2.tar.gz` SHA256 为 `f9f63ca618bdc80c3858975827071aef795e362cf648f90ca887f91c1ec2569c`；前端构建归档 SHA256 为 `1913d1654c147a596c5c4e7ef2249dbe78075c09c5712a8759eb70ecb603513b`。本地回执副本在 `/Users/botongwu/.codex/artifacts/results-live-20260922a/`。
+
+本次新增前后端 `40-result-delivery.conf`，旧 `/home/bgpdata/domeye-new` 源码、旧运行配置、旧数据库及早期 drop-in 保留；回滚按[运行手册](runbooks/运行与维护.md#自动交付与系统切换)。本地 28494 已由开发预览改为转发常驻前端 28471。**常驻结果消费和自动交付已接通，原多日业务计算、归档仍暂停。** 新计算批次需要显式配置对应来源和查询库，不能直接从原失败 UPDATE 续算；不声称持续采集、动态 Peer、新 RIB 切换、全天完整数据或所有产品指标已具备。
