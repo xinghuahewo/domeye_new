@@ -539,6 +539,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 读取显式交付的 global 独立 RIB 统计点，按时点排序，不重放或补算。半开窗口最多 24 小时；未配置、没有统计、未知主值与读取失败分别返回。一个点不填成连续曲线。 */
+        get: operations["queryResourceStatistics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -873,6 +890,7 @@ export interface components {
                 /** @description 此消费版本共同声明的异常类型范围；不随程序新增类型而扩展旧输入范围 */
                 kinds: ("prefix_outage" | "as_outage" | "leak" | "hijack" | "sub_hijack" | "country_outage")[];
                 interpretation_version: string;
+                rib_statistics?: components["schemas"]["CoreRibStatistics"];
             };
             query: {
                 date: string;
@@ -890,9 +908,9 @@ export interface components {
             };
             overview: {
                 record_count: number;
-                /** @description 仅metadata.scale.state=available时提供同日同地址族的单RIB前缀并集数；其余为null */
+                /** @description 旧留存模式由 metadata.scale 提供；完成文件模式由 metadata.rib_statistics 提供同日同族独立 RIB 的规范前缀并集数。其余为 null；不是全天末态或 Resource 旧字段。 */
                 visible_prefixes: number | null;
-                /** @description 仅同日同地址族且起源消费准入时提供跳过私用AS后的明确归属ASN并集；不拆AS_SET或越过歧义段；其他情况为null */
+                /** @description 对应独立 RIB 的明确起源 ASN 并集，all 在两族间去重，沿用 private-skip 规则。未知为 null；不同于 Resource 的兼容尾 ASN public_as_count。 */
                 visible_origin_ases: number | null;
             } | null;
             trend: {
@@ -900,6 +918,7 @@ export interface components {
                 metric: "recorded_prefix_outage_starts_distinct";
                 /** @enum {integer} */
                 bucket_seconds: 3600;
+                /** @description 公开桶边界按项目业务时区（当前 +08:00）返回；完成文件模式仅返回实际覆盖片段。 */
                 buckets: {
                     start: string;
                     end_exclusive: string;
@@ -914,6 +933,7 @@ export interface components {
                 page_size: number;
                 page_count: number;
             } | null;
+            event_trends?: components["schemas"]["CoreEventTrends"];
         };
         CoreOverviewDetail: {
             /** @enum {string} */
@@ -1087,6 +1107,8 @@ export interface components {
             binding?: {
                 [key: string]: unknown;
             };
+            /** @description 活动覆盖的权威时段集合。start/end_exclusive 仅为外包范围，不证明中间连续。 */
+            intervals?: components["schemas"]["ResultDeliveryInterval"][];
         };
         HealthPayload: {
             status: string;
@@ -2162,6 +2184,143 @@ export interface components {
             /** @description 中文错误说明 */
             msg: string;
         };
+        /** @description 实际已交付的半开时段；重叠或相邻文件窗口合并，缺口保持分离。单 RIB 时点不构成活动覆盖。 */
+        ResultDeliveryInterval: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
+        };
+        /** @description 实际覆盖与项目业务时区整点小时的交集；start/end_exclusive 按项目业务时区（当前 +08:00）返回，首尾可不足一小时，缺口不补零。 */
+        CoreEventTrendBucket: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
+            value: number;
+        };
+        /** @description 完成文件交付模式的六类事件当前事实开始数。修订不重复计数，不是并发数或全日数量；只受日期、地址族影响。 */
+        CoreEventTrends: {
+            /** @enum {unknown} */
+            state: "available" | "unavailable";
+            /** @constant */
+            metric: "recorded_event_starts";
+            /** @constant */
+            filter_scope: "date_and_family";
+            /** @constant */
+            bucket_seconds: 3600;
+            series: {
+                /** @enum {unknown} */
+                kind: "prefix_outage" | "as_outage" | "hijack" | "sub_hijack" | "leak" | "country_outage";
+                total: number;
+                buckets: components["schemas"]["CoreEventTrendBucket"][];
+            }[];
+            message?: string;
+        } & unknown;
+        /** @description 独立 RIB 统计的逐指标主值。qualified 时才有非负整数；其他状态为 null，不能把离线 raw 当作主值。 */
+        ResourceStatisticsMetric: {
+            main: number | null;
+            /** @enum {unknown} */
+            qualification: "qualified" | "unknown" | "not_applicable";
+            reason: string;
+            /** @enum {unknown} */
+            unit: "covered_ipv4_24_block_times_256" | "covered_ipv6_48_block" | "distinct_first_path_asn" | "distinct_ipv4_prefix" | "distinct_legacy_private_tail_asn" | "distinct_legacy_public_tail_asn" | "distinct_rendered_path";
+        } & unknown;
+        ResourceStatisticsMetrics: {
+            ipv4_prefix_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "distinct_ipv4_prefix";
+            };
+            /**
+             * @deprecated
+             * @description ipv6_48_count 的旧同值别名，两者不能相加。
+             */
+            ipv6_prefix_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "covered_ipv6_48_block";
+            };
+            ipv6_48_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "covered_ipv6_48_block";
+            };
+            ipv4_address_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "covered_ipv4_24_block_times_256";
+            };
+            vp_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "distinct_first_path_asn";
+            };
+            private_as_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "distinct_legacy_private_tail_asn";
+            };
+            public_as_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "distinct_legacy_public_tail_asn";
+            };
+            path_count: components["schemas"]["ResourceStatisticsMetric"] & {
+                /** @constant */
+                unit?: "distinct_rendered_path";
+            };
+        };
+        /** @description 完整归档 RIB 离线生成的 global 独立统计点；不代表连续 RouteState，也不提供旧共享快照 observations 分页或完整 Resource 16 表资格。 */
+        ResourceStatisticsPoint: {
+            snapshot_id: string;
+            /** Format: date-time */
+            observed_at: string;
+            metrics: components["schemas"]["ResourceStatisticsMetrics"];
+            metadata: {
+                collector_id: string;
+                source_id: string;
+                source_sha256: string;
+                rule: string;
+                limitations: string[];
+            };
+        };
+        ResourceStatisticsPayload: {
+            /** @enum {unknown} */
+            state: "available" | "not_calculated" | "not_configured";
+            query: {
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end_exclusive: string;
+                /** @constant */
+                timezone: "Asia/Shanghai";
+                /** @constant */
+                scope: "global";
+                /** @constant */
+                window_boundary: "[start,end)";
+            };
+            points: components["schemas"]["ResourceStatisticsPoint"][];
+            message?: string;
+        } & unknown;
+        ResourceQueryError: {
+            /** @constant */
+            state: "unavailable";
+            message: string;
+        };
+        /** @description 完成文件模式中的 canonical 规模。选择所选日实际交付时段内同 collector 的最新独立 RIB；不受列表筛选影响。明确起源 ASN 在双栈间取并集，不能换成 Resource public_as_count。 */
+        CoreRibStatistics: {
+            /** @enum {unknown} */
+            state: "available" | "not_calculated" | "not_applicable" | "unavailable";
+            /** @enum {unknown} */
+            family: "all" | "ipv4" | "ipv6" | "unknown";
+            snapshot_id?: string;
+            /** Format: date-time */
+            observed_at?: string;
+            collector_id?: string;
+            source_id?: string;
+            source_sha256?: string;
+            rule?: string;
+            limitations?: string[];
+            metrics?: {
+                visible_prefixes: number | null;
+                visible_origin_ases: number | null;
+            };
+            message?: string;
+        } & unknown;
     };
     responses: {
         /** @description 中断时序 */
@@ -3360,6 +3519,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+        };
+    };
+    queryResourceStatistics: {
+        parameters: {
+            query: {
+                /** @description 秒级时间。YYYY-MM-DD HH:MM:SS 按 Asia/Shanghai；也接受带 Z 或时区偏移的 ISO 时间。禁止重复参数。 */
+                start_time: string;
+                /** @description 秒级时间。YYYY-MM-DD HH:MM:SS 按 Asia/Shanghai；也接受带 Z 或时区偏移的 ISO 时间。禁止重复参数。 */
+                end_time: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 实际独立时点或明确未配置／未计算 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceStatisticsPayload"];
+                };
+            };
+            /** @description 参数缺失、重复、无效或窗口超界 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceQueryError"];
+                };
+            };
+            /** @description 交付统计不可读或主值、资格、单位不一致；不返回零或旧数据 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceQueryError"];
                 };
             };
         };

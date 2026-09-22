@@ -92,7 +92,7 @@ function asnRoute(asn: string) {
   return {
     name: 'asn-detail',
     params: { asn },
-    query: eventContext.value ? { ...route.query } : snapshotQuery.value,
+    query: eventContext.value ? { ...route.query } : { ...snapshotQuery.value, start: query.start, end: query.end },
   }
 }
 
@@ -265,18 +265,17 @@ function openAsn(asn?: string) {
 
 function openEvent(event: EventRow) {
   if (!event.detailUrl) return
-  void router.push({ name: 'event-detail', query: { ref: event.detailUrl } })
+  void router.push({ name: 'event-detail', query: { ref: event.detailUrl, start: query.start, end: query.end } })
 }
 
 watch(
-  [() => route.params.asn, () => route.query.event_start, () => route.query.event_end, () => route.query.event_ref],
+  [() => route.params.asn, () => route.query.event_start, () => route.query.event_end, () => route.query.event_ref, () => route.query.start, () => route.query.end],
   () => {
     if (eventContext.value) {
       query.start = toBusinessTime(eventContext.value.startDate).replace(' ', 'T')
       query.end = toBusinessTime(eventContext.value.endDate).replace(' ', 'T')
     } else {
-      query.start = defaults.start
-      query.end = defaults.end
+      Object.assign(query, rangeFromQuery(route.query.start, route.query.end, query))
     }
     asnInput.value = selectedAsn.value ? `AS${selectedAsn.value}` : ''
     void load()
@@ -321,7 +320,7 @@ watch(
         </datalist>
       </label>
       <button class="solid-action" type="submit">打开档案</button>
-      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases', query: snapshotQuery }">返回 ASN 总览</RouterLink>
+      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases', query: { ...snapshotQuery, start: query.start, end: query.end } }">返回 ASN 总览</RouterLink>
       <span class="console-freshness">DATA CUT · {{ overview?.latestObservation || '尚无观测' }}</span>
     </form>
 
@@ -392,7 +391,7 @@ watch(
             <span>{{ selected.orgName || '组织未知' }} · {{ selected.country || '国家未知' }} · {{ selected.asType || '类型未知' }}</span>
           </div>
           <div class="dossier-actions">
-            <RouterLink :to="{ name: 'events', query: { attacked_as: selected.asn } }">检索该 ASN 事件 →</RouterLink>
+            <RouterLink :to="{ name: 'events', query: { attacked_as: selected.asn, date: query.start.slice(0, 10) } }">检索该 ASN 事件 →</RouterLink>
             <span>最后观测 {{ selected.latestObservation || '未知' }}</span>
             <b v-if="selected.important">IMPORTANT AS</b>
           </div>

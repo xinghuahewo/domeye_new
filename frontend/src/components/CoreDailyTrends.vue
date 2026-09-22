@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from 'vue'
 import { getTopFeatures } from '@/api/features'
+import { getResources, type ResourcePoint, type ResourceStatistics } from '@/api/resources'
 import type { FeaturePoint } from '@/types/api'
 import { toBusinessTime } from '@/utils/businessTime'
 import profile from '../../../config/data-profile.json'
@@ -10,6 +11,10 @@ const props = defineProps<{ date: string; refreshKey: number }>()
 const points = ref<FeaturePoint[]>([])
 const loading = ref(false)
 const error = ref('')
+const resources = ref<ResourceStatistics | null>(null)
+const resourceError = ref('')
+const resourceBounds = computed<[string, string] | undefined>(() => resources.value?.query
+  ? [resources.value.query.start, resources.value.query.end_exclusive] : undefined)
 let controller: AbortController | undefined
 let requestNumber = 0
 const metrics = computed(() => [
@@ -17,9 +22,20 @@ const metrics = computed(() => [
   { title: 'IPv4 资源量', unit: '/24 等价量', note: 'Feature 文件末状态 · 非去重前缀数', series: [series('IPv4 资源', 'ipv4Prefixes')] },
   { title: 'IPv6 资源量', unit: '/48 等价量', note: 'Feature 文件末状态', series: [series('IPv6 资源', 'ipv6Prefixes')] },
 ])
-const pendingResources = [
-  ['IPv4 去重前缀', '不同 IPv4 前缀 · 条'], ['IPv6 资源量', 'IPv6 /48 覆盖块 · 块'], ['公有 AS 数', 'Resource 规则统计 · 个'],
-]
+const resourceMetrics = computed(() => [
+  { title: 'IPv4 去重前缀', unit: '条', note: '不同 IPv4 前缀', key: 'ipv4_prefix_count' as const },
+  { title: 'IPv6 资源量', unit: '/48 块', note: 'IPv6 /48 覆盖块', key: 'ipv6_48_count' as const },
+  { title: '公有 AS 数', unit: '个', note: 'Resource 尾 ASN 规则 · 与明确起源 AS 数分开', key: 'public_as_count' as const },
+].map(metric => ({ ...metric, series: [resourceSeries(metric.title, metric.key)] })))
+function resourceSeries(name: string, key: keyof ResourcePoint['metrics']): ChartSeries {
+  return { name, color: '#967431', type: 'scatter', data: (resources.value?.points ?? []).map(point => [point.observed_at, point.metrics[key].main]) }
+}
+const resourceNote = computed(() => {
+  const rows = resources.value?.points ?? []
+  if (!rows.length) return '各 RIB 独立时点'
+  const last = toBusinessTime(new Date(rows.at(-1)!.observed_at)).slice(11)
+  return `${rows.length} 个 RIB 时点 · 末次 ${last} · 时点之间未知`
+})
 function series(name: string, key: keyof Omit<FeaturePoint, 'time'>, color = '#3e6f89'): ChartSeries {
   return { name, color, data: points.value.map(point => [point.time, point[key]]) }
 }
@@ -33,19 +49,25 @@ const observedAt = computed(() => points.value.length ? toBusinessTime(new Date(
 async function load() {
   const current = ++requestNumber
   controller?.abort()
-  points.value = []; error.value = ''; loading.value = false
+  points.value = []; error.value = ''; resources.value = null; resourceError.value = ''; loading.value = false
   const date = props.date
   const start = `${date} 00:00:00`, end = `${date} 23:59:59`
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < profile.window_start.slice(0, 10) || date > profile.snapshot_time.slice(0, 10)) {
-    error.value = '请选择数据档内的有效日期'; return
+    error.value = resourceError.value = '请选择数据档内的有效日期'; return
   }
   const request = new AbortController()
   controller = request; loading.value = true
   try {
-    const data = await getTopFeatures('collector', { start_time: start, end_time: end }, request.signal)
+    const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
+    const [feature, resource] = await Promise.allSettled([
+      getTopFeatures('collector', { start_time: start, end_time: end }, request.signal),
+      getResources({ start_time: start, end_time: `${nextDay} 00:00:00` }, request.signal),
+    ])
     if (current !== requestNumber || request.signal.aborted) return
-    if (data.some(point => toBusinessTime(new Date(point.time)).slice(0, 10) !== date)) throw new Error('特征响应超出所选日期')
-    points.value = data
+    if (feature.status === 'fulfilled' && feature.value.every(point => toBusinessTime(new Date(point.time)).slice(0, 10) === date)) points.value = feature.value
+    else error.value = '此日特征读取失败，请重新读取'
+    if (resource.status === 'fulfilled') resources.value = resource.value
+    else resourceError.value = '此日资源统计读取失败，请重新读取'
   } catch (cause) {
     if (current === requestNumber && !request.signal.aborted) error.value = '此日特征读取失败，请重新读取'
   } finally { if (current === requestNumber) loading.value = false }
@@ -71,16 +93,19 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
           <p>{{ metric.unit }} · {{ metric.note }}</p>
         </div>
       </section>
-      <section class="core-trend-panel" aria-label="Resource 资源趋势">
-        <header><h3>资源规模 <span>RESOURCE</span></h3><p>各 RIB 时点 · 时序数据待接入</p></header>
-        <div v-for="[title, unit] in pendingResources" :key="title" class="core-trend-metric">
-          <div class="core-trend-metric-heading"><h4>{{ title }}</h4><span>—</span></div>
-          <div class="core-trend-state" role="status">Resource 时序待接入<small>当前没有可绘制的 RIB 资源序列</small></div>
-          <p>{{ unit }}</p>
+      <section class="core-trend-panel" aria-label="Resource 资源趋势" :aria-busy="loading">
+        <header><h3>资源规模 <span>RESOURCE</span></h3><p>{{ resourceNote }}</p></header>
+        <div v-for="metric in resourceMetrics" :key="metric.title" class="core-trend-metric">
+          <div class="core-trend-metric-heading"><h4>{{ metric.title }}</h4><span>{{ lastValue(metric.series) }}</span></div>
+          <div v-if="loading" class="core-trend-state" role="status">正在读取 RIB 资源统计…</div>
+          <div v-else-if="resourceError" class="core-trend-state" role="status">{{ resourceError }}</div>
+          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" :time-bounds="resourceBounds" />
+          <div v-else class="core-trend-state" role="status">{{ resources?.state === 'available' ? '该指标主值不可用' : resources?.message || '此日没有 RIB 资源统计' }}<small>未计算或不适用不表示零</small></div>
+          <p>{{ metric.note }} · {{ metric.unit }}</p>
         </div>
       </section>
     </div>
-    <p class="core-trend-scope">Feature 按所选日期读取，保持全部地址族；异常列表筛选不改变此区。Feature 与 Resource 保留各自来源和单位。</p>
+    <p class="core-trend-scope">按所选日期读取全部地址族；异常列表筛选不改变此区。Feature 显示文件末采样，Resource 仅显示独立 RIB 统计点，不连成连续状态或补齐缺失时段。</p>
   </section>
 </template>
 

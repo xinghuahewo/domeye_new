@@ -205,12 +205,12 @@ async function load() {
 function openCountry(country?: string) {
   const target = (country ?? countryInput.value).trim()
   if (!target) return
-  void router.push({ name: 'country-detail', params: { country: target } })
+  void router.push({ name: 'country-detail', params: { country: target }, query: { start: query.start, end: query.end } })
 }
 
 function openEvent(event: EventRow) {
   if (!event.detailUrl) return
-  void router.push({ name: 'event-detail', query: { ref: event.detailUrl } })
+  void router.push({ name: 'event-detail', query: { ref: event.detailUrl, start: query.start, end: query.end } })
 }
 
 watch(
@@ -249,7 +249,7 @@ watch(
         </datalist>
       </label>
       <button class="solid-action" type="submit">打开国家档案</button>
-      <RouterLink v-if="selectedName" class="text-action" :to="{ name: 'countries' }">返回国家总览</RouterLink>
+      <RouterLink v-if="selectedName" class="text-action" :to="{ name: 'countries', query: { start: query.start, end: query.end } }">返回国家总览</RouterLink>
       <span class="console-freshness">
         DATA CUT · {{ overview?.latestObservation || '尚无观测' }}
       </span>
@@ -294,7 +294,7 @@ watch(
           <ol>
             <li v-for="(profile, index) in section.rows" :key="profile.country">
               <span class="rank-index">{{ String(index + 1).padStart(2, '0') }}</span>
-              <RouterLink :to="{ name: 'country-detail', params: { country: profile.country } }">
+              <RouterLink :to="{ name: 'country-detail', params: { country: profile.country }, query: { start: query.start, end: query.end } }">
                 <strong>{{ profile.country }}</strong>
                 <small>{{ profile.anomalyCount }} 异常 · {{ profile.highRiskCount }} 高风险</small>
               </RouterLink>
@@ -312,7 +312,7 @@ watch(
             <h2 id="country-dossier-title">{{ selected.country }}</h2>
           </div>
           <div class="dossier-actions">
-            <RouterLink :to="{ name: 'events', query: { attacked_country: selected.country } }">
+            <RouterLink :to="{ name: 'events', query: { attacked_country: selected.country, date: query.start.slice(0, 10) } }">
               检索该国家事件 →
             </RouterLink>
             <span>最后观测 {{ selected.latestObservation || '未知' }}</span>

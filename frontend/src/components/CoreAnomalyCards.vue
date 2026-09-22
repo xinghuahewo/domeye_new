@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from 'vue'
 import type { CoreOverview } from '@/api/coreOverview'
 import { anomalyKinds, getAnomalySummary, type AnomalyKind, type AnomalySummary } from '@/api/coreAnomalies'
+import { toBusinessTime } from '@/utils/businessTime'
 
 const props = defineProps<{ date: string; family: string; base: CoreOverview | null; refreshKey: number; requestLoading?: boolean }>()
 const emit = defineEmits<{ select: [kind: AnomalyKind, hour?: number] }>()
@@ -18,6 +19,12 @@ const note = (kind: AnomalyKind) => summaries.value[kind]?.note || (loading.valu
 const hours = (kind: AnomalyKind) => summaries.value[kind]?.hours
 const height = (kind: AnomalyKind, value: number) => `${value / Math.max(1, ...(hours(kind) || [])) * 100}%`
 const hourLabel = (hour: number) => `${String(hour).padStart(2, '0')}:00–${String(hour + 1).padStart(2, '0')}:00`
+const bars = (kind: AnomalyKind) => summaries.value[kind]?.buckets?.map(bucket => ({
+  value: bucket.value, hour: Number(toBusinessTime(new Date(bucket.start)).slice(11, 13)),
+  label: `${toBusinessTime(new Date(bucket.start)).slice(11, 16)}–${toBusinessTime(new Date(bucket.end_exclusive)).slice(11, 16)}`,
+  start: toBusinessTime(new Date(bucket.start)).slice(11, 16), end: toBusinessTime(new Date(bucket.end_exclusive)).slice(11, 16),
+  weight: (Date.parse(bucket.end_exclusive) - Date.parse(bucket.start)) / 3600000,
+})) ?? hours(kind)?.map((value, hour) => ({ value, hour, label: hourLabel(hour), start: hourLabel(hour).slice(0, 5), end: hourLabel(hour).slice(6), weight: 1 })) ?? []
 
 async function load() {
   const current = ++requestNumber
@@ -59,10 +66,10 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
         <header><h3>{{ title }}</h3><button :aria-label="`查看${title}记录`" :disabled="!usable || !base?.metadata.kinds.includes(kind)" @click="emit('select', kind)">↗</button></header>
         <div class="core-anomaly-number"><strong>{{ label(kind) }}</strong><span v-if="summaries[kind]?.count !== null && summaries[kind]?.count !== undefined">条新增记录</span></div>
         <template v-if="hours(kind)">
-          <div class="core-anomaly-bars" :aria-label="`${title}每小时新增记录`">
-            <button v-for="(value, hour) in hours(kind)" :key="hour" :aria-label="`${title} ${hourLabel(hour)}，${value} 条，筛选该时段`" :title="`${hourLabel(hour)} · ${value} 条`" @click="emit('select', kind, hour)"><span :style="{ height: height(kind, value) }"></span></button>
+          <div class="core-anomaly-bars" :aria-label="`${title}每小时新增记录`" :style="{ gridTemplateColumns: bars(kind).map(bar => `${bar.weight}fr`).join(' ') }">
+            <button v-for="bar in bars(kind)" :key="bar.label" :aria-label="`${title} ${bar.label}，${bar.value} 条，筛选该时段`" :title="`${bar.label} · ${bar.value} 条`" @click="emit('select', kind, bar.hour)"><span :style="{ height: height(kind, bar.value) }"></span></button>
           </div>
-          <div class="core-anomaly-axis" aria-hidden="true"><span>00:00</span><span>24:00</span></div>
+          <div class="core-anomaly-axis" aria-hidden="true"><span>{{ bars(kind)[0]?.start }}</span><span>{{ bars(kind).at(-1)?.end }}</span></div>
         </template>
         <div v-else class="core-anomaly-no-chart" aria-hidden="true">—</div>
         <p>{{ note(kind) }}</p>

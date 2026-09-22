@@ -75,3 +75,15 @@ it('部分交付窗口只给本批计数，不给窗口外补零小时', async (
   expect(await getAnomalySummary(partial, 'prefix_outage')).toEqual({ count: 30, hours: null, note: '仅已交付时段；全天其余时段未知' })
   expect(get).toHaveBeenCalledTimes(1)
 })
+
+it('新 API 的部分时段直接使用已覆盖分桶，不额外分页或补全天零值', async () => {
+  const buckets = [{ start: '2026-03-31T00:00:00Z', end_exclusive: '2026-03-31T01:00:00Z', value: 2 },
+    { start: '2026-03-31T01:00:00Z', end_exclusive: '2026-03-31T01:35:00Z', value: 0 }]
+  const partial = { ...base, metadata: { ...base.metadata, result_delivery: { coverage: 'partial_window' } },
+    event_trends: { state: 'available', metric: 'recorded_event_starts', filter_scope: 'date_and_family',
+      bucket_seconds: 3600, series: [{ kind: 'prefix_outage', total: 2, buckets }] } } as CoreOverview
+  expect(await getAnomalySummary(partial, 'prefix_outage')).toMatchObject({ count: 2, hours: [2, 0], buckets })
+  expect(get).not.toHaveBeenCalled()
+  partial.event_trends!.series[0]!.total = 3
+  await expect(getAnomalySummary(partial, 'prefix_outage')).rejects.toThrow('总数')
+})

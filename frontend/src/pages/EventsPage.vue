@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getEvents } from '@/api/events'
@@ -32,6 +32,7 @@ const requestedAttackedCountry = typeof route.query.attacked_country === 'string
 const requestedAttackedAs = typeof route.query.attacked_as === 'string'
   ? route.query.attacked_as.trim().replace(/^AS/i, '')
   : ''
+const requestedDate = typeof route.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(route.query.date) ? route.query.date : undefined
 const filters = reactive({
   eventType: requestedEventType,
   level: '',
@@ -39,8 +40,8 @@ const filters = reactive({
   attackedCountry: requestedAttackedCountry,
   attackedAs: requestedAttackedAs,
   keyword: '',
-  startDate: defaultDates.start,
-  endDate: defaultDates.end,
+  startDate: requestedDate || defaultDates.start,
+  endDate: requestedDate || defaultDates.end,
   pageSize: 10,
 })
 const page = ref(1)
@@ -109,10 +110,16 @@ function changePage(next: number) {
 
 function openEvent(event: EventRow) {
   if (!event.detailUrl) return
-  void router.push({ name: 'event-detail', query: { ref: event.detailUrl } })
+  void router.push({ name: 'event-detail', query: { ref: event.detailUrl, date: filters.startDate } })
 }
 
 onMounted(() => load())
+watch(() => route.query.date, date => {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    filters.startDate = date; filters.endDate = date
+    void load(true)
+  }
+})
 </script>
 
 <template>

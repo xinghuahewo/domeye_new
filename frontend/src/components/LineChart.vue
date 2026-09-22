@@ -8,6 +8,7 @@ export interface ChartSeries {
   name: string
   color: string
   data: Array<[string, number | null]>
+  type?: 'line' | 'scatter'
 }
 
 export interface ChartMarker {
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
   timezone?: string
   showDataZoom?: boolean
   showPoints?: boolean
+  timeBounds?: [string, string]
 }>(), {
   unit: '',
   height: 300,
@@ -103,6 +105,8 @@ function renderChart() {
     },
     xAxis: {
       type: 'time',
+      min: props.timeBounds ? Date.parse(props.timeBounds[0]) : undefined,
+      max: props.timeBounds ? Date.parse(props.timeBounds[1]) : undefined,
       boundaryGap: false,
       axisLine: { lineStyle: { color: '#d0d5dd' } },
       axisTick: { show: false },
@@ -119,7 +123,8 @@ function renderChart() {
       minInterval: 1,
       name: props.unit,
       nameTextStyle: { color: '#667085', fontSize: 9 },
-      axisLabel: { color: '#667085', fontSize: 9 },
+      axisLabel: { color: '#667085', fontSize: 9,
+        formatter: (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value) },
       splitLine: { lineStyle: { color: '#e8edf2', type: 'dashed' } },
     },
     dataZoom: props.showDataZoom ? [
@@ -150,10 +155,10 @@ function renderChart() {
     ] : [],
     series: props.series.map((item, index) => ({
       name: item.name,
-      type: 'line',
+      type: item.type ?? 'line',
       data: item.data,
       showSymbol: props.showPoints,
-      symbolSize: 4,
+      symbolSize: item.type === 'scatter' ? 8 : 4,
       connectNulls: false,
       smooth: false,
       progressive: 2_000,
@@ -185,7 +190,7 @@ function renderChart() {
 }
 
 watch(
-  () => [props.series, props.markers, props.unit, props.timezone, props.showDataZoom, props.showPoints],
+  () => [props.series, props.markers, props.unit, props.timezone, props.showDataZoom, props.showPoints, props.timeBounds],
   renderChart,
   { deep: true },
 )

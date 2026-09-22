@@ -2,6 +2,7 @@
 
 from flask import request
 from flask_restful import Resource
+import psycopg2
 
 from services.core_overview_service import OverviewError, get_core_overview, get_core_overview_record
 
@@ -18,6 +19,8 @@ class CoreOverviewResource(Resource):
             return get_core_overview(_query())
         except OverviewError as error:
             return error.payload or {'state': 'unavailable', 'message': str(error)}, error.status
+        except psycopg2.Error:
+            return {'state': 'unavailable', 'message': '结果查询暂不可用'}, 503
 
 
 class CoreOverviewRecordResource(Resource):
@@ -26,3 +29,5 @@ class CoreOverviewRecordResource(Resource):
             return get_core_overview_record(_query())
         except OverviewError as error:
             return {'state': 'unavailable', 'message': str(error)}, error.status
+        except psycopg2.Error:
+            return {'state': 'unavailable', 'message': '结果查询暂不可用'}, 503

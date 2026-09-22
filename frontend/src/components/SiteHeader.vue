@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
+import { resultDelivery } from '@/api/health'
+import { scopeQuery } from '@/utils/queryScope'
 
 const route = useRoute()
 const navigation = [
@@ -8,11 +10,12 @@ const navigation = [
   { to: '/countries', label: '国家特征', names: ['countries', 'country-detail'] },
   { to: '/ases', label: 'AS 特征', names: ['ases', 'asn-detail'] },
 ]
+const destination = (path: string) => ({ path, query: scopeQuery(path, route.query, resultDelivery.value) })
 </script>
 
 <template>
   <header class="site-header">
-    <RouterLink to="/" class="site-brand" aria-label="Domeye 核心态势">
+    <RouterLink :to="destination('/')" class="site-brand" aria-label="Domeye 核心态势">
       <svg viewBox="0 0 40 40" aria-hidden="true">
         <ellipse cx="20" cy="20" rx="17" ry="10" />
         <ellipse cx="20" cy="20" rx="10" ry="17" transform="rotate(35 20 20)" />
@@ -21,7 +24,7 @@ const navigation = [
       <strong>domeye<small>路由观测</small></strong>
     </RouterLink>
     <nav aria-label="主导航">
-      <RouterLink v-for="item in navigation" :key="item.to" :to="item.to"
+      <RouterLink v-for="item in navigation" :key="item.to" :to="destination(item.to)"
         :class="{ active: item.names.includes(String(route.name)) }"
         :aria-current="item.names.includes(String(route.name)) ? 'page' : undefined">
         {{ item.label }}

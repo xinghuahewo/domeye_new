@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { toBusinessTime } from '@/utils/businessTime'
 import type { HealthPayload } from '@/types/api'
 import { getHealth } from '@/api/health'
 import { resolveDataWindow } from '@/utils/time'
+import { scopeQuery } from '@/utils/queryScope'
 
 const route = useRoute()
+const router = useRouter()
 const healthy = ref(false)
 const healthChecked = ref(false)
 const checkedAt = ref('')
@@ -19,6 +21,13 @@ const dataWindowLabel = dataWindow
   ? `${dataWindow.start.slice(0, 10)} 至 ${dataWindow.end.slice(0, 10)}`
   : '2026-02-01 至制品快照'
 const currentPage = computed(() => String(route.meta.title || '系统状态'))
+watch([() => route.name, delivery], () => {
+  const name = String(route.name)
+  if (delivery.value?.state !== 'available' || !['home', 'events', 'countries', 'country-detail', 'ases', 'asn-detail'].includes(name)) return
+  if (route.query.date || route.query.start || route.query.end || route.query.event_ref) return
+  const query = scopeQuery(name, route.query, delivery.value)
+  if (Object.keys(query).length) void router.replace({ query: { ...route.query, ...query }, hash: route.hash })
+})
 const currentSection = computed(() => String(route.meta.section || 'Domeye'))
 const healthLabel = computed(() => !healthChecked.value ? 'API 检查中' : healthy.value ? 'API 正常' : 'API 异常')
 let timer: number | undefined

@@ -114,3 +114,28 @@ def test_country_numeric_members_preserve_identity_and_unknown():
     ref,data=canonical_detail(row)
     assert data['outage_ases']==['132462','{64500,64501}']
     assert row['legacy']['outage_ases']==[132462,'{64500,64501}']
+
+
+def test_rib_statistics_cli_transaction_retry_and_conflict(db,tmp_path,monkeypatch,capsys):
+    from pathlib import Path
+    import runpy
+    from data_pipeline.results.rib_statistics import PROFILE, encoded, deliver_statistics
+    t=datetime(2026,2,24,tzinfo=timezone.utc)
+    f=receipt(tmp_path,[('feature_result',feature())])
+    import_file(db,f,{'source_id':'source0','sha256':'input-sha'},window_start=t,window_end=t+timedelta(minutes=5))
+    body={'schema_version':PROFILE,'observed_at':t.isoformat(),'source_id':'source0','source_sha256':'input-sha'}
+    body['snapshot_id']='rib_statistics_v1_'+hashlib.sha256(encoded(body)).hexdigest()
+    artifact=tmp_path/'statistics.json';artifact.write_bytes(encoded(body))
+    dsn=tmp_path/'writer.dsn';dsn.write_text(os.environ['DOMEYE_DELIVERY_TEST_DSN']);dsn.chmod(0o600)
+    script=Path(__file__).resolve().parents[2]/'scripts/pipeline/rib-statistics.py'
+    monkeypatch.setattr('sys.argv',[str(script),'deliver','--artifact',str(artifact),'--dsn-file',str(dsn)])
+    for expected in ('delivered','already_delivered'):
+        runpy.run_path(str(script),run_name='__main__')
+        assert json.loads(capsys.readouterr().out)['status']==expected
+    body.pop('snapshot_id');body['observed_at']=(t+timedelta(minutes=1)).isoformat()
+    body['snapshot_id']='rib_statistics_v1_'+hashlib.sha256(encoded(body)).hexdigest()
+    artifact.write_bytes(encoded(body))
+    with pytest.raises(ValueError,match='冲突'):deliver_statistics(db,artifact)
+    with db.cursor() as cur:
+        cur.execute('SELECT count(*),min(observed_at) FROM result_delivery.rib_statistics')
+        assert cur.fetchone()==(1,t)

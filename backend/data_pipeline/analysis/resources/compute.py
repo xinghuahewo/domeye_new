@@ -22,6 +22,18 @@ METRIC_UNITS = {
 ITEMS = ('ipv4_prefix_count', 'ipv6_prefix_count', 'private_as_count', 'path_count', 'public_as_count')
 
 
+def resource_path_parts(path: str):
+    """既有 Resource 文本规则；供逐元素计算与独立 RIB 集合统计共用。"""
+    tokens = path.split(' ')
+    if '{' in path:
+        return tokens[0], None, None, 'as_set_after_prefix'
+    try:
+        tail = int(tokens[-1])
+    except ValueError:
+        return tokens[0], None, None, 'invalid_tail_after_prefix'
+    return tokens[0], tokens[-1], 64512 <= tail <= 65535 or tail > 4294967295, 'accepted'
+
+
 @dataclass(frozen=True)
 class RibContext:
     source_id: str
@@ -194,8 +206,7 @@ class ResourceComputer:
             if element.action == 'STATE' or element.prefix in ('0.0.0.0/0', '::/0'):
                 status = 'default_or_state'
             else:
-                tokens = element.path.split(' ')
-                first = tokens[0]
+                first, tail, private, path_status = resource_path_parts(element.path)
                 targets = [rows['global']]
                 if first in ('9808', '4837', '4134'):
                     targets.append(rows.setdefault(first, ResourceRow(first, 'first_path_asn', context.snapshot_time)))
@@ -209,17 +220,11 @@ class ResourceComputer:
                         getattr(row, 'ipv4_prefix' if version == 4 else 'ipv6_prefix').add(element.prefix)
                     for row in targets:
                         row.vp_set.add(first)
-                    if '{' in element.path:
-                        status = 'as_set_after_prefix'
-                    else:
-                        try:
-                            tail = int(tokens[-1])
-                        except ValueError:
-                            status = 'invalid_tail_after_prefix'
-                        else:
-                            for row in targets:
-                                row.path.add(element.path)
-                                getattr(row, 'private_as' if 64512 <= tail <= 65535 or tail > 4294967295 else 'public_as').add(tokens[-1])
+                    status = path_status
+                    if status == 'accepted':
+                        for row in targets:
+                            row.path.add(element.path)
+                            getattr(row, 'private_as' if private else 'public_as').add(tail)
             decision = Decision(element.message_id, element.ordinal, status, element)
             if decision_sink is None:
                 decisions.append(decision)

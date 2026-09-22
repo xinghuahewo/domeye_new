@@ -6,6 +6,26 @@ import { getCoreOverview, getCoreOverviewRecord } from './coreOverview'
 
 beforeEach(() => { get.mockReset() })
 
+it('独立 RIB 规模按实际交付时段、地址族与原件绑定，不能拿 Resource 公有 AS 代替', async () => {
+  const rib = { state: 'available', family: 'all', snapshot_id: `rib_statistics_v1_${'a'.repeat(64)}`,
+    observed_at: '2026-02-24T00:00:00Z', collector_id: 'rrc25', source_id: 'one-rib', source_sha256: 'b'.repeat(64),
+    rule: 'rib-attributed-origin/private-skip-v1', metrics: { visible_prefixes: 123, visible_origin_ases: 10 } }
+  const payload = { state: 'available', version: 'delivery-statistics', query: { date: '2026-02-24', family: 'all' },
+    overview: { visible_prefixes: 123, visible_origin_ases: 10 }, metadata: { source: { collector_id: 'rrc25' },
+      result_delivery: { intervals: [{ start: '2026-02-24T00:00:00Z', end_exclusive: '2026-02-24T03:35:00Z' }] }, rib_statistics: rib } }
+  get.mockResolvedValue({ data: payload }); expect(await getCoreOverview()).toEqual(payload)
+  get.mockResolvedValue({ data: { ...payload, state: 'window_not_retained', overview: null, events: null } })
+  expect((await getCoreOverview()).metadata.rib_statistics?.snapshot_id).toBe(rib.snapshot_id)
+  for (const patch of [{ family: 'ipv4' }, { observed_at: '2026-02-24T03:35:00Z' }, { collector_id: 'rrc00' },
+    { rule: 'resource-39578fe-v1' }, { metrics: { visible_prefixes: 123, visible_origin_ases: 11 } }]) {
+    get.mockResolvedValue({ data: { ...payload, metadata: { ...payload.metadata, rib_statistics: { ...rib, ...patch } } } })
+    await expect(getCoreOverview()).rejects.toThrow('规模')
+  }
+  get.mockResolvedValue({ data: { ...payload, overview: { visible_prefixes: null, visible_origin_ases: null },
+    metadata: { ...payload.metadata, rib_statistics: { state: 'unavailable', family: 'all', message: '读取失败' } } } })
+  expect((await getCoreOverview()).overview?.visible_prefixes).toBeNull()
+})
+
 it('对象待核实须保留集合原文，列表和详情都不能附带成员ASN', async () => {
   const item = { kind: 'as_outage', object: '{64496,64497}', asns: [],
     object_identity: { state: 'unresolved', reason: 'as_set_in_asn_field', label: '对象待核实' } }

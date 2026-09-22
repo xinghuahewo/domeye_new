@@ -19,7 +19,7 @@
 
 | 入口或结果 | 当前端点含义 |
 | --- | --- |
-| Core 按日与小时窗口 | 响应明确给出 `start`、`end_exclusive`，按左闭右开解释 |
+| Core 按日与小时窗口 | 查询边界和公开趋势桶的 `start`、`end_exclusive` 按项目业务时区（当前 `+08:00`）返回，按左闭右开解释；来源覆盖元数据可保留 UTC |
 | 国家与 ASN 档案的 Feature 聚合、时序及关联事件 | `start <= t < end`；响应明确 `window_boundary=[start,end)` |
 | 指定 ASN 的关联事件查询 | 按开始时间使用 `start <= s_time < end`；不是所有与窗口重叠的事件 |
 | 原始兼容 Feature 时序与多处历史事件筛选 | 仍有右端点纳入行为，按相应入口读取规则处理 |

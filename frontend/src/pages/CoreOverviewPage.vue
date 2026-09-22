@@ -38,8 +38,9 @@ const familyLabels = { all: '全部地址族', ipv4: 'IPv4', ipv6: 'IPv6', mixed
 const familyLabel = computed(() => familyLabels[family.value || 'all'])
 const ready = computed(() => !loading.value && !error.value && data.value?.state === 'available')
 const scale = computed(() => ready.value ? data.value?.metadata.scale : undefined)
-const scaleReady = computed(() => scale.value?.state === 'available')
-const originReady = computed(() => scale.value?.state === 'available' && scale.value.origin_metric_state === 'available')
+const ribStatistics = computed(() => ready.value ? data.value?.metadata.rib_statistics : undefined)
+const scaleReady = computed(() => ribStatistics.value ? ribStatistics.value.state === 'available' && ribStatistics.value.metrics?.visible_prefixes != null : scale.value?.state === 'available')
+const originReady = computed(() => ribStatistics.value ? ribStatistics.value.state === 'available' && ribStatistics.value.metrics?.visible_origin_ases != null : scale.value?.state === 'available' && scale.value.origin_metric_state === 'available')
 const originNote = computed(() => {
   if (!scaleReady.value || originReady.value) return scaleNote.value
   return scale.value && scale.value.state !== 'unavailable' && scale.value.origin_metric_state === 'unavailable'
@@ -47,6 +48,11 @@ const originNote = computed(() => {
 })
 const scaleNote = computed(() => {
   if (loading.value) return '正在读取'
+  const rib = ribStatistics.value
+  if (rib) {
+    if (rib.state === 'available') return `单 RIB · ${toBusinessTime(new Date(rib.observed_at!)).slice(5, 16)}（${profile.timezone}）`
+    return rib.message || '此日无独立 RIB 统计'
+  }
   const value = scale.value
   if (!value) return ready.value ? '前缀条数 · 数据待验证' : '选定窗口不可用'
   if (value.state === 'unavailable') return '规模数据不可用'
@@ -145,6 +151,19 @@ async function openDialog(title: string, rows: [string, string][], note: string)
 function closeDialog() { dialog.value?.close() }
 function afterClose() { detailController?.abort(); detailRequest++; detailLoading.value = false; trigger?.focus() }
 function showScope() {
+  const delivery = metadata.value?.result_delivery
+  if (delivery) {
+    void openDialog('来源与数据说明', [
+      ['Collector', metadata.value?.source.collector_id ?? '未知'],
+      ['来源实例', metadata.value?.source.instance ?? '未知'],
+      ['本批实际范围', `${delivery.start} → ${delivery.end_exclusive}（右端不含）`],
+      ['已交付文件', String(delivery.files)], ['消费版本', pinnedVersion.value || '尚未取得'],
+      ['解释版本', metadata.value?.interpretation_version ?? '未知'],
+      ['统计范围', '全球计算结果；国家和 ASN 页面再按对象查询'],
+      ['参考资料历史适用性', 'Unknown'], ['归档状态', '用户暂停'],
+    ], '仅此批实际完成时段可用。未知及窗口外时段不补零；原批次未完成。独立 RIB 规模不代表连续状态；异常记录不能直接推出实际断网、用户影响或原因。')
+    return
+  }
   void openDialog('来源与数据说明', [
     ['Collector', 'RRC25（source=r；用户确认的映射）'],
     ['来源实例', metadata.value?.source.instance || '尚未取得留存输入'],
@@ -183,6 +202,7 @@ function showDiagnostic() {
     : '只说明本次已查证的问题。集合不一致的条数是独立明细与总表候选的对称差，不表示全库孤立记录。不同原因可能重叠，不能相加为受影响规模。未修改原始身份、等级、时间或源库；观察覆盖与历史检测版本仍未知。')
 }
 function showScale() {
+  if (ribStatistics.value) { showRibStatistics('可见前缀数的依据'); return }
   const value = scale.value
   if (!value || value.state === 'unavailable') {
     void openDialog('可见前缀数的依据', [['当前状态', scaleNote.value]],
@@ -199,6 +219,7 @@ function showScale() {
   ], '这是单RIB自身时点的观察，不是整日、日末或连续RouteState。异常类型、等级、小时和搜索不改变此快照。观察覆盖未知，不能据此判断全网可达、实际断网或原因。')
 }
 function showOrigin() {
+  if (ribStatistics.value) { showRibStatistics('可见起源 AS 数的依据'); return }
   const value = scale.value
   const origin = value && value.state !== 'unavailable' ? value.origin : undefined
   void openDialog('可见起源 AS 数的依据', [
@@ -211,6 +232,15 @@ function showOrigin() {
     ['源文件 SHA256', value && value.state !== 'unavailable' ? value.source.sha256 : '未知'],
     ['起源统计版本', origin?.version ?? '尚未绑定'], ['消费版本', data.value?.version ?? '未知'],
   ], '只说明单RIB实际时点的明确归属ASN集合，不代表所有网络。未明确归属的条目数不是缺测ASN数。异常类型、等级、小时和搜索不重算快照。')
+}
+function showRibStatistics(title: string) {
+  const rib = ribStatistics.value!
+  void openDialog(title, [
+    ['当前状态', scaleNote.value], ['统计范围', `${familyLabel.value} · ${rib.collector_id ?? '采集器未知'}`],
+    ['可见前缀', count(rib.metrics?.visible_prefixes)], ['明确起源 ASN 并集', count(rib.metrics?.visible_origin_ases)],
+    ['起源规则', rib.rule ?? '尚未取得'], ['源文件 SHA256', rib.source_sha256 ?? '尚未取得'],
+    ['独立 RIB 统计版本', rib.snapshot_id ?? '尚未取得'], ['消费版本', data.value?.version ?? '未知'],
+  ], (rib.limitations ?? [rib.message || '没有可用的独立 RIB 统计']).join(' '))
 }
 function showPaths() {
   const value = pathReady.value

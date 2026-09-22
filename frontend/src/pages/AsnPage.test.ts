@@ -9,7 +9,8 @@ vi.mock('axios', () => ({ isAxiosError: () => false, default: { create: () => ({
 
 it('实际ASN页在旧特征失败时仍独立展示RIB，并保持普通排行与返回导航选择', async () => {
   const version = `rib_snapshot_v1_${'a'.repeat(64)}`
-  const query = { snapshot_version: version, snapshot_date: '2026-02-27', snapshot_family: 'ipv4' }
+  const query = { snapshot_version: version, snapshot_date: '2026-02-27', snapshot_family: 'ipv4',
+    start: '2026-02-24T08:00:00', end: '2026-02-24T11:35:00' }
   get.mockImplementation(async (url: string) => {
     if (!url.startsWith('rib-snapshots')) throw new Error('旧特征fixture不可用')
     return { data: { state: 'available', version, date: '2026-02-27', observed_at: '2026-02-27T00:00:00Z',

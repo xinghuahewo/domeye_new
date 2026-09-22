@@ -5,6 +5,7 @@ from flask_restful import Api
 
 from .core_overview import CoreOverviewResource, CoreOverviewRecordResource
 from .rib_snapshots import RibSnapshotsResource, RibSnapshotObservationsResource, RibSnapshotAsnResource
+from .resources import ResourceStatisticsResource
 from .events.api import (
     EventDetailResource,
     EventEvidenceBundleResource,
@@ -38,6 +39,7 @@ api.add_resource(CoreOverviewRecordResource, '/core-overview/record')
 api.add_resource(RibSnapshotsResource, '/rib-snapshots', '/rib-snapshots/<version>')
 api.add_resource(RibSnapshotObservationsResource, '/rib-snapshots/<version>/observations')
 api.add_resource(RibSnapshotAsnResource, '/rib-snapshots/<version>/asns/<asn>')
+api.add_resource(ResourceStatisticsResource, '/resources')
 
 api.add_resource(EventListResource, '/events')
 api.add_resource(TopEventResource, '/events/top')

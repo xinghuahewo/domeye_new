@@ -1,6 +1,6 @@
 # 只读业务 API 导航
 
-本页把业务问题对应到已经实现的读取入口。现有 31 个入口均为 GET，其中 6 个标记 deprecated；路径存在不保证已经绑定可读数据。精确响应结构与正式参数见 [OpenAPI](../../../contracts/openapi.json)。
+本页把业务问题对应到已经实现的读取入口。现有 32 个入口均为 GET，其中 6 个标记 deprecated；路径存在不保证已经绑定可读数据。精确响应结构与正式参数见 [OpenAPI](../../../contracts/openapi.json)。
 
 以下路径均从站点根开始。`/api/v1` 与 `/api/v2` 分别是两组实际前缀，不要将 `/api/v1` 再加到完整 v2 路径前。花括号为需替换并正确 URL 编码的参数。
 
@@ -11,12 +11,17 @@
 | `/api/v1/healthz` | 服务健康 | 不能由服务健康推断业务数据完整 |
 | `/api/v1/core-overview` | 日期目录、所选日概况、筛选列表与小时趋势 | `date`、`family`、`kind`、`level`、`hour`、`q`、`sort`、`page`、`page_size`、`version`；以响应实际筛选范围解释总数 |
 | `/api/v1/core-overview/record` | 留存异常详情 | 必须使用列表取得的 `ref` 和 `version` |
+| `/api/v1/resources` | 窗口内独立 RIB 的总体资源统计点 | 必须提供 `start_time`、`end_time`；半开窗口最多 24 小时，固定八项 global 指标，不支持任意指标或 ASN 筛选 |
 | `/api/v1/rib-snapshots` | 发现已登记共享快照 | `date` 或 `latest`；未配置时明确返回相应状态 |
 | `/api/v1/rib-snapshots/{version}` | 同一快照总体规模 | `family`；保持发现取得的版本 |
 | `/api/v1/rib-snapshots/{version}/asns/{asn}` | 同一快照中指定明确起源 ASN 的资源 | `family`；数量与返回样本列表长度分别解释 |
 | `/api/v1/rib-snapshots/{version}/observations` | 该快照的有界原始观察分页 | `page`、`page_size`；用于审计读取，不是所有历史 UPDATE 的查询入口 |
 
 Core 的规模与路径对照位于其响应相应部分；无需编造一个尚不存在的“路径变化次数 API”。共享快照的同版查询说明见[快照指标](../metrics/snapshots.md)。
+
+完成文件交付模式中，Core 额外提供 `event_trends`：六类事件分别按开始时间计数，只受日期和地址族影响，列表的类型、等级、搜索与分页不改变趋势。`metadata.result_delivery.intervals` 给出实际覆盖；每个小时只返回与覆盖相交的片段，窗口外和中间缺口不补零。投影失败时趋势明确不可用。旧 `trend` 仍是每小时前缀中断对象去重数，两者含义不同。
+
+同一模式下，`metadata.rib_statistics` 提供所选日、同一采集器、实际交付时段内最新独立 RIB 的规模及时点；Core 的两个规模主值来自这里，列表筛选不改变快照选择。资源失败不抹去独立事件结果。`/resources` 返回按时点排序的 `points`，没有点为 `not_calculated`，未启用交付为 `not_configured`，读取失败为 HTTP 503；点内只使用 `main`，并检查 `qualification` 和单位。一个点不代表连续曲线。该入口时间支持秒级本地格式，也支持带 Z 或偏移的 ISO 时间；无时区时按 Asia/Shanghai，重复和未知参数返回 400。
 
 ## 历史事件与事实读取
 

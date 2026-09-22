@@ -9,6 +9,7 @@ export type AnomalyKind = typeof anomalyKinds[number][0]
 export interface AnomalySummary {
   count: number | null
   hours: number[] | null
+  buckets?: { start: string; end_exclusive: string; value: number }[]
   note: string
 }
 
@@ -20,6 +21,24 @@ const MAX_CHART_RECORDS = 1000
 export async function getAnomalySummary(base: CoreOverview, kind: AnomalyKind, signal?: AbortSignal): Promise<AnomalySummary> {
   if (base.state !== 'available') return { count: null, hours: null, note: '当日异常数据不可用' }
   if (!base.metadata.kinds.includes(kind)) return { count: null, hours: null, note: '此版本尚未接入' }
+  const trends = base.event_trends
+  if (trends) {
+    if (trends.state !== 'available') return { count: null, hours: null, note: '本时段异常统计不可用' }
+    const matches = trends.series.filter(series => series.kind === kind)
+    if (trends.metric !== 'recorded_event_starts' || trends.filter_scope !== 'date_and_family' || matches.length !== 1) throw new Error('异常趋势定义不一致')
+    const value = matches[0]!
+    let lastEnd = 0
+    for (const bucket of value.buckets) {
+      const start = Date.parse(bucket.start), end = Date.parse(bucket.end_exclusive)
+      if (!Number.isSafeInteger(bucket.value) || bucket.value < 0 || !Number.isFinite(start) || !Number.isFinite(end)
+        || start >= end || start < lastEnd || toBusinessTime(new Date(start)).slice(0, 10) !== base.query.date
+        || toBusinessTime(new Date(end - 1)).slice(0, 10) !== base.query.date) throw new Error('异常趋势超出日期或覆盖区间无效')
+      lastEnd = end
+    }
+    if (!Number.isSafeInteger(value.total) || value.total < 0 || value.buckets.reduce((sum, b) => sum + b.value, 0) !== value.total) throw new Error('异常分桶与总数不一致')
+    return { count: value.total, hours: value.buckets.map(bucket => bucket.value), buckets: value.buckets,
+      note: base.metadata.result_delivery ? '已交付时段每小时新增；其余时段未知' : '每小时新增 · 条' }
+  }
   const params = { date: base.query.date, family: base.query.family as 'all' | 'ipv4' | 'ipv6' | 'unknown',
     version: base.version, kind, level: 'all' as const, sort: 'time' as const, page_size: PAGE_SIZE }
   async function read(page: number, hour?: number) {

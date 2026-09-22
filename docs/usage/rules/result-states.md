@@ -23,12 +23,15 @@
 | --- | --- | --- |
 | Core | `state=available/window_not_retained/unavailable`；规模、路径等子结果另有 `date_not_retained`、`validation_failed` 等状态 | 分别检查主结果和所需子结果；失败日数值保持未知 |
 | 共享快照 | `not_configured` 或服务返回的不可用状态 | 接口存在不表示已登记快照；与异常列表的状态分别判断 |
+| 独立 RIB 资源点 | `available/not_calculated/not_configured`；读取失败 HTTP 503；逐指标 `qualified/unknown/not_applicable` | 没有点不等于资源为零；只使用适用主值，不用原始值补缺失 |
 | 国家事件 | `observation_state`、`processing_status` 或 `quality_state`，并有 `data_through` | 按响应家族判断哪些观测已可用；不能把 `complete` 当作恢复 |
 | 兼容事件接口 | `status:false`、`msg`，有些旧错误响应仍可能使用 HTTP 200 | 同时检查响应正文和 HTTP 状态 |
 | 国家／ASN 档案与 Feature 查询 | 参数错误使用 HTTP 400；档案数值 null 与样本数一起返回 | 零分母比例、无样本活动、无前窗环比分别保持不可计算，不补零 |
 | 新资格化计算读取 | 可消费主值、raw 记录、未知原因、下界分别保留 | 用适用主值作答；raw 有值不代表它可用于业务结论 |
 
 不是每个接口都提供精细覆盖信息。缺少覆盖证据时，结论应限定于返回数据，不能自行宣称完整。
+
+Core 完成文件模式使用 `result_delivery.intervals` 表示实际活动覆盖；首末时间只是外包范围。六类事件趋势若有不能解释的记录，整体标记 `unavailable`。独立 RIB 的 `observed_at` 只声明时点，不增加该点附近的活动覆盖，也不证明其他时点的资源状态。
 
 ## 三个完成状态分别看
 

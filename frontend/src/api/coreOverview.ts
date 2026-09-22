@@ -22,6 +22,28 @@ function validateScale(payload: CoreOverview) {
   const scale = payload.metadata?.scale
   const value = payload.overview?.visible_prefixes
   const originValue = payload.overview?.visible_origin_ases
+  const rib = payload.metadata?.rib_statistics
+  if (rib) {
+    if (rib.family !== payload.query?.family) throw new Error('RIB 规模地址族不一致')
+    if (rib.state !== 'available') {
+      if (!['not_calculated', 'not_applicable', 'unavailable'].includes(rib.state)
+        || value != null || originValue != null) throw new Error('不可用 RIB 规模不能填值')
+      return
+    }
+    const stamp = Date.parse(rib.observed_at ?? '')
+    const intervals = payload.metadata.result_delivery?.intervals ?? []
+    if ((payload.state !== 'available' && !(payload.state === 'window_not_retained' && payload.overview === null))
+      || !/^rib_statistics_v1_[0-9a-f]{64}$/.test(rib.snapshot_id ?? '')
+      || !Number.isFinite(stamp) || toBusinessTime(new Date(stamp)).slice(0, 10) !== payload.query.date
+      || !intervals.some(item => Date.parse(item.start) <= stamp && stamp < Date.parse(item.end_exclusive))
+      || rib.collector_id !== payload.metadata.source?.collector_id || !/^[0-9a-f]{64}$/.test(rib.source_sha256 ?? '')
+      || rib.rule !== 'rib-attributed-origin/private-skip-v1' || !['all', 'ipv4', 'ipv6'].includes(rib.family)
+      || !rib.metrics || (payload.overview && (rib.metrics.visible_prefixes !== value || rib.metrics.visible_origin_ases !== originValue))
+      || Object.values(rib.metrics).some(n => n !== null && (!Number.isSafeInteger(n) || Number(n) < 0))) {
+      throw new Error('RIB 规模数值、时点或依据不一致')
+    }
+    return
+  }
   if (!scale) {
     if (value != null || originValue != null) throw new Error('数值规模缺少快照依据')
     return

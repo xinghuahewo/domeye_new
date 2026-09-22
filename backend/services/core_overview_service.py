@@ -13,6 +13,7 @@ from data_pipeline.overview.index import DailyIndex
 from data_pipeline.results.delivery_read import DeliveredIndex
 from data_pipeline.overview.scale import attach_scale
 from data_pipeline.overview.paths import attach_comparison
+from services.resource_service import attach_rib_statistics
 
 
 def _load():
@@ -98,7 +99,7 @@ def get_core_overview(params):
         'overview': None, 'trend': None, 'events': None,
     }
     if isinstance(records, DeliveredIndex):
-        return records.query(response)
+        return attach_rib_statistics(records.query(response))
     if isinstance(records, DailyIndex):
         if records.diagnostics:
             response['metadata']['diagnostic_dates'] = sorted(records.diagnostics)
