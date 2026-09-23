@@ -1,0 +1,25 @@
+[Unit]
+Description=Domeye 三工具问数
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=domeye-query
+Group=domeye-query
+WorkingDirectory=/home/bgpdata/domeye-new-releases/query-current/apps/query
+EnvironmentFile=/home/bgpdata/domeye-new-runtime/query/config/service.env
+ExecStart=/home/bgpdata/domeye-new-runtime/query/toolchain/node/bin/node server.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bgpdata/domeye-new-runtime/query/state
+
+[Install]
+WantedBy=multi-user.target

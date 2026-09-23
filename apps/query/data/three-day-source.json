@@ -1,0 +1,18 @@
+{
+  "说明": "三日任务当前只读 API 源码快照；包含运行目录改动，不冒称完整 Git 提交。",
+  "source_directory": "/home/bgpdata/domeye-new-runtime/dev/runs/iran-three-days-20260922a/api-auto-refresh-code",
+  "captured_at": "2026-09-23",
+  "files": {
+    "backend/data_pipeline/results/delivery_read.py": "e5e8db714ce1b50ca8a027617825e7f79d3bb9f040bdc50a0d2349c82e67e15e",
+    "backend/data_pipeline/results/rollups.py": "7132bb9983724bcc3d714f59bbec31429eddab5b2621e46c3bc68f0f1e2fd90f",
+    "backend/services/core_overview_service.py": "5b3d7cf508f768ca72cebc32ed226d89f8db84dad0110ca0624066aad156d057",
+    "backend/services/resource_service.py": "4ad3e17aec7ec503feced898ab22bc9b90d22d844146f31037f06c6aefefcd37",
+    "backend/services/result_rollup_service.py": "8873a4f48637704494dd6ff0e05bfc84d7db6a58a9bf56d96f0c3b91a2973639",
+    "backend/web/api/result_rollups.py": "e6bbff813a901d6867045997fc26451b0122364a7587acce81555ea53720a4ef",
+    "backend/web/api/route.py": "7ad36085484f9b60e11889c81ed286bfb78df7bd439665d6660b3cc403a4a04b",
+    "contracts/openapi.json": "87efe881c78e15ef78dbf43780729da6289abce5a1d62b10b18df53d07dfed6d"
+  },
+  "query_spec_sha256": "8fb35d463346bd2e5edbbaeebf9a1901d517d73bb711b9da06e851eb15b8172c",
+  "documentation_commit": "1e370683cf1233a433c56e498d1f58d34e92484a",
+  "query_spec_note": "search 注入规范补全完整路径，并依据业务文档补充国家参数及已有异常汇总字段的说明；实际接口类型、参数范围和响应结构不变。源码快照中的原始合同哈希另行保留。"
+}

@@ -1,0 +1,28 @@
+{
+  "name": "domeye-three-tools",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Domeye 三工具自然语言问数",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "chat": "node cli.mjs",
+    "check": "node --check agent.mjs && node --check tools.mjs && node --check cli.mjs && node --check server.mjs && node --check web/app.js && node --check runtime/source-receipt.mjs && node --check runtime/truncate.mjs && node --check runtime/settings.mjs && node --check scripts/prepare-docs.mjs",
+    "test:executor": "node --test runtime/executor.test.mjs",
+    "test:session": "node --experimental-test-module-mocks --test session.test.mjs",
+    "test:contracts": "node --test spec.test.mjs datasets.test.mjs runtime/request-policy.test.mjs runtime/source-receipt.test.mjs runtime/settings.test.mjs",
+    "test:integration": "node --experimental-test-module-mocks --test request-policy.integration.test.mjs",
+    "test:search": "node --experimental-test-module-mocks --test search.integration.test.mjs",
+    "web": "node server.mjs",
+    "test:web": "node --test server.test.mjs",
+    "test:loop": "node --experimental-test-module-mocks --test agent-loop.integration.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.0",
+    "@earendil-works/pi-ai": "0.87.0",
+    "quickjs-emscripten": "0.32.0",
+    "typebox": "1.3.34"
+  }
+}
