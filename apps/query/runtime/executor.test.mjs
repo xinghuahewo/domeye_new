@@ -33,7 +33,8 @@ test('循环和永不结束的 Promise 均被墙钟终止', async () => {
 });
 
 test('超过内存预算返回失败', async () => {
-  await assert.rejects(runCode({ code: 'async () => {let a=[];while(true)a.push(new Array(4096).fill(42))}', spec: simpleSpec, memoryBytes: 4 * 1024 * 1024, timeoutMs: 3000 }), error => error.kind === 'code' && /memory|alloc/i.test(error.message));
+  // 单次申请超过预算，避免 Linux 上逐项增长先触发墙钟而未测到内存边界。
+  await assert.rejects(runCode({ code: 'async () => new ArrayBuffer(8 * 1024 * 1024)', spec: simpleSpec, memoryBytes: 4 * 1024 * 1024, timeoutMs: 3000 }), error => error.kind === 'code' && /memory|alloc/i.test(error.message));
 });
 
 test('代码错误与不可序列化结果明确报告', async () => {
