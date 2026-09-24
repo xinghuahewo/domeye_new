@@ -6,11 +6,19 @@ import { fileURLToPath } from 'node:url';
 import { createDomeyeAgent, loadModelConfig } from './agent.mjs';
 import { PROJECT_DATASETS, selectDataset, publicDataset } from './datasets.mjs';
 import { runtimePaths, chatAddress } from './runtime/settings.mjs';
+import { createTextRedactor } from './runtime/text-stream.mjs';
 
 const appDir = dirname(fileURLToPath(import.meta.url));
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const toolLabels = { docs: '查阅业务说明', search: '查找接口', execute: '读取与整理数据' };
 const statuses = new Set(['running', 'completed', 'cancelled', 'failed']);
+const numberOrNull=value=>Number.isFinite(value)&&value>=0?value:null;
+const timingFields=(value,keys)=>Object.fromEntries(keys.map(key=>[key,numberOrNull(value?.[key])]));
+const agentTiming=value=>!value?null:{
+  ...timingFields(value,['generation_end_ms','save_started_ms','save_finished_ms','final_message_id','final_first_text_ms']),
+  models:(value.models ?? []).map(item=>timingFields(item,['id','started_ms','first_token_ms','first_text_ms','first_public_text_ms','ended_ms'])),
+  tools:(value.tools ?? []).map(item=>({...timingFields(item,['started_ms','ended_ms']),name:Object.hasOwn(toolLabels,item.name)?item.name:null})),
+};
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
@@ -32,6 +40,7 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
   const failureReason = turn => turn?.status === 'failed' && /^402\s*:/.test(turn.error ?? '')
     ? '模型服务余额不足，本次回答未完成。补充 DeepSeek 额度后再试。' : '';
   const publicTurn = turn => ({
+    id:uuid.test(turn?.id ?? '')?turn.id:null,
     question: clean(turn?.question), answer: clean(turn?.answer),
     status: statuses.has(turn?.status) ? turn.status : 'failed',
     failureReason: failureReason(turn),
@@ -44,20 +53,34 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
   function publish(event) {
     const run = activeRun;
     if (!run || run.response.destroyed || run.finished) return;
-    if (run.response.writableLength > 1024 * 1024) { run.agent.stop(); run.response.destroy(); return; }
+    if (run.response.writableLength > 1024 * 1024) { run.response.destroy(); run.agent.stop(); return; }
     run.response.write(JSON.stringify(event) + '\n');
   }
-  function textDelta(delta, flush = false) {
+  function textDelta(contentIndex, delta, flush = false) {
     const run = activeRun;
     if (!run) return;
-    run.pendingText = clean(run.pendingText + delta);
-    // 留下可能跨流片段的凭据前缀，防止分片绕过已知凭据脱敏。
-    const count = flush ? run.pendingText.length : Math.max(0, run.pendingText.length - modelConfig.apiKey.length + 1);
-    if (count) { publish({ type: 'text', text: run.pendingText.slice(0, count) }); run.pendingText = run.pendingText.slice(count); }
+    if (!run.blocks.has(contentIndex)) run.blocks.set(contentIndex,createTextRedactor(modelConfig.apiKey));
+    const redactor=run.blocks.get(contentIndex);
+    const text=flush?redactor.finish():redactor.push(delta);
+    if(text){
+      const ms=performance.now()-run.startedClock;
+      run.timing.first_text_ms ??= ms;
+      run.messageFirstText.set(run.messageId,run.messageFirstText.get(run.messageId) ?? ms);
+      publish({type:'text',messageId:run.messageId,contentIndex,text});
+    }
   }
   function onEvent(event) {
-    if (event.type === 'answer_final') {
-      textDelta(event.text);
+    const run=activeRun;
+    if(!run)return;
+    if(event.type==='answer_start' && Number.isSafeInteger(event.messageId)){
+      run.messageId=event.messageId;run.blocks.clear();
+      publish({type:'answer_start',messageId:event.messageId});
+    } else if(event.type==='answer_delta' && event.messageId===run.messageId && Number.isSafeInteger(event.contentIndex) && typeof event.text==='string'){
+      textDelta(event.contentIndex,event.text);
+    } else if(event.type==='answer_end' && event.messageId===run.messageId){
+      if(event.stopReason==='stop')for(const index of run.blocks.keys())textDelta(index,'',true);
+      run.blocks.clear();
+      publish({type:'answer_end',messageId:event.messageId,state:event.stopReason==='stop'?'generated':'discarded'});
     } else if (event.type === 'tool_execution_start' || event.type === 'tool_execution_end') {
       const label = toolLabels[event.toolName];
       if (label) publish({ type: 'tool', label, state: event.type === 'tool_execution_start' ? 'running' : event.isError ? 'failed' : 'done' });
@@ -136,23 +159,28 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
   function current(id) {
     if (!agent || id !== agent.id) throw new HttpError(409, '当前会话已变化，请刷新后继续。');
   }
-  async function chat(req, res, input) {
+  async function chat(req, res, input, startedClock) {
     checkKeys(input, ['sessionId', 'question']);
     if (typeof input.question !== 'string' || !input.question.trim() || input.question.length > 4000) throw new HttpError(400, '请输入不超过 4000 字的问题。');
     if (busy()) throw new HttpError(409, '上一条回答尚未结束，请等待或停止。');
     current(input.sessionId);
-    const run = { agent, response: res, pendingText: '', finished: false, promise: null };
+    const run = { agent, response: res, blocks:new Map(),messageId:null,messageFirstText:new Map(),
+      startedClock, timing:{clock:'monotonic_ms_since_http_ingress',first_status_ms:null,first_text_ms:null,final_first_text_ms:null,done_ms:null},
+      finished: false, promise: null };
     activeRun = run;
     res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'x-accel-buffering': 'no' });
     res.flushHeaders();
     const disconnect = () => { if (!run.finished && !res.writableEnded) run.agent.stop(); };
     res.on('close', disconnect);
+    run.timing.first_status_ms=performance.now()-startedClock;
     publish({ type: 'start', sessionId: agent.id });
     run.promise = (async () => {
       try {
         const turn = await run.agent.ask(input.question.trim());
-        textDelta('', true);
-        publish({ type: 'done', sessionId: run.agent.id, turn: publicTurn(turn) });
+        run.blocks.clear();
+        run.timing.done_ms=performance.now()-startedClock;
+        if(turn.status==='completed')run.timing.final_first_text_ms=run.messageFirstText.get(turn.timings?.final_message_id) ?? null;
+        publish({ type: 'done', sessionId: run.agent.id, turn: publicTurn(turn),timing:{...run.timing,agent:agentTiming(turn.timings)} });
       } catch {
         publish({ type: 'error', message: '本次回答未完成。可以重新提问，或查看已保存的会话。' });
       } finally {
@@ -171,6 +199,7 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
   server.keepAliveTimeout = 5000;
   server.maxConnections = 16;
   async function route(req, res) {
+    const startedClock=performance.now();
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');
@@ -201,7 +230,7 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
         const input = await body(req); checkKeys(input, ['sessionId']); current(input.sessionId);
         agent.stop(); return json(200, { stopping: Boolean(activeRun) });
       }
-      if (req.method === 'POST' && url.pathname === '/api/chat') return await chat(req, res, await body(req));
+      if (req.method === 'POST' && url.pathname === '/api/chat') return await chat(req, res, await body(req),startedClock);
       throw new HttpError(404, '没有找到这个页面或入口。');
     } catch (error) {
       if (res.destroyed) return;

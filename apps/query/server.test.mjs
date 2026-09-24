@@ -108,6 +108,27 @@ test('浏览器断连会停止在途回答，并等待其退出', async t => {
   assert.equal((await post('/api/session', {})).status, 409); gate.resolve();
 });
 
+test('流输出积压时先断开再停止，停止事件不会递归发布',async t=>{
+  let blocked=false,stops=0;
+  const stopped=deferred();
+  const {service,post}=await fixture(t,async ({onEvent})=>({
+    id:randomUUID(),turns:[],running:false,close:async()=>{},
+    stop(){stops++;onEvent({type:'answer_end',messageId:1,stopReason:'aborted'});stopped.resolve();},
+    async ask(question){
+      onEvent({type:'answer_start',messageId:1});blocked=true;
+      onEvent({type:'answer_delta',messageId:1,contentIndex:0,text:'人工积压片段'});
+      return {question,answer:'',status:'cancelled'};
+    }
+  }));
+  service.server.on('request',(req,res)=>{
+    if(req.url==='/api/chat')Object.defineProperty(res,'writableLength',{get:()=>blocked?1024*1024+1:0});
+  });
+  const session=await post('/api/session',{}).then(r=>r.json());
+  await post('/api/chat',{sessionId:session.id,question:'积压取消'}).then(r=>r.text()).catch(()=>{});
+  await stopped.promise;
+  assert.ok(stops>=1 && stops<=2,'只允许积压停止和断连通知，不递归重入');
+});
+
 test('历史只读：UUID 文件、拒绝符号链接与路径逃逸，只输出可读字段', async t => {
   const { origin, historyDir, directory } = await fixture(t, fakeFactory().create);
   const valid = randomUUID(), linked = randomUUID();
@@ -202,4 +223,62 @@ test('模型余额不足可读提示；不向页面暴露原始错误中的配�
   assert.equal(value.turns[0].failureReason,'模型服务余额不足，本次回答未完成。补充 DeepSeek 额度后再试。');
   assert.equal(value.turns[1].failureReason,'');
   assert.ok(!raw.includes(secret));assert.ok(!raw.includes('/宿主/路径'));
+});
+
+test('页面消费真实分片：步骤不串文，完成前可见，失败取消及断流清除预览并保留计时',async t=>{
+  for(const outcome of ['completed','failed','cancelled','disconnected'])await t.test(outcome,async()=>{
+    const elements=new Map();
+    const element=(tag='div')=>{
+      let value='';
+      const node={tag,children:[],dataset:{},value:'',scrollHeight:0,scrollTop:0,clientHeight:0,
+        classList:{add(){},remove(){},toggle(){}},addEventListener(){},focus(){},
+        append(...items){for(const item of items){item.parent=this;this.children.push(item);}},
+        replaceChildren(...items){this.children=[];value='';this.append(...items);},
+        replaceWith(other){const index=this.parent.children.indexOf(this);this.parent.children[index]=other;other.parent=this.parent;},
+        querySelector(selector){return selector==='span'?element('span'):this.children.find(item=>selector.includes(item.dataset.turnId));},
+        querySelectorAll(){return [];},
+        get textContent(){return value+this.children.map(item=>item.textContent).join('');},
+        set textContent(text){value=text;this.children=[];}
+      };return node;
+    };
+    const id=randomUUID(),turnId=randomUUID();let current={id,busy:false,turns:[]},controller;
+    const body=new ReadableStream({start(value){controller=value;}}),encoder=new TextEncoder();
+    const emit=value=>controller.enqueue(encoder.encode(JSON.stringify(value)+'\n'));
+    const context={
+      document:{getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,
+        createTextNode(value){const node=element('#text');node.textContent=value;return node;}},
+      setTimeout,clearTimeout,TextDecoder,performance,requestAnimationFrame:callback=>setImmediate(callback),
+      fetch:async path=>{
+        if(path==='/api/chat')return {ok:true,body};
+        return {ok:true,json:async()=>path==='/api/history'?{records:[]}:path==='/api/datasets'?{datasets:[]}:current};
+      }
+    };
+    const source=await readFile(new URL('./web/app.js',import.meta.url),'utf8');
+    runInNewContext(source+'\nglobalThis.check={submit};',context);
+    await new Promise(done=>setImmediate(done));
+    elements.get('question').value='固定流式问题';
+    const submitted=context.check.submit({preventDefault(){}});
+    const article=elements.get('messages').children[0],answer=article.children[2],status=article.children[4];
+    emit({type:'start'});emit({type:'answer_start',messageId:1});emit({type:'text',messageId:1,contentIndex:0,text:'中间陈述'});
+    await new Promise(done=>setImmediate(done));assert.equal(answer.textContent,'中间陈述');assert.match(status.textContent,/尚未完成/);
+    emit({type:'answer_end',messageId:1,state:'discarded'});emit({type:'answer_start',messageId:2});
+    emit({type:'text',messageId:1,contentIndex:0,text:'迟到旧片段'});
+    emit({type:'text',messageId:2,contentIndex:3,text:'乙'});emit({type:'text',messageId:2,contentIndex:1,text:'甲'});
+    await new Promise(done=>setImmediate(done));assert.equal(answer.textContent,'甲\n乙');
+    const first=JSON.parse(article.dataset.latency);assert.ok(first.firstTextMs>=0);assert.equal(first.doneMs,null);
+    if(outcome==='disconnected'){current={id,busy:false,turns:[]};controller.close();}
+    else{
+      current={id,busy:false,turns:[{id:turnId,question:'固定流式问题',answer:outcome==='completed'?'甲\n乙':'',status:outcome}]};
+      emit({type:'answer_end',messageId:2,state:'generated'});emit({type:'done',turn:current.turns[0]});controller.close();
+    }
+    await submitted;
+    assert.equal(answer.textContent,outcome==='disconnected'?'':'甲\n乙');
+    const visible=elements.get('messages').textContent;
+    assert.equal(visible.includes('中间陈述'),false);assert.equal(visible.includes('迟到旧片段'),false);
+    if(outcome==='completed'){
+      assert.ok(visible.includes('甲\n乙'));
+      const timing=JSON.parse(elements.get('messages').children[0].dataset.latency);
+      assert.ok(timing.finalFirstTextMs>=first.firstTextMs);assert.ok(timing.doneMs>=timing.finalFirstTextMs);
+    }else assert.equal(visible.includes('甲\n乙'),false,'未完成结果不可在同步后冒充成功答案');
+  });
 });

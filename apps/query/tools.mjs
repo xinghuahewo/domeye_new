@@ -85,18 +85,23 @@ export const SEARCH_DISCOVERY_EXAMPLE = `async () => {
       [path, op.summary, op.description].some(text => text?.toLowerCase().includes(keyword.toLowerCase())))
     .map(([path, {get: op}]) => ({method: "GET", path,
       summary: op.summary, description: op.description, deprecated: op.deprecated,
+      parameters: op.parameters,
       responseFields: Object.keys(op.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {})}));
 }`;
 
 export const SEARCH_PARAMETERS_EXAMPLE = `async () => {
   const paths = ["/从发现结果选定的完整路径"]; // 可一次读取多个适用候选。
-  return paths.map(path => {
+  const contracts = paths.map(path => {
     const op = spec.paths[path]?.get;
     if (!op) throw new Error("接口不存在，请核对发现结果");
     const schema = op.responses?.["200"]?.content?.["application/json"]?.schema;
     return {path, method: "GET", description: op.description, parameters: op.parameters,
+      responseDescription: op.responses?.["200"]?.description, schema,
       responseType: schema?.type, fields: Object.keys((schema?.type === "array" ? schema.items : schema)?.properties ?? {})};
   });
+  // 合同较小时一次读齐；过宽时保留完整字段目录，再按需要选原始子树。
+  if (JSON.stringify(contracts, null, 2).length <= 24000) return contracts;
+  return contracts.map(({schema, ...catalog}) => ({...catalog, requiresProjection: true}));
 }`;
 
 export const SEARCH_PROJECTION_EXAMPLE = `async () => {
@@ -113,7 +118,7 @@ export const SEARCH_PROJECTION_EXAMPLE = `async () => {
     field, schema: subtree};
 }`;
 
-export const SEARCH_PROJECTION_GUIDANCE = '先按本题指标含义发现接口，返回方法、完整路径、业务摘要与响应字段名；含义不清或关键词无命中时，用 docs 确认指标后再选择入口。首次选择一个响应的内容时，先看该对象完整字段名，再读取适用子树；只查询猜测的字段名会漏掉已有汇总。一次代码可合并参数、响应说明与所需子树，优先利用已经提供的相关统计，避免逐个筛选重复取同一汇总。已有结构可复用；所选子树保留原有描述、单位、时间、可空和复合分支。properties 只列直接字段，复合分支仍需按实际结构读取；省略不表示不存在。示例路径和字段位置须按实际规范调整。返回超过 24000 字符会截断并附 TRUNCATED 提示，之后用更具体的代码收窄；截断片段不是完整结构。';
+export const SEARCH_PROJECTION_GUIDANCE = '按本题指标含义发现接口，返回方法、完整路径、业务摘要、参数与响应字段名；含义不清或关键词无命中时，用 docs 确认指标后再选择入口。选定接口后一次取得参数、响应说明和本题需要的结构；完整小合同已返回时，直接取数，不为已知字段再调用 search。较宽合同先列完整字段目录，在同一段代码中选择适用子树；只有信息确实不足才另行补查。优先利用已有相关统计，避免逐个筛选重复取同一汇总。已有同版结构可复用；所选子树保留原有描述、单位、时间、可空和复合分支。properties 只列直接字段，复合分支仍需按实际结构读取；省略不表示不存在。示例路径和字段位置须按实际规范调整。返回超过 24000 字符会截断并附 TRUNCATED 提示，之后用更具体的代码收窄；截断片段不是完整结构。';
 
 export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence = () => {} }) {
   const spec = await loadSearchSpec(specFile);
@@ -124,10 +129,19 @@ export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence
     onEvidence:value => onEvidence('request_policy',value)
   });
   const request = policy.request;
+  const docTexts = new Map();
+  const docsForModel = (value,toolCallId) => !Array.isArray(value?.results)?value:{...value,results:value.results.map(item=>{
+    if(typeof item.source!=='string' || typeof item.text!=='string')return item;
+    const key=JSON.stringify([item.source,item.text]),previous=docTexts.get(key);
+    if(previous){const {text,...identity}=item;return {...identity,textReference:previous};}
+    docTexts.set(key,{toolCallId,source:item.source});return item;
+  })};
+  const requestContext = () => ({requiredVersions:policy.requiredVersions(),
+    note:'这些路径后续读取须显式传入对应 version；只提示已确认的参数，不证明数据完整或允许重试。未列路径不借用这些版本；发现、冲突和失败仍按原规则处理。'});
   const definitions = [
     {
       name: 'docs', label: '查询业务说明',
-      description: '查询 Domeye 业务说明，返回标题、固定版本来源和相关原文，不生成标准答案。query 使用要解释的指标或字段，以及要核实的含义、单位或判断条件。首次解释指标时，读到它的计量对象与限制才算取得说明；命中其他指标或只有接口导航时，围绕缺少的定义继续检索。已有且适用的原文可复用。search 的参数结构不替代业务说明；无命中不证明业务不支持，实际范围还需查询接口。',
+      description: '查询 Domeye 业务说明，返回标题、固定版本来源和相关原文，不生成标准答案。query 使用要解释的指标或字段，以及要核实的含义、单位或判断条件。首次解释指标时，读到它的计量对象与限制才算取得说明；命中其他指标或只有接口导航时，围绕缺少的定义继续检索。已有且适用的原文可复用。同一题内完全相同来源和原文以 textReference 指向此前工具调用，沿用该调用原文；新问题重新返回全文。search 的参数结构不替代业务说明；无命中不证明业务不支持，实际范围还需查询接口。',
       parameters: Type.Object({query:Type.String({minLength:1,pattern:'\\S'})},{additionalProperties:false}),
       call: (params,signal) => docs(params,signal)
     },
@@ -155,7 +169,7 @@ ${SEARCH_PROJECTION_EXAMPLE}`,
 单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），最多 ${EXECUTION_LIMITS.maxRequests} 次 domeye.request 调用；被请求策略拦截的调用也计数。
 可用类型：
 ${EXECUTE_TYPES}
-完整路径、参数和正文结构从 search 取得。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。返回超过 24000 字符会附 TRUNCATED 提示；之后用代码减少返回字段、聚合或缩小查询，不能把截断片段当完整结果。
+完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算，避免只返回原始表后再补一次计算；新发现的必要计算仍可另行调用。返回超过 24000 字符会附 TRUNCATED 提示；之后用代码减少返回字段、聚合或缩小查询，不能把截断片段当完整结果。
 可选 headers 使用小写键，仅保留本次 HTTP 中前缀 x-domeye-result- 下的 state、version、start、end-exclusive、coverage 五项，缺失不补齐。它们描述服务端交付上下文，是否适用于正文结果须按接口来源核对，首末范围不是每条样本的实际窗口。
 从参与数据的定义、单位、版本和实际窗口确认能否比较，再计算并 return 要引用的新增合计、比例、差值和选择结果。每个最多／最少都在本题要求的候选范围内计算；不同分组维度分别比较，局部排名不代表总体排名。已有原始值可直接引用；返回结果保留对象、请求窗、覆盖及可比范围，依据不足的项目保持未知。环境没有 Node、fetch 或外部模块。
 工具另附每次 HTTP 的请求/范围回执 responses。按各回执的 request、source 和 scope 分别解释各来源；某来源没有覆盖或未确认版本时，不向它借用其他来源的 coverage 或版本。它们不是代码返回字段的自动血缘，组合结果时由代码保留各自归属。requestControl.recoveryStopped 列出的结果族本轮已无法再恢复，按附带说明结束这些目标的取证并答复。
@@ -167,6 +181,8 @@ ${CALCULATION_EXAMPLE}`,
       call: ({code},signal,observers) => runCode({code,request:(input,options) => request(input,{...options,...observers}),signal})
     }
   ];
+  // 与首轮模型请求重叠准备本地嵌入；失败仍由实际 docs 调用报告，不阻塞其他工具。
+  void docs.warmup?.();
   return {
     tools: definitions.map(({call,...definition}) => ({...definition,execute:async (id,params,signal) => {
       const events = [], responses = [];
@@ -179,7 +195,7 @@ ${CALCULATION_EXAMPLE}`,
             note:'此结果族本轮的发现机会已使用，当前版本冲突仍未解决，无法再恢复这部分查询。停止为恢复这部分结果继续搜索或尝试其他入口，直接简要说明未取得可用于本次回答的结果。旧读数仅是上次读取，不能确认当前有效。其他独立问题目标仍可继续。'}));
         return {
           note:'responses 是本次工具调用内各次 HTTP 的请求/范围回执；scope 仅摘录各自正文，缺失不从其他响应补入。代码结果原样在前一块；回执不自动证明其中任意字段的来源。纯计算没有新的 HTTP 回执。工具失败时仅保留已观察到的回执，不能视为代码成功。成功确认新版本后整题重取；recoveryStopped 所列族则本轮无法恢复。',
-          responses,events,restartRequired:state.restartRequired,invalidatedEvidence:state.invalidatedEvidence,
+          requiredVersions:policy.requiredVersions(),responses,events,restartRequired:state.restartRequired,invalidatedEvidence:state.invalidatedEvidence,
           pendingReplay:state.pendingReplay,unresolvedFailures:state.unresolvedFailures,recoveryStopped
         };
       };
@@ -190,7 +206,8 @@ ${CALCULATION_EXAMPLE}`,
         });
         if (definition.name==='docs' && value?.error) throw Object.assign(new Error(value.error.message),{kind:value.error.kind});
         onEvidence('tool_result',{id,name:definition.name,params,value});
-        const content = [{type:'text',text:['search','execute'].includes(definition.name) ? truncateResponse(value) : JSON.stringify(value)}];
+        const content = [{type:'text',text:['search','execute'].includes(definition.name) ? truncateResponse(value) : JSON.stringify(docsForModel(value,id))}];
+        if (definition.name==='search') content.push({type:'text',text:JSON.stringify({requestContext:requestContext()})});
         if (definition.name==='execute') content.push({type:'text',text:JSON.stringify({requestControl:requestControl()})});
         return {content,details:value};
       } catch (error) {
@@ -200,7 +217,7 @@ ${CALCULATION_EXAMPLE}`,
         throw new Error(JSON.stringify({error:detail,...(definition.name==='execute'?{requestControl:requestControl()}: {})}));
       }
     }})),
-    beginTurn: () => policy.beginTurn(),
+    beginTurn: () => {const state=policy.beginTurn();docTexts.clear();return state;},
     close: async () => docs.close?.()
   };
 }

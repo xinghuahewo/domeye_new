@@ -210,5 +210,10 @@ export function createRequestPolicy({ spec, request, onEvidence = () => {} }) {
     tail = result.catch(() => {});
     return result.finally(() => { pending--; });
   }
-  return { request: controlled, beginTurn, snapshot };
+  // 仅提示已有且未冲突的显式参数；不执行请求，也不替模型补 version。
+  const requiredVersions = () => [...families].filter(([,state])=>hasVersion(state.version) && !state.conflict)
+    .map(([family,state])=>({family,version:state.version,
+      paths:[...routes].filter(([,route])=>route.family===family && route.versioned && !route.discovery).map(([path])=>path)}))
+    .filter(item=>item.paths.length);
+  return { request: controlled, beginTurn, snapshot, requiredVersions };
 }

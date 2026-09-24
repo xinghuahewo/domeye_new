@@ -6,7 +6,7 @@
 
 ## 本地启动
 
-需要 Node.js 22.19 以上；服务器使用已有 Node.js 24.12.0。模型配置为权限 0600 的 JSON 文件，包含 `provider: "deepseek"`、`model`、`apiKey`，可选官方 `baseUrl`；不要将配置提交到 Git。
+需要 Node.js 22.19 以上；服务器使用已有 Node.js 24.12.0。模型配置为权限 0600 的 JSON 文件，包含 `provider: "deepseek"`、`model`、`apiKey`，可选官方 `baseUrl` 和 `thinkingLevel: "low" | "high"`，默认 `high`；不要将配置提交到 Git。
 
 ```bash
 cd apps/query
@@ -30,7 +30,21 @@ npm run web
 
 两批分别绑定自己的实际 OpenAPI，查询时发现覆盖和版本；不跨批次借用参数或数据。服务器直接读本机 API；本地使用时须将这两个端口通过 SSH 转发。`DOMEYE_QUERY_API_BASE_URL` 是宿主显式覆盖，CLI 对所选批次生效，页面仅对默认完成文件批次生效，改变前须核对接口合同。
 
-左侧选择只影响下次新会话，顶部显示本会话实际批次。早期未标注批次的历史保持未标注。答案正常结束并保存后显示，复杂问题可能持续数分钟；停止或关闭页面会取消当前模型、检索及在途客户端请求。模型余额不足、请求失败和未知数据分别保留。
+左侧选择只影响下次新会话，顶部显示本会话实际批次。早期未标注批次的历史保持未标注。页面在模型生成正文时逐步展示，并标记尚未完成；正常结束且保存成功后才确认完整答案。工具调用前的中间文字在进入工具或下一轮模型时清除，不与最终正文拼接。失败、取消或断流时清除未完成预览。复杂问题仍可能持续数分钟；停止或关闭页面会取消当前模型、检索及在途客户端请求。模型余额不足、请求失败和未知数据分别保留。CLI 继续在正常结束并保存后输出完整答案。
+
+## 正文流与耗时记录
+
+独立问数 HTTP 合同见 [OpenAPI](openapi.json)，页面事件类型见 [chat-types.d.ts](web/chat-types.d.ts)。该入口不属于主 Flask 业务 API，不更改 `data/openapi*.json` 固定业务合同。
+
+原始页面类型由该合同生成，复用项目已锁定的前端工具。更新合同时从仓库根目录执行 `node frontend/node_modules/openapi-typescript/bin/cli.js apps/query/openapi.json -o apps/query/web/openapi.generated.d.ts`；主 Flask 类型仍按 `make api-types` 生成。
+
+`POST /api/chat` 使用 NDJSON：`start` 确认请求，`answer_start` 标识一次模型消息，`text` 按 `messageId` 和 `contentIndex` 传递公开正文，`answer_end` 区分正文已生成与中间预览应丢弃，`tool` 表示真实工具状态，`done` 才携带最终会话状态。`generated` 不表示已保存或答案正确。思考和工具参数不进入页面。跨分片脱敏仅暂存可能构成完整凭据的尾部前缀，普通短句立即转发。
+
+历史中 `turn.timings` 使用本轮开始后的单调时钟毫秒数：每轮模型请求开始、首个模型增量、首个正文增量、首个脱敏后公开正文、消息结束，以及工具开始/结束、生成结束、保存开始。首个模型增量可能来自思考或工具参数，只记录时间，不保存思考；它不能替代正文首字。`final_message_id` 和 `final_first_text_ms` 只在本轮成功时指向最终回答，前置消息不冒充最终答案。
+
+历史快照写入时无法知道该次写入何时返回，因此本轮快照中的 `save_finished_ms` 保持 null；实际写入尝试结束时间随 `done.timing.agent` 返回，是否成功由 `done.turn.status` 判断。后续轮次保存同一会话时，可以保留以前轮次已测得的保存结束时间。HTTP 层 `done.timing` 单独以请求进入为起点记录首次状态、首次正文、最终正文首字和结束时间，不与 Agent 起点混算。
+
+浏览器用自身单调时钟计时，当前页面文章的 `data-latency` 保存 `firstStatusMs`、`firstTextMs`、`firstTextFrameMs`、`finalFirstTextMs`、`doneMs`。其中 frame 是下一绘制帧机会的近似值，不是硬件像素测量，后台标签页可能没有该值。浏览器计时仅在当前页面内存保留，不写入服务端历史；验收时单独采集。比较时保留模型配置、工具/模型轮次、缓存命中和失败记录，不能把状态提示算作首个有效正文，少量样本不用于宣称稳定分位数。
 
 ```bash
 node cli.mjs --dataset completed-files --prompt '现在手里的数据覆盖哪段时间？'
@@ -47,6 +61,10 @@ node cli.mjs --dataset three-day --prompt '这批数据完整了吗？'
 | `search({code})` | JavaScript 查询已展开引用的 OpenAPI，逐步选出完整接口路径及必要结构；不读业务数据 |
 | `execute({code})` | 独立 QuickJS-WASM 中经 `domeye.request()` 读取和计算，返回代码选择的结果 |
 
+选定接口后，`search` 示例一次返回参数与完整小合同；超过既有输出预算的合同保留字段目录，提示按需选择原始子树。`search` 和 `execute` 回执列出当前已确认版本及适用路径，供模型显式填写；这只是参数提示，不代填版本，也不改变冲突、失败或完整性判断。所需结构已知时，在同次 `execute` 中取数并计算。
+
+同一道问题内，`docs` 对来源标识和原文均完全相同的段落返回 `textReference`，指向此前工具调用中的原文；其他段落、不同来源以及下一道问题仍返回全文。原始检索结果照常保存在证据和工具详情中，只有模型上下文去除重复文本。
+
 `domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`，并在实际返回时保留可选 `headers`：`x-domeye-result-state`、`x-domeye-result-version`、`x-domeye-result-start`、`x-domeye-result-end-exclusive`、`x-domeye-result-coverage`。键使用小写，缺失不补齐；Cookie及其他响应头不进入沙箱或记录。这些交付头也独立保存在同次HTTP的范围回执中，模型聚合或省略正文时仍可核对。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次 `domeye.request` 调用、4 MiB 结果；被请求策略拦截的调用也占次数，每个问题最多 20 次工具调用。时间与请求次数由执行器的同一份默认额度写入模型可见的工具说明，未提高限额。
 
 版本冲突后须发现并按新版本整题重取。Core 已明确声明完成文件来源时，可用 `/api/v1/healthz` 中同一 source_run、collector 和交付格式的 `result_delivery` 重新确认一次；健康响应本身仍无整体交付版本。未知绑定、独立留存或来源不符不能借此恢复，旧版本也不会被静默替换。该恢复只涉及只读请求策略，不触发数据生产或服务重启。
@@ -55,13 +73,17 @@ Core 的完整交付绑定已确认时，与完成文件的版本化查询入口
 
 工具发现和收窄遵循 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果超过 24000 个 JavaScript 字符时附 TRUNCATED 并提示收窄；原始结果继续保存。宿主注入和执行边界先对照 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
 
-Pi 0.87.0、DeepSeek `deepseek-v4-pro`、high 推理、标准请求。会话记录保存问题、文档原文、工具代码、原始 HTTP、答案、数据来源与失败状态，不保存模型思考或密钥。`completed` 只表示正常结束并保存，不是答案正确性认证。没有自动评分、词表或答案检查门槛。
+Pi 0.87.0、DeepSeek `deepseek-v4-pro`、默认 high 推理、标准请求。Pro 已[正式支持 low](https://api-docs.deepseek.com/updates/)，但锁定 Pi 的模型目录会将 low 提升为 high；应用只在该模型的会话副本中修正映射，不修改依赖或全局目录。选择 low 仍启用思考，输出上限仍为 32768；这不是 Codex 的 Fast mode。会话记录实际选择的档位，效果和回答质量须单独比较，不能由配置生效推定。
+
+会话记录保存问题、文档原文、工具代码、原始 HTTP、答案、数据来源与失败状态，不保存模型思考或密钥。`completed` 只表示正常结束并保存，不是答案正确性认证。没有自动评分、词表或答案检查门槛。
 
 ## 准备文档检索
 
 QMD 2.8.3 固定使用 `aa31830e9044a987b331d4bd36859bac0d432a8c` 的 20 篇业务原文。项目 Git 的 `query-docs-20260923-coverage9` 标签保留这份来源，独立于应用发布提交；准备脚本用 `git show` 读取固定提交，不读取源码目录的未提交文档。该标签保全原分支来源，不表示其全部后端修改已合入 main。
 
 docs 复用 QMD 的关键词和向量检索。原查询及按空白、标点分开的词组最多进行 8 次关键词检索；词法命中达到既有分数门槛后优先选入，再用向量候选补足，按文档去重，保留 3 篇主结果和每篇 80 行的原上限。命中末段时向前补足行预算，避免遗漏同篇定义。返回内容仍逐一核对固定文件散列、索引正文和来源行号；向量执行没有候选等底层错误仍明确失败。没有领域词表、标准答案或额外模型。
+
+每个会话复用一个隔离的 QMD 进程，后台预热本地嵌入上下文，与首轮模型请求重叠；检索在进程内串行执行，不缓存答案或跳过原文校验。排队计入检索时限，取消排队项不影响当前查询；当前查询取消、超时、失败或进程崩溃时淘汰进程，后续调用重新冷启动，不自动重试失败请求。关闭或切换会话释放进程，原子替换索引后重新打开连接。QMD 自身默认闲置五分钟后卸载模型，之后可能再次冷启动；HTTP 健康响应不证明预热成功。
 
 ```bash
 # 以下命令从 apps/query 执行，DOMEYE_QUERY_STATE_DIR 已设置

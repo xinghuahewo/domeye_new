@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import * as files from 'node:fs/promises';
 import * as piAi from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
+import { Check } from 'typebox/value';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const PRIVATE = '禁止公开的人工私有思考标记';
 const KEY = 'synthetic-agent-loop-key';
@@ -46,10 +49,11 @@ function controlledStream(selected, context, options) {
         ...(step.errorMessage ? { errorMessage: step.errorMessage } : {})
       };
       stream.push({ type: 'start', partial: { ...result, content: [] } });
-      result.content.forEach((part, contentIndex) => {
-        if (part.type === 'thinking') stream.push({ type: 'thinking_delta', contentIndex, delta: part.thinking, partial: result });
-        if (part.type === 'text') stream.push({ type: 'text_delta', contentIndex, delta: part.text, partial: result });
-      });
+      const deltas = step.deltas ?? result.content.flatMap((part,contentIndex)=>
+        part.type==='thinking'?[{type:'thinking_delta',contentIndex,delta:part.thinking}]:
+          part.type==='text'?[{type:'text_delta',contentIndex,delta:part.text}]:[]);
+      for(const part of deltas)stream.push({...part,partial:result});
+      if (step.beforeEnd) await step.beforeEnd();
       if (['error', 'aborted'].includes(result.stopReason)) stream.push({ type: 'error', reason: result.stopReason, error: result });
       else stream.push({ type: 'done', reason: result.stopReason, message: result });
     } catch (error) {
@@ -104,6 +108,7 @@ const replacements = [
 after(() => { for (const item of replacements.reverse()) item.restore(); });
 // 不替换 Agent，也不覆盖 finishTurn：应用实际使用安装的 Pi 工具循环。
 const { createDomeyeAgent } = await import('./agent.mjs?agent-loop-integration');
+const { createChatServer } = await import('./server.mjs');
 
 async function setup(t, steps, options = {}) {
   const h = active = {
@@ -113,17 +118,22 @@ async function setup(t, steps, options = {}) {
       [recorded.calculation.params.code, recorded.calculation.value]]), ...options
   };
   h.agent = await createDomeyeAgent({
-    modelConfig: { model: model.id, apiKey: KEY }, historyDir: '/synthetic-agent-loop',
-    onEvent(event) { h.events.push(structuredClone(event)); }
+    modelConfig: { model: model.id, apiKey: KEY, thinkingLevel:options.thinkingLevel }, historyDir: '/synthetic-agent-loop',
+    onEvent(event) { h.events.push(structuredClone(event)); h.onEvent?.(event); }
   });
   t.after(async () => { await h.agent.close(); });
   return h;
 }
 
 function assertPublicProjection(h) {
+  const keys={
+    answer_start:['type','messageId'],answer_delta:['type','messageId','contentIndex','text'],
+    answer_end:['type','messageId','stopReason'],answer_final:['type','text'],
+    tool_execution_start:['type','toolCallId','toolName','isError'],tool_execution_end:['type','toolCallId','toolName','isError']
+  };
   for (const event of h.events) {
-    assert.ok(['tool_execution_start', 'tool_execution_end', 'answer_final'].includes(event.type), event.type);
-    const allowed = event.type === 'answer_final' ? ['type', 'text'] : ['type', 'toolCallId', 'toolName', 'isError'];
+    assert.ok(keys[event.type],event.type);
+    const allowed = keys[event.type];
     assert.ok(Object.keys(event).every(key => allowed.includes(key)));
   }
   for (const value of [h.events, h.saved, h.agent.turns]) {
@@ -144,6 +154,24 @@ function assertUnpublished(h, turn, status) {
   assert.equal(h.events.some(event => event.type === 'answer_final'), false);
   assertPublicProjection(h);
 }
+
+test('首字回归：模型未结束、历史尚未保存时已发出公开正文增量', { timeout: 10_000 }, async t => {
+  const emitted = deferred(), release = deferred();
+  const text = '人工公开正文已经生成，后续生成尚未结束。';
+  const h = await setup(t, [{ ...answer(text), async beforeEnd() { emitted.resolve(); await release.promise; } }]);
+  const pending = h.agent.ask('首字测试');
+  await emitted.promise;
+  // 只让已排队的 Pi 事件被消费；不释放模型结束门。
+  await new Promise(done => setImmediate(done));
+  try {
+    assert.equal(h.saved.length, 0);
+    assert.equal(h.agent.running, true);
+    assert.ok(h.events.some(event => event.type === 'answer_delta' && event.text.includes('人工公开正文')),
+      '模型已产出正文，但应用仍等整轮结束才发布');
+    assert.equal(h.events.some(event => event.type === 'answer_final'), false);
+    assert.equal(JSON.stringify(h.events).includes(PRIVATE), false);
+  } finally { release.resolve(); await pending; }
+});
 
 test('真实故障片段：自由字段名计算结果正常显示，无额外反馈；工具结果和答案保留给追问', { timeout: 10_000 }, async t => {
   const nextQuestion = '六类里哪类最多？';
@@ -185,7 +213,14 @@ test('真实故障片段：自由字段名计算结果正常显示，无额外�
   assertPublicProjection(h);
 });
 
-test('模型 length、error、aborted 均不发布部分答案', { timeout: 10_000 }, async t => {
+test('明确选择 low 时，Agent 调用和会话记录一致，输出额度不降低',async t=>{
+  const h=await setup(t,[answer('人工低档位响应')],{thinkingLevel:'low'});
+  assert.equal((await h.agent.ask('人工配置测试')).status,'completed');
+  assert.equal(h.requests[0].reasoning,'low');
+  assert.deepEqual(h.saved.at(-1).model_options,{thinking_level:'low',max_output_tokens:32768});
+});
+
+test('模型 length、error、aborted 均不确认部分预览为最终答案', { timeout: 10_000 }, async t => {
   for (const stopReason of ['length', 'error', 'aborted']) await t.test(stopReason, async t => {
     const h = await setup(t, [{ ...answer('未完整回答'), stopReason, ...(stopReason === 'error' ? { errorMessage: `人工模型失败 ${KEY}` } : {}) }]);
     const turn = await h.agent.ask('说明范围。');
@@ -219,7 +254,7 @@ test('工具中停止：剩余工具与后续模型调用不再启动', { timeou
   assertUnpublished(h, turn, 'cancelled');
 });
 
-test('保存期间不发布且禁止重入；停止后补存 cancelled', { timeout: 10_000 }, async t => {
+test('保存期间允许预览但不确认完成且禁止重入；停止后补存 cancelled', { timeout: 10_000 }, async t => {
   const saving = deferred(), release = deferred();
   const h = await setup(t, [answer('完整正文')], {
     async onWrite(count) { if (count === 1) { saving.resolve(); await release.promise; } }
@@ -228,6 +263,7 @@ test('保存期间不发布且禁止重入；停止后补存 cancelled', { timeo
   await saving.promise;
   try {
     assert.equal(h.events.some(event => event.type === 'answer_final'), false);
+    assert.ok(h.events.some(event => event.type === 'answer_delta'));
     assert.equal(h.agent.running, true);
     assert.equal(h.agent.turns.at(-1).answer, '');
     await assert.rejects(h.agent.ask('不能重入'), /尚未结束/);
@@ -240,11 +276,85 @@ test('保存期间不发布且禁止重入；停止后补存 cancelled', { timeo
   assertUnpublished(h, turn, 'cancelled');
 });
 
-test('保存失败不发布，凭据从错误中脱敏', { timeout: 10_000 }, async t => {
+test('保存失败不确认完成，凭据从错误中脱敏', { timeout: 10_000 }, async t => {
   const h = await setup(t, [answer('完整正文')], { onWrite() { throw new Error(`人工磁盘失败 ${KEY}`); } });
   const turn = await h.agent.ask('说明范围。');
   assert.match(turn.error, /保存失败/);
   assertUnpublished(h, turn, 'failed');
+});
+
+test('流式跨片脱敏、内容块与模型轮次分离，计时不把思考当正文', async t => {
+  const h=await setup(t,[{
+    ...calls({type:'text',text:'先读取数据'},toolCall('read'))
+  },{
+    ...answer('短句'+KEY+'结束'),
+    deltas:[{type:'thinking_delta',contentIndex:0,delta:PRIVATE},
+      ...['短句',KEY.slice(0,5),KEY.slice(5),'结束'].map(delta=>({type:'text_delta',contentIndex:1,delta}))]
+  }]);
+  const turn=await h.agent.ask('脱敏与轮次');
+  const chunks=h.events.filter(event=>event.type==='answer_delta');
+  assert.equal(chunks.filter(e=>e.messageId===2).map(e=>e.text).join(''),'短句[已隐藏凭据]结束');
+  assert.equal(chunks.find(e=>e.messageId===2).text,'短句','普通短句不因凭据长度而滞留');
+  assert.equal(h.events.find(e=>e.type==='answer_end' && e.messageId===1).stopReason,'toolUse');
+  assert.equal(turn.timings.models.length,2);
+  assert.equal(turn.timings.tools.length,1);
+  assert.equal(turn.timings.final_message_id,2);
+  assert.ok(turn.timings.models[1].first_token_ms<=turn.timings.models[1].first_text_ms);
+  assert.ok(turn.timings.final_first_text_ms<=turn.timings.generation_end_ms);
+  assert.ok(turn.timings.generation_end_ms<=turn.timings.save_started_ms);
+  assert.ok(turn.timings.save_started_ms<=turn.timings.save_finished_ms);
+  assert.equal(h.saved.at(-1).turns.at(-1).timings.save_finished_ms,null,'快照不伪造尚未测得的保存完成时间');
+  assertPublicProjection(h);
+});
+
+test('真实 Pi 到 HTTP：首段先到，生成和保存分别等待，不重复正文', {timeout:10_000}, async t=>{
+  const releaseModel=deferred(),saving=deferred(),releaseSave=deferred();
+  const h=await setup(t,[{...answer('短正文'),async beforeEnd(){await releaseModel.promise;}}],{
+    async onWrite(){saving.resolve();await releaseSave.promise;}
+  });
+  const directory=await files.mkdtemp(join(tmpdir(),'domeye-stream-'));
+  const service=await createChatServer({modelConfig:{apiKey:KEY},historyDir:directory,
+    createAgent:async ({onEvent})=>{h.onEvent=onEvent;return h.agent;}});
+  const origin=await service.listen(0);
+  t.after(async()=>{releaseModel.resolve();releaseSave.resolve();await service.close();await files.rm(directory,{recursive:true,force:true});});
+  const post=(path,value)=>fetch(origin+path,{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(value)});
+  const session=await post('/api/session',{}).then(r=>r.json());
+  const response=await post('/api/chat',{sessionId:session.id,question:'流式边界'});
+  const contract=JSON.parse(await files.readFile(new URL('./openapi.json',import.meta.url),'utf8'));
+  function expand(value){
+    if(Array.isArray(value))return value.map(expand);
+    if(!value || typeof value!=='object')return value;
+    if(value.$ref)return expand(value.$ref.slice(2).split('/').reduce((node,key)=>node[key],contract));
+    return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,expand(item)]));
+  }
+  const eventSchema=expand(contract.components.schemas.ChatStreamEvent);
+  assert.equal(Check(eventSchema,{type:'text',text:'缺少消息归属'}),false);
+  const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',events=[];
+  async function until(predicate){
+    while(!predicate()){
+      const {done,value}=await reader.read();assert.equal(done,false);
+      pending+=decoder.decode(value,{stream:true});let end;
+      while((end=pending.indexOf('\n'))>=0){events.push(JSON.parse(pending.slice(0,end)));pending=pending.slice(end+1);}
+    }
+  }
+  try{
+    await until(()=>events.some(e=>e.type==='text'));
+    assert.equal(h.saved.length,0,'首段经真实 HTTP 到达时模型仍被门阻挡');
+    assert.equal(events.filter(e=>e.type==='text').map(e=>e.text).join(''),'短正文');
+    assert.equal(events.some(e=>e.type==='done'),false);
+    releaseModel.resolve();await saving.promise;
+    await until(()=>events.some(e=>e.type==='answer_end'));
+    assert.equal((await post('/api/session',{})).status,409,'保存完成前保持忙碌');
+    assert.equal(events.some(e=>e.type==='done'),false);
+    releaseSave.resolve();await until(()=>events.some(e=>e.type==='done'));
+    assert.equal(events.filter(e=>e.type==='text').map(e=>e.text).join(''),'短正文','answer_final 不再次拼入流');
+    const done=events.find(e=>e.type==='done');
+    assert.equal(done.turn.status,'completed');assert.equal(done.turn.answer,'短正文');
+    assert.ok(done.timing.first_text_ms<done.timing.done_ms);
+    assert.ok(done.timing.agent.models[0].first_text_ms<done.timing.agent.save_finished_ms);
+    for(const event of events)assert.equal(Check(eventSchema,event),true,`实际 HTTP 事件不符合公开合同：${event.type}`);
+    assert.equal(h.requests.length,1);
+  }finally{releaseModel.resolve();releaseSave.resolve();await reader.cancel();}
 });
 
 // 运行真实 Pi 0.87 Agent/loop；仅模型流、工具数据与文件写入固定化。

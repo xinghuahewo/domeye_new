@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['dataset','session-dataset','new-session','refresh-history','current-session','history','session-title','connection','notice','reading-pane','empty','messages','read-only','back-current','composer','question','send','stop','composer-hint'].map(id => [id, $(id)]));
 let session = { id: null, busy: false, turns: [] }, readingId = null, streaming = false, switching = false, records = [], poll, syncVersion = 0;
+const latencyByTurn=new Map();
 function notice(message = '') { ui.notice.textContent = message; ui.notice.hidden = !message; }
 async function api(path, value) {
   const response = await fetch(path, value === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) });
@@ -55,6 +56,7 @@ function markdown(target, source) {
 }
 function turnNode(turn) {
   const article = text('article','','turn');
+  if(turn.id){article.dataset.turnId=turn.id;if(latencyByTurn.has(turn.id))article.dataset.latency=JSON.stringify(latencyByTurn.get(turn.id));}
   article.append(text('h2',turn.question,'question'),text('div','Domeye','answer-label'));
   const answer = text('div','','answer'); markdown(answer,turn.answer || '');
   const tool = text('div','','tool-status'), status = text('div','','turn-status');
@@ -133,24 +135,63 @@ async function submit(event) {
   syncVersion++; clearTimeout(poll);
   notice(); streaming = true; session.busy = true; controls(); ui.empty.hidden = true;
   const nodes = turnNode({question,answer:'',status:'running'}); nodes.answer.classList.add('streaming'); nodes.tool.textContent = '正在理解问题'; nodes.tool.classList.add('running');
+  nodes.status.textContent='生成中 · 回答尚未完成';
   ui.messages.append(nodes.article); ui.question.value = ''; scrollToBottom(true);
-  let answer = '', completed = false;
+  const startedClock=performance.now(), firstTextByMessage=new Map();
+  const timing={firstStatusMs:null,firstTextMs:null,firstTextFrameMs:null,finalFirstTextMs:null,doneMs:null};
+  let answer = '', completed = false, messageId=null, blocks=new Map(), display=nodes.article, turnId;
+  const recordTiming=()=>{
+    display.dataset.latency=JSON.stringify(timing);
+    if(turnId){const visible=ui.messages.querySelector('[data-turn-id="'+turnId+'"]');if(visible)visible.dataset.latency=JSON.stringify(timing);}
+  };
+  const clearPreview=()=>{answer='';blocks.clear();nodes.answer.textContent='';};
   try {
     const response = await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sessionId:session.id,question})});
     if (!response.ok) throw new Error((await response.json()).error || '请求没有开始。');
     const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
+    /** @param {import('./chat-types').ChatStreamEvent} item */
     const receive = item => {
-      if (item.type === 'text') { answer += item.text; nodes.answer.textContent = answer; }
+      if(item.type==='start')timing.firstStatusMs=performance.now()-startedClock;
+      if(item.type==='answer_start'){
+        messageId=item.messageId;clearPreview();
+        nodes.status.textContent='生成中 · 回答尚未完成';
+        nodes.tool.textContent='正在理解与整理';nodes.tool.classList.add('running');
+      }
+      if (item.type === 'text' && item.messageId===messageId) {
+        blocks.set(item.contentIndex,(blocks.get(item.contentIndex) ?? '')+item.text);
+        answer=[...blocks].sort(([a],[b])=>a-b).map(([,value])=>value).join('\n');
+        nodes.answer.textContent = answer;
+        if(item.text){
+          const ms=performance.now()-startedClock;
+          firstTextByMessage.set(messageId,firstTextByMessage.get(messageId) ?? ms);
+          if(timing.firstTextMs===null){
+            timing.firstTextMs=ms;
+            // 下一绘制帧是展示机会的近似值；后台标签页可能不调度，不冒充真实像素时间。
+            requestAnimationFrame(()=>{timing.firstTextFrameMs=performance.now()-startedClock;recordTiming();});
+          }
+        }
+      }
+      if(item.type==='answer_end' && item.messageId===messageId){
+        if(item.state==='discarded'){clearPreview();nodes.status.textContent='正在继续处理 · 回答尚未完成';}
+        else nodes.status.textContent='正文已生成 · 正在完成并保存';
+      }
       if (item.type === 'tool') { nodes.tool.textContent = item.label + (item.state === 'running' ? '…' : item.state === 'failed' ? ' · 暂未完成' : ' · 已完成'); nodes.tool.classList.toggle('running',item.state === 'running'); }
-      if (item.type === 'done') { const replacement = turnNode(item.turn); nodes.article.replaceWith(replacement.article); completed = true; notice(); }
+      if (item.type === 'done') {
+        timing.doneMs=performance.now()-startedClock;
+        if(item.turn.status==='completed')timing.finalFirstTextMs=firstTextByMessage.get(messageId) ?? null;
+        turnId=item.turn.id;if(turnId)latencyByTurn.set(turnId,timing);
+        const replacement = turnNode(item.turn); nodes.article.replaceWith(replacement.article);display=replacement.article;
+        completed = true; notice();
+      }
       if (item.type === 'error') throw new Error(item.message);
+      recordTiming();
       scrollToBottom();
     };
     try {
       while (true) { const {value,done} = await reader.read(); pending += decoder.decode(value,{stream:!done}); let end; while ((end=pending.indexOf('\n')) >= 0) { const line = pending.slice(0,end); pending = pending.slice(end+1); if (line) receive(JSON.parse(line)); } if (done) break; }
       if (!completed) throw new Error('连接已结束，本次回答可能尚未完成。');
     } finally { await reader.cancel().catch(()=>{}); reader.releaseLock(); }
-  } catch (error) { nodes.tool.classList.remove('running'); nodes.status.textContent = '回答未完成'; nodes.status.classList.add('warning'); notice(error.message); }
+  } catch (error) { clearPreview();nodes.tool.classList.remove('running'); nodes.status.textContent = '回答未完成'; nodes.status.classList.add('warning'); notice(error.message); }
   finally {
     streaming = false;
     try { await syncCurrent(); await refreshHistory(); } catch { session.busy = false; notice('暂时无法连接问数服务。请确认入口仍在运行，再刷新页面。'); }
