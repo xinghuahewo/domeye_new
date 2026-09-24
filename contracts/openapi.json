@@ -654,19 +654,19 @@
       }
     },
     "/features/outages/country-as": {
-      "get": {"operationId": "getCountryAsOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
+      "get": {"operationId": "getCountryAsOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/country-prefix": {
-      "get": {"operationId": "getCountryPrefixOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
+      "get": {"operationId": "getCountryPrefixOutages", "parameters": [{"$ref": "#/components/parameters/Country"}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/as-prefix": {
-      "get": {"operationId": "getAsPrefixOutages", "parameters": [{"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
+      "get": {"operationId": "getAsPrefixOutages", "parameters": [{"name": "asn", "in": "query", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/global-as": {
-      "get": {"operationId": "getGlobalAsOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
+      "get": {"operationId": "getGlobalAsOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。"}
     },
     "/features/outages/global-prefix": {
-      "get": {"operationId": "getGlobalPrefixOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。"}
+      "get": {"operationId": "getGlobalPrefixOutages", "parameters": [{"$ref": "#/components/parameters/StartTime"}, {"$ref": "#/components/parameters/EndTime"}], "responses": {"200": {"$ref": "#/components/responses/OutageSeries"},"400": {"description": "请求参数缺失、格式不正确或超出该入口范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}}},"deprecated": true,"description": "现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。"}
     },
     "/resources": {"get": {"operationId": "queryResourceStatistics", "description": "读取显式交付的 global 独立 RIB 统计点，按时点排序，不重放或补算。半开窗口限定在项目数据档内，支持跨日；未配置、没有统计、未知主值与读取失败分别返回。一个点不填成连续曲线。", "parameters": [{"name": "start_time", "in": "query", "required": true, "schema": {"type": "string"}, "description": "秒级时间。YYYY-MM-DD HH:MM:SS 按 Asia/Shanghai；也接受带 Z 或时区偏移的 ISO 时间。禁止重复参数。"}, {"name": "end_time", "in": "query", "required": true, "schema": {"type": "string"}, "description": "秒级时间。YYYY-MM-DD HH:MM:SS 按 Asia/Shanghai；也接受带 Z 或时区偏移的 ISO 时间。禁止重复参数。"}], "responses": {"200": {"description": "实际独立时点或明确未配置／未计算", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResourceStatisticsPayload"}}}}, "400": {"description": "参数缺失、重复、无效或窗口超界", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResourceQueryError"}}}}, "503": {"description": "交付统计不可读或主值、资格、单位不一致；不返回零或旧数据", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResourceQueryError"}}}}}}}
   },
@@ -1199,6 +1199,8 @@
             "description": "仅明确准入的AS中断集合文本提供。object保留原文，asns为空；一条原检测记录不拆分、不认作确定单ASN，不表示误报。",
             "properties": {"state": {"const": "unresolved"}, "reason": {"const": "as_set_in_asn_field"}, "label": {"const": "对象待核实"}}},
           "end_time": {"type": "object", "required": ["state", "value"], "properties": {"state": {"type": "string", "enum": ["recorded", "unknown", "unavailable"]}, "value": {"type": ["string", "null"]}}},
+          "lifecycle": {"$ref": "#/components/schemas/CoreEventLifecycle"},
+          "country_incident": {"$ref": "#/components/schemas/CoreCountryIncident"},
           "level": {"type": ["string", "null"], "enum": ["high", "middle", "low", null]},
           "level_conflict": {
             "type": "object", "additionalProperties": false,
@@ -1212,7 +1214,52 @@
             }
           },
           "address_family": {"type": "string", "enum": ["ipv4", "ipv6", "mixed", "unknown"]},
-          "asns": {"type": "array", "items": {"type": "string"}}, "record_number": {"type": "string"}
+          "asns": {"type": "array", "items": {"type": "string"}, "description": "记录关联的 ASN。若提供 country_incident.asn_membership，则严格为该事件 peak_at、peak_snapshot_id 对应的峰值成员，数量与其 count 一致；不是全事件累计名单或查询时刻成员。未提供该结构时不推定成员口径。"}, "record_number": {"type": "string"}
+        }
+      },
+      "CoreEventLifecycle": {
+        "type": "object", "additionalProperties": false,
+        "description": "完成文件模式的检测事件生命周期，列表和详情共用。与原 end_time 字段是否记录分开；不修改 record 的内容版本，也不证明真实网络或全国用户影响。AS/前缀事件显式 NULL 且从开始到数据截止连续覆盖时为 ongoing；缺字段、空文本或覆盖缺口保持 unknown。国家事件按结构化 incident 判定，ongoing 与 recovery_state=unknown 可以同时成立。旧留存源省略本字段。",
+        "required": ["state", "basis", "data_end_exclusive", "observed_at"],
+        "properties": {
+          "state": {"type": "string", "enum": ["ongoing", "ended", "unknown", "unavailable"]},
+          "basis": {"type": "string", "enum": ["detector_end_time", "country_incident", "unknown", "unsupported"]},
+          "data_end_exclusive": {"type": "string", "format": "date-time", "description": "同一响应版本实际完成文件的排他截止时间，不是计划窗口终点或读取墙钟时间。AS/前缀 ongoing 只适用于该截止前。"},
+          "observed_at": {"type": ["string", "null"], "format": "date-time", "description": "国家 incident 实际最后观察时点；国家生命周期只解释到此时。其他事件为 null，不能虚构逐事件观察时点。"}
+        }
+      },
+      "CoreCountryIncident": {
+        "type": "object",
+        "description": "从已交付 country-outage-incident/v2 原字段读取，不解析摘要或请求增强制品。峰值时间、快照、名单、分子分母在同一事务核对；冲突返回 503。上游附加字段原样保留。collector_id 是原 incident 字段，实际交付观察点以 metadata.source.collector_id 为准。",
+        "required": ["schema_version", "algorithm_version", "incident_id", "cohort_id", "country_code", "onset_at", "detected_at", "peak_at", "peak_snapshot_id", "observation_end_at", "duration_state", "recovery_state", "full_recovery_at", "milestones", "asn_membership"],
+        "properties": {
+          "schema_version": {"const": "country-outage-incident/v2"},
+          "algorithm_version": {"const": "country_outage_live_event_model_v2"},
+          "incident_id": {"type": "string"}, "cohort_id": {"type": "string"},
+          "country_code": {"type": "string"}, "collector_id": {"type": "string"}, "source": {"type": "string"},
+          "onset_at": {"type": "string", "format": "date-time"},
+          "detected_at": {"type": "string", "format": "date-time"},
+          "peak_at": {"type": "string", "format": "date-time", "description": "此 incident 保存的峰值观察时间；精度及指标见 milestones.peak，不代表任意采样曲线的最大值时间。"},
+          "peak_snapshot_id": {"type": "string"},
+          "observation_end_at": {"type": "string", "format": "date-time"},
+          "trough_at": {"type": ["string", "null"], "format": "date-time"},
+          "partial_recovery_at": {"type": ["string", "null"], "format": "date-time"},
+          "full_recovery_at": {"type": ["string", "null"], "format": "date-time"},
+          "duration_state": {"type": "string", "enum": ["lower_bound", "exact"]},
+          "recovery_state": {"type": "string", "enum": ["unknown", "fully_recovered"]},
+          "milestones": {"type": "object", "required": ["peak"], "properties": {
+            "peak": {"type": "object", "required": ["at", "snapshot_id", "metric", "metric_value"], "properties": {
+              "at": {"type": "string", "format": "date-time"}, "snapshot_id": {"type": "string"},
+              "metric": {"const": "affected_asn_ratio"}, "metric_value": {"type": "number", "minimum": 0, "maximum": 1},
+              "time_precision": {"type": "string"}
+            }}
+          }},
+          "asn_membership": {"type": "object", "additionalProperties": false,
+            "description": "item.asns 的明确口径，绑定同级 peak_at、peak_snapshot_id 与 cohort_id；不是累计成员。",
+            "required": ["basis", "count", "total", "ratio"], "properties": {
+              "basis": {"const": "peak_snapshot"}, "count": {"type": "integer", "minimum": 0},
+              "total": {"type": "integer", "minimum": 1}, "ratio": {"type": "number", "minimum": 0, "maximum": 1}
+            }}
         }
       },
       "CoreOverviewScale": {

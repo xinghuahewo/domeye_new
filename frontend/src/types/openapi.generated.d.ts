@@ -79,7 +79,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 同一留存内容版本上的 C 首页查询。零仅表示选定留存记录无匹配，不证明原始观察完整。列表局部筛选不改变概况或全日趋势。 */
+        /** @description 同一留存内容版本上的 C 首页查询。零仅表示选定留存记录无匹配，不证明原始观察完整。列表局部筛选不改变概况或趋势。完成文件结果源支持 start_time/end_time 半开区间及 country；旧按日源保留 date 查询。 */
         get: operations["getCoreOverview"];
         put?: never;
         post?: never;
@@ -448,7 +448,7 @@ export interface paths {
         };
         /**
          * @deprecated
-         * @description 仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。
+         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
          */
         get: operations["getCountryAsOutages"];
         put?: never;
@@ -468,7 +468,7 @@ export interface paths {
         };
         /**
          * @deprecated
-         * @description 仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。
+         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
          */
         get: operations["getCountryPrefixOutages"];
         put?: never;
@@ -488,7 +488,7 @@ export interface paths {
         };
         /**
          * @deprecated
-         * @description 仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。
+         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
          */
         get: operations["getAsPrefixOutages"];
         put?: never;
@@ -508,7 +508,7 @@ export interface paths {
         };
         /**
          * @deprecated
-         * @description 仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。
+         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
          */
         get: operations["getGlobalAsOutages"];
         put?: never;
@@ -528,7 +528,7 @@ export interface paths {
         };
         /**
          * @deprecated
-         * @description 仅供现有国家与 ASN 页面兼容读取的历史三分钟并发采样。结束缺失和旧补零行为尚不能证明真实持续状态；不作为新问数的确定性中断指标。当前没有语义等价的统一替代入口。
+         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
          */
         get: operations["getGlobalPrefixOutages"];
         put?: never;
@@ -546,7 +546,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 读取显式交付的 global 独立 RIB 统计点，按时点排序，不重放或补算。半开窗口最多 24 小时；未配置、没有统计、未知主值与读取失败分别返回。一个点不填成连续曲线。 */
+        /** @description 读取显式交付的 global 独立 RIB 统计点，按时点排序，不重放或补算。半开窗口限定在项目数据档内，支持跨日；未配置、没有统计、未知主值与读取失败分别返回。一个点不填成连续曲线。 */
         get: operations["queryResourceStatistics"];
         put?: never;
         post?: never;
@@ -721,6 +721,8 @@ export interface components {
                 state: "recorded" | "unknown" | "unavailable";
                 value: string | null;
             };
+            lifecycle?: components["schemas"]["CoreEventLifecycle"];
+            country_incident?: components["schemas"]["CoreCountryIncident"];
             /** @enum {string|null} */
             level: "high" | "middle" | "low" | null;
             /** @description 仅已核验的AS中断等级冲突提供，出现时level为null。原引用见reference，实例见metadata.source；该注解不修改record原明细或旧内容版本。 */
@@ -734,8 +736,79 @@ export interface components {
             };
             /** @enum {string} */
             address_family: "ipv4" | "ipv6" | "mixed" | "unknown";
+            /** @description 记录关联的 ASN。若提供 country_incident.asn_membership，则严格为该事件 peak_at、peak_snapshot_id 对应的峰值成员，数量与其 count 一致；不是全事件累计名单或查询时刻成员。未提供该结构时不推定成员口径。 */
             asns: string[];
             record_number: string;
+        };
+        /** @description 完成文件模式的检测事件生命周期，列表和详情共用。与原 end_time 字段是否记录分开；不修改 record 的内容版本，也不证明真实网络或全国用户影响。AS/前缀事件显式 NULL 且从开始到数据截止连续覆盖时为 ongoing；缺字段、空文本或覆盖缺口保持 unknown。国家事件按结构化 incident 判定，ongoing 与 recovery_state=unknown 可以同时成立。旧留存源省略本字段。 */
+        CoreEventLifecycle: {
+            /** @enum {string} */
+            state: "ongoing" | "ended" | "unknown" | "unavailable";
+            /** @enum {string} */
+            basis: "detector_end_time" | "country_incident" | "unknown" | "unsupported";
+            /**
+             * Format: date-time
+             * @description 同一响应版本实际完成文件的排他截止时间，不是计划窗口终点或读取墙钟时间。AS/前缀 ongoing 只适用于该截止前。
+             */
+            data_end_exclusive: string;
+            /**
+             * Format: date-time
+             * @description 国家 incident 实际最后观察时点；国家生命周期只解释到此时。其他事件为 null，不能虚构逐事件观察时点。
+             */
+            observed_at: string | null;
+        };
+        /** @description 从已交付 country-outage-incident/v2 原字段读取，不解析摘要或请求增强制品。峰值时间、快照、名单、分子分母在同一事务核对；冲突返回 503。上游附加字段原样保留。collector_id 是原 incident 字段，实际交付观察点以 metadata.source.collector_id 为准。 */
+        CoreCountryIncident: {
+            /** @constant */
+            schema_version: "country-outage-incident/v2";
+            /** @constant */
+            algorithm_version: "country_outage_live_event_model_v2";
+            incident_id: string;
+            cohort_id: string;
+            country_code: string;
+            collector_id?: string;
+            source?: string;
+            /** Format: date-time */
+            onset_at: string;
+            /** Format: date-time */
+            detected_at: string;
+            /**
+             * Format: date-time
+             * @description 此 incident 保存的峰值观察时间；精度及指标见 milestones.peak，不代表任意采样曲线的最大值时间。
+             */
+            peak_at: string;
+            peak_snapshot_id: string;
+            /** Format: date-time */
+            observation_end_at: string;
+            /** Format: date-time */
+            trough_at?: string | null;
+            /** Format: date-time */
+            partial_recovery_at?: string | null;
+            /** Format: date-time */
+            full_recovery_at: string | null;
+            /** @enum {string} */
+            duration_state: "lower_bound" | "exact";
+            /** @enum {string} */
+            recovery_state: "unknown" | "fully_recovered";
+            milestones: {
+                peak: {
+                    /** Format: date-time */
+                    at: string;
+                    snapshot_id: string;
+                    /** @constant */
+                    metric: "affected_asn_ratio";
+                    metric_value: number;
+                    time_precision?: string;
+                };
+            };
+            /** @description item.asns 的明确口径，绑定同级 peak_at、peak_snapshot_id 与 cohort_id；不是累计成员。 */
+            asn_membership: {
+                /** @constant */
+                basis: "peak_snapshot";
+                count: number;
+                total: number;
+                ratio: number;
+            };
         };
         /** @description 绑定单RIB的独立规模摘要；只在异常日可用时附带。不是整日或连续状态，局部列表筛选不改变它。旧无绑定版本省略本字段。 */
         CoreOverviewScale: {
@@ -866,6 +939,19 @@ export interface components {
                 scale?: components["schemas"]["CoreOverviewScale"];
                 path_comparison?: components["schemas"]["CorePathComparison"];
                 result_delivery?: components["schemas"]["ResultDeliveryStatus"];
+                /** @description 当前结果源的国家/地区名称，来自国家 Feature 与事件受影响国家字段。 */
+                countries?: string[];
+                /** @description 所选窗口与完成文件覆盖的交集；complete 仅表示文件时间覆盖，不证明采集完整。缺口不填零。 */
+                query_coverage?: {
+                    /** @enum {unknown} */
+                    state: "complete" | "partial" | "none";
+                    intervals: {
+                        start: string;
+                        end_exclusive: string;
+                    }[];
+                    /** @constant */
+                    country_basis: "event_list.attacked_country";
+                };
                 /** @description 业务原文已留存，但不能按当前 Core 解释规则展示的记录数；不得视为无异常。 */
                 projection_unavailable_records?: number;
                 /** @description v3目录在可用日明确提供实际日输入的解释版本；复用旧日文件时仍保留旧值，不由目录版本覆盖。 */
@@ -893,7 +979,11 @@ export interface components {
                 rib_statistics?: components["schemas"]["CoreRibStatistics"];
             };
             query: {
+                /** @description 区间模式为开始日，实际边界使用 start/end_exclusive */
                 date: string;
+                /** @enum {unknown} */
+                window_mode?: "day" | "range";
+                country?: string;
                 start: string;
                 end_exclusive: string;
                 kind: string;
@@ -908,7 +998,7 @@ export interface components {
             };
             overview: {
                 record_count: number;
-                /** @description 旧留存模式由 metadata.scale 提供；完成文件模式由 metadata.rib_statistics 提供同日同族独立 RIB 的规范前缀并集数。其余为 null；不是全天末态或 Resource 旧字段。 */
+                /** @description 旧留存模式由 metadata.scale 提供；完成文件模式由 metadata.rib_statistics 提供窗口内最新同族独立 RIB 的规范前缀并集数。其余为 null；不是全天末态或 Resource 旧字段。 */
                 visible_prefixes: number | null;
                 /** @description 对应独立 RIB 的明确起源 ASN 并集，all 在两族间去重，沿用 private-skip 规则。未知为 null；不同于 Resource 的兼容尾 ASN public_as_count。 */
                 visible_origin_ases: number | null;
@@ -917,7 +1007,7 @@ export interface components {
                 /** @enum {string} */
                 metric: "recorded_prefix_outage_starts_distinct";
                 /** @enum {integer} */
-                bucket_seconds: 3600;
+                bucket_seconds: 3600 | 21600 | 86400;
                 /** @description 公开桶边界按项目业务时区（当前 +08:00）返回；完成文件模式仅返回实际覆盖片段。 */
                 buckets: {
                     start: string;
@@ -2191,7 +2281,7 @@ export interface components {
             /** Format: date-time */
             end_exclusive: string;
         };
-        /** @description 实际覆盖与项目业务时区整点小时的交集；start/end_exclusive 按项目业务时区（当前 +08:00）返回，首尾可不足一小时，缺口不补零。 */
+        /** @description 实际覆盖与项目业务时区整点桶的交集；按窗口长度采用小时、6 小时或日桶。start/end_exclusive 按项目业务时区（当前 +08:00）返回，首尾可短于桶宽，缺口不补零。 */
         CoreEventTrendBucket: {
             /** Format: date-time */
             start: string;
@@ -2199,16 +2289,16 @@ export interface components {
             end_exclusive: string;
             value: number;
         };
-        /** @description 完成文件交付模式的六类事件当前事实开始数。修订不重复计数，不是并发数或全日数量；只受日期、地址族影响。 */
+        /** @description 完成文件交付模式的六类事件当前事实开始数。修订不重复计数，不是并发数或全日数量；只受窗口、国家/地区、地址族影响；列表筛选不改变趋势。 */
         CoreEventTrends: {
             /** @enum {unknown} */
             state: "available" | "unavailable";
             /** @constant */
             metric: "recorded_event_starts";
-            /** @constant */
-            filter_scope: "date_and_family";
-            /** @constant */
-            bucket_seconds: 3600;
+            /** @enum {unknown} */
+            filter_scope: "date_and_family" | "window_country_and_family";
+            /** @enum {unknown} */
+            bucket_seconds: 3600 | 21600 | 86400;
             series: {
                 /** @enum {unknown} */
                 kind: "prefix_outage" | "as_outage" | "hijack" | "sub_hijack" | "leak" | "country_outage";
@@ -2560,6 +2650,12 @@ export interface operations {
             query?: {
                 /** @description Asia/Shanghai 日窗；默认取项目快照日 */
                 date?: string;
+                /** @description 与 end_time 成对，秒级时间；无时区按 Asia/Shanghai。不能与 date/hour 混用，仅完成文件结果源支持。 */
+                start_time?: string;
+                /** @description 排他的区间终点；须大于 start_time 且在项目数据档内，支持跨日。 */
+                end_time?: string;
+                /** @description metadata.countries 中的来源国家或地区名称；空值为全球。事件精确匹配 event_list.attacked_country 的成员；地区 RIB 规模为不适用。 */
+                country?: string;
                 family?: "all" | "ipv4" | "ipv6" | "unknown";
                 /** @description 实际可查询类型以当前响应metadata.kinds为准；未声明的类型不返回伪零值 */
                 kind?: "all" | "prefix_outage" | "as_outage" | "leak" | "hijack" | "sub_hijack" | "country_outage";

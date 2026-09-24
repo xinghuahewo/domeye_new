@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from config.database import conn_11
 from data_pipeline.common.event_records import convert_anomaly_record, serialize_record
 from data_pipeline.overview.input import InputError, overview_search_text, overview_level_filter
+from data_pipeline.results.event_view import COUNTRY_FIELDS, event_item
 
 KINDS = ['prefix_outage','as_outage','hijack','sub_hijack','leak','country_outage']
 PROFILE = json.loads((Path(__file__).resolve().parents[3] / 'config/data-profile.json').read_text())
@@ -138,14 +139,20 @@ def _core_summaries(cur, where, values, search):
     return items
 
 
-def _page_items(items):
+def _page_items(items, delivery):
     if not items:
         return []
     references = [item['reference'] for item in items]
     # 同一只读、可重复读事务，列表投影和统计继续绑定同一版本。
+    country_fields = ', '.join(f"'{field}', data->'{field}'" for field in COUNTRY_FIELDS)
     with conn_11.cursor() as cur:
-        cur.execute('SELECT core_item FROM result_delivery.events WHERE reference = ANY(%s) AND core_item IS NOT NULL', (references,))
-        records = {row[0]['reference']: row[0] for row in cur.fetchall()}
+        # 只对当前页取所需字段；不传输大型路径正文，也不重新生成旧内容摘要。
+        cur.execute("SELECT core_item, CASE WHEN kind IN ('as_outage','prefix_outage') "
+                    "THEN data @> '{\"e_time\":null}'::jsonb ELSE false END, "
+                    f"CASE WHEN kind='country_outage' THEN jsonb_build_object({country_fields}) ELSE NULL END "
+                    'FROM result_delivery.events WHERE reference = ANY(%s) AND core_item IS NOT NULL', (references,))
+        records = {row[0]['reference']: event_item(row[0], null_end_time=row[1],
+                   country_fields=row[2], delivery=delivery) for row in cur.fetchall()}
     if len(records) != len(references) or set(records) != set(references):
         raise InputError('分页事件投影与统计不一致')
     return [records[reference] for reference in references]
@@ -214,7 +221,7 @@ class DeliveredIndex:
                          'source':{'instance':meta['binding']['source_run'],'code':'r','collector_id':meta['binding']['collector'],
                                    'collector_basis':'input_manifest','confirmed_on':'Unknown','detector_version':None,'coverage':'partial_window'},
                          'window':{'start':meta['start'],'end_exclusive':meta['end_exclusive'],'source':'r'},
-                         'interpretation_version':'completed-file-results/v1'}
+                         'interpretation_version':'completed-file-results/v2'}
         self.days = set()
         for interval in meta['intervals']:
             day = datetime.fromisoformat(interval['start']).astimezone(ZoneInfo(PROFILE['timezone'])).replace(hour=0,minute=0,second=0,microsecond=0)
@@ -287,7 +294,7 @@ class DeliveredIndex:
         page,size=q['page'],q['page_size']
         response.update(state='available',overview={'record_count':total,'visible_prefixes':None,'visible_origin_ases':None},
                         trend={'metric':'recorded_prefix_outage_starts_distinct','bucket_seconds':seconds,'buckets':buckets},
-                        events={'total':len(items),'items':_page_items(items[(page-1)*size:page*size]),'distinct_prefixes':len({x['object'] for x in items if x['kind']=='prefix_outage'}),'page':page,'page_size':size,'page_count':(len(items)+size-1)//size})
+                        events={'total':len(items),'items':_page_items(items[(page-1)*size:page*size], meta),'distinct_prefixes':len({x['object'] for x in items if x['kind']=='prefix_outage'}),'page':page,'page_size':size,'page_count':(len(items)+size-1)//size})
         return response
 
     def detail(self, ref):
@@ -297,6 +304,8 @@ class DeliveredIndex:
         if row is None:raise InputError('该交付版本没有此事件引用',404)
         if row[4]:raise InputError('此事件投影尚不可用：'+row[4],503)
         result=normalized_record(ref,row[1],row[2],row[0])
-        return {'state':'available','version':self.version,'item':row[3],
+        item = event_item(row[3], null_end_time='e_time' in row[1] and row[1]['e_time'] is None,
+                          country_fields=row[1], delivery=self.status)
+        return {'state':'available','version':self.version,'item':item,
                 'metadata':{'source':self.manifest['source'],'interpretation_version':self.manifest['interpretation_version'],'result_delivery':self.status},
                 'record':json.loads(serialize_record(result))}

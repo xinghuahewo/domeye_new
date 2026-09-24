@@ -34,7 +34,7 @@ def delivery(monkeypatch):
         'archive': 'paused_by_user', 'binding': {'source_run': 'fixture', 'collector': 'rrc25'},
         'rejected': 0, 'unsupported': 0, 'limitations': ['合成测试数据'],
     }
-    state = {'meta': meta, 'items': [], 'errors': 0, 'queries': []}
+    state = {'meta': meta, 'items': [], 'records': {}, 'errors': 0, 'queries': []}
 
     class Cursor:
         def __enter__(self):
@@ -47,11 +47,35 @@ def delivery(monkeypatch):
             state['queries'].append((query, params))
             assert query.startswith('SELECT ')
             self.query = query
+            self.params = params
 
         def fetchall(self):
-            return [(copy.deepcopy(item),) for item in state['items']]
+            if self.query.startswith("SELECT core_item->>"):
+                fields = ('reference', 'kind', 'object', 'start_time', 'address_family', 'level')
+                rows = []
+                for item in state['items']:
+                    row = tuple(item[name] for name in fields) + ('level_conflict' in item,)
+                    if "core_item->>'record_number'" in self.query:
+                        row += (item['record_number'], item['asns'], item.get('parent_prefix'), item.get('country_name'))
+                    rows.append(copy.deepcopy(row))
+                return rows
+            if 'reference = ANY' in self.query:
+                rows = []
+                for item in state['items']:
+                    if item['reference'] not in self.params[0]:
+                        continue
+                    row = (copy.deepcopy(item),)
+                    if 'jsonb_build_object' in self.query:
+                        data = state['records'].get(item['reference'], {}).get('data', {})
+                        row += ('e_time' in data and data['e_time'] is None, copy.deepcopy(data))
+                    rows.append(row)
+                return rows
+            raise AssertionError(self.query)
 
         def fetchone(self):
+            if self.query.startswith('SELECT incident_id,data,context,core_item,core_error'):
+                row = state['records'].get(self.params[0])
+                return copy.deepcopy((row['incident_id'], row['data'], row['context'], row['item'], None)) if row else None
             return (state['errors'],)
 
     class Connection:
@@ -107,6 +131,9 @@ def test_unknown_hours_and_undelivered_gaps_do_not_become_zero(client, delivery)
     ]
     assert payload['overview']['record_count'] == 1
     for query, params in delivery['queries']:
+        if 'reference = ANY' in query:
+            assert params == ([delivery['items'][0]['reference']],)
+            continue
         assert ' OR ' in query
         assert params == ('2026-02-24 08:05:00', '2026-02-24 08:15:00',
                           '2026-02-24 10:50:00', '2026-02-24 11:35:00')
@@ -217,6 +244,165 @@ def test_result_version_tracks_rib_delivery_and_preserves_old_database_identity(
     new = delivery_read.status(conn)['version']
     assert new != old['version']
     assert delivery_read.status(conn)['version'] == new
+
+
+def add_record(delivery, kind='as_outage', **changes):
+    """通过真实交付转换生成缓存行，HTTP 同时读取对应的原始事件字段。"""
+    from data_pipeline.overview.input import overview_item
+
+    data = {
+        'source': 'r', 's_time': '2026-02-24 08:10:00', 'e_time': None,
+        'outage_id': 1, 'outage_level': 'high', 'outage_level_descr': '合成规则',
+        'asn': '64501', 'prefix': '192.0.2.0/24', 'country': 'ZZ',
+        'country_chinese_name': '测试地区', 'outage_ases': ['64501', '64502'],
+        'max_outage_as_num': 2, 'total_as_num': 12, 'max_outage_as_ratio': 2 / 12,
+    }
+    data.update(changes)
+    target = {'as_outage': data['asn'], 'prefix_outage': data['prefix'].replace('/', '-'),
+              'country_outage': data['country']}[kind]
+    ref = f"{kind}/{data['s_time']}/{target}/{data['outage_id']}/r"
+    context = {
+        'scope': {'run_id': 'synthetic-run', 'source': 'r', 'collector_id': 'synthetic-collector',
+                  'window_start': '2026-02-24T00:00:00Z', 'window_end': '2026-02-25T00:00:00Z',
+                  'computation_version': 'synthetic-detector/v2'},
+        'delivered_at': '2026-09-01T00:00:00Z', 'result_locator': {'ordinal': 1},
+    }
+    result = delivery_read.normalized_record(ref, data, context, 'synthetic-event')
+    item = overview_item(result)
+    delivery['items'].append(item)
+    row = {'incident_id': 'synthetic-event', 'data': data, 'context': context, 'item': item}
+    delivery['records'][ref] = row
+    return ref, row
+
+
+def structured_country():
+    peak_at = '2026-02-24T01:20:00Z'
+    return {
+        'schema_version': 'country-outage-incident/v2',
+        'algorithm_version': 'country_outage_live_event_model_v2',
+        'incident_id': 'incident_fixture', 'cohort_id': 'cohort_fixture',
+        'country_code': 'ZZ', 'collector_id': 'legacy_live', 'source': 'r',
+        'onset_at': '2026-02-24T00:07:00Z', 'detected_at': '2026-02-24T00:10:00Z',
+        'peak_at': peak_at, 'peak_snapshot_id': 'snapshot_fixture',
+        'observation_end_at': '2026-02-24T03:32:00Z',
+        'duration_state': 'lower_bound', 'recovery_state': 'unknown',
+        'trough_at': None, 'trough_snapshot_id': None,
+        'partial_recovery_at': None, 'full_recovery_at': None,
+        'milestones': {'peak': {'at': peak_at, 'snapshot_id': 'snapshot_fixture',
+                               'metric': 'affected_asn_ratio', 'metric_value': 2 / 12,
+                               'time_precision': 'five_minute_runtime_observation'}},
+    }
+
+
+@pytest.mark.parametrize('kind', ['as_outage', 'prefix_outage'])
+def test_open_outage_is_ongoing_at_delivered_cutoff_in_list_and_detail(delivery, client, kind):
+    ref, row = add_record(delivery, kind)
+    before = copy.deepcopy(row['item'])
+    listed = client.get(URL, query_string={'date': '2026-02-24'}).get_json()
+    detailed = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'}).get_json()
+    lifecycle = detailed['item']['lifecycle']
+    assert lifecycle == {
+        'state': 'ongoing', 'basis': 'detector_end_time',
+        'data_end_exclusive': '2026-02-24T03:35:00Z', 'observed_at': None,
+    }
+    assert listed['events']['items'][0] == detailed['item']
+    assert detailed['item']['end_time'] == before['end_time']
+    assert detailed['item']['end_time']['state'] == 'unknown'
+    assert detailed['item']['end_time']['value'] is None
+    assert detailed['item']['content_version'] == detailed['record']['content_version'] == before['content_version']
+    assert row['item'] == before  # 不改写已交付的旧缓存或内容身份。
+    validate(listed, 'CoreOverviewPayload')
+    validate(detailed, 'CoreOverviewDetail')
+
+
+def test_country_peak_and_membership_come_from_structured_data_without_summary_parsing(delivery, client):
+    incident = structured_country()
+    ref, row = add_record(delivery, 'country_outage', structured_incident=incident,
+                          peak_snapshot_id='snapshot_fixture', structured_v2=True,
+                          event_info='不包含峰值时间的任意摘要')
+    listed = client.get(URL, query_string={'date': '2026-02-24'}).get_json()
+    detail = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'}).get_json()
+    item = detail['item']
+    assert item == listed['events']['items'][0]
+    assert item['country_incident']['peak_at'] == incident['peak_at']
+    assert item['country_incident']['asn_membership'] == {
+        'basis': 'peak_snapshot', 'count': 2, 'total': 12, 'ratio': 2 / 12,
+    }
+    assert item['asns'] == ['64501', '64502']
+    assert item['country_incident']['recovery_state'] == 'unknown'
+    assert item['lifecycle']['state'] == 'ongoing'
+    assert item['lifecycle']['observed_at'] == incident['observation_end_at']
+    assert item['lifecycle']['data_end_exclusive'] != row['context']['scope']['window_end']
+    assert item['content_version'] == detail['record']['content_version']
+    validate(detail, 'CoreOverviewDetail')
+
+
+@pytest.mark.parametrize('value,state', [(None, 'ongoing'), ('', 'unknown'),
+                                        ('2026-02-24 09:00:00', 'ended')])
+def test_null_is_not_conflated_with_bad_or_recorded_end_time(delivery, client, value, state):
+    ref, _ = add_record(delivery, e_time=value)
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.status_code == 200
+    assert response.get_json()['item']['lifecycle']['state'] == state
+
+
+def test_missing_end_time_and_delivery_gaps_do_not_assert_ongoing(delivery, client):
+    ref, row = add_record(delivery)
+    del row['data']['e_time']
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.get_json()['item']['lifecycle']['state'] == 'unknown'
+    row['data']['e_time'] = None
+    delivery['meta']['intervals'] = [interval(end='2026-02-24T08:15:00+08:00'),
+                                   interval(start='2026-02-24T10:00:00+08:00')]
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.get_json()['item']['lifecycle']['state'] == 'unknown'
+
+
+@pytest.mark.parametrize('change', [
+    {'peak_snapshot_id': 'another-snapshot'}, {'max_outage_as_num': 3},
+    {'total_as_num': 0}, {'max_outage_as_ratio': .5},
+    {'structured_incident': {'schema_version': 'country-outage-incident/v2'}},
+])
+def test_inconsistent_structured_peak_fails_explicitly(delivery, client, change):
+    fields = {'structured_incident': structured_country(), 'peak_snapshot_id': 'snapshot_fixture', 'structured_v2': True}
+    fields.update(change)
+    ref, _ = add_record(delivery, 'country_outage', **fields)
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.status_code == 503
+    assert response.get_json()['state'] == 'unavailable'
+    assert client.get(URL, query_string={'date': '2026-02-24'}).status_code == 503
+
+
+def test_unstructured_country_keeps_unknown_and_stale_version_stays_409(delivery, client):
+    ref, _ = add_record(delivery, 'country_outage')
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.get_json()['item']['lifecycle']['state'] == 'unknown'
+    assert 'country_incident' not in response.get_json()['item']
+    assert client.get(URL + '/record', query_string={'ref': ref, 'version': 'older'}).status_code == 409
+
+
+def test_country_recorded_full_recovery_ends_the_detector_event(delivery, client):
+    incident = structured_country()
+    incident.update(recovery_state='fully_recovered', duration_state='exact',
+                    full_recovery_at='2026-02-24T03:00:00Z')
+    ref, _ = add_record(delivery, 'country_outage', structured_incident=incident,
+                        peak_snapshot_id='snapshot_fixture', structured_v2=True,
+                        e_time='2026-02-24 11:00:00')
+    response = client.get(URL + '/record', query_string={'ref': ref, 'version': 'delivery_fixture'})
+    assert response.status_code == 200
+    assert response.get_json()['item']['lifecycle']['state'] == 'ended'
+    validate(response.get_json(), 'CoreOverviewDetail')
+
+
+def test_leak_and_unselected_country_records_do_not_gain_outage_semantics(delivery, client):
+    ref, _ = add_record(delivery, 'country_outage', structured_v2=True, structured_incident={})
+    delivery['items'].append(event(2, kind='leak'))
+    response = client.get(URL, query_string={'date': '2026-02-24', 'kind': 'leak'})
+    assert response.status_code == 200
+    item = response.get_json()['events']['items'][0]
+    assert item['lifecycle']['state'] == 'unavailable'
+    assert 'country_incident' not in item
+    assert all(ref not in params[0] for sql, params in delivery['queries'] if 'reference = ANY' in sql)
 
 
 def test_rib_read_uses_bounded_sql_and_never_initializes_old_database(monkeypatch):

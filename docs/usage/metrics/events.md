@@ -1,6 +1,6 @@
 # 事件数量与生命周期
 
-事件数量、开始异常的唯一对象数、某时点的并发数量和事件修订数是不同指标。没有结束时间表示结束未知，不能直接回答“仍在发生”或“已经恢复”。
+事件数量、开始异常的唯一对象数、某时点的并发数量和事件修订数是不同指标。结束时间是否记录与检测事件状态分开解释：当前检测器的 AS／前缀事件显式 `e_time = NULL` 表示尚未触发恢复条件；未知来源的历史记录不能直接套用这一语义。
 
 ## 六类业务异常
 
@@ -51,6 +51,15 @@
 ## 开始、结束、持续和峰值
 
 开始、检测和结束各自对应不同证据。只有生命周期信息适用时，才给出确定持续时间；精确时长、下界和未知分别保留。历史泄漏不能由当前记录确定结束、持续中或恢复。
+
+完成文件模式下，Core 列表与详情的 `item.lifecycle` 使用同一转换：
+
+- `as_outage`／`prefix_outage` 的有效结束时间为 `ended`；显式 NULL 且事件开始到实际处理截止之间连续覆盖时为 `ongoing`。缺字段、空文本或处理缺口保持 `unknown`，不把“尚未结束”延续到墙钟当前时间。
+- `data_end_exclusive` 是同一交付版本实际完成文件的排他截止，不是运行计划窗口的终点，也不是入库时间。
+- 国家事件读取现有 `country-outage-incident/v2`，按其 `duration_state` 与恢复记录表达检测事件是否关闭；`observed_at` 使用该 incident 的实际最后观察时间。`ongoing` 与 `recovery_state=unknown` 可以同时成立：检测事件没有关闭，不代表已具备全国网络恢复程度的证据。
+- 原 `end_time.state` 继续表达字段是否记录，原 `record` 及 `content_version` 保留；新语义以响应的交付 `version` 和 `metadata.interpretation_version=completed-file-results/v2` 绑定。旧按日留存源不添加这组语义。
+
+对于已提供 `item.country_incident` 的国家事件，`peak_at`、`peak_snapshot_id`、`cohort_id`、`asn_membership` 与 `item.asns` 来自同一峰值快照。这里的 AS 名单是峰值成员，不是全事件累计成员或查询时刻成员；数量、分母、比例或快照冲突时接口返回不可用。没有结构化 incident 的旧记录不推定这层口径。峰值时间精度保留在 `milestones.peak.time_precision`，不从摘要文字解析。
 
 AS 中断保存的最大中断前缀数、最大总前缀数和最大比例，可能分别在不同时间更新。不能用“最大中断数÷最大总数”重建最大比例。
 
