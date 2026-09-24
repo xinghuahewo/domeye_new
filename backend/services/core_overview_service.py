@@ -13,7 +13,7 @@ from data_pipeline.overview.index import DailyIndex
 from data_pipeline.results.delivery_read import DeliveredIndex
 from data_pipeline.overview.scale import attach_scale
 from data_pipeline.overview.paths import attach_comparison
-from services.resource_service import attach_rib_statistics
+from services.resource_service import attach_rib_statistics, _time
 
 
 def _load():
@@ -41,7 +41,7 @@ def _load():
         raise OverviewError('首页留存输入不可用或校验失败') from error
 
 def get_core_overview(params):
-    if set(params) - {'date', 'family', 'kind', 'level', 'hour', 'q', 'sort', 'page', 'page_size', 'version'}:
+    if set(params) - {'date', 'start_time', 'end_time', 'country', 'family', 'kind', 'level', 'hour', 'q', 'sort', 'page', 'page_size', 'version'}:
         raise OverviewError('存在不支持的查询参数', 400)
     manifest, records, version = _load()
     if params.get('version') is not None and params['version'] != version:
@@ -56,6 +56,20 @@ def get_core_overview(params):
     except ValueError as error:
         raise OverviewError('日期须为有效的 YYYY-MM-DD', 400) from error
     end = start + timedelta(days=1)
+    ranged = 'start_time' in params or 'end_time' in params
+    country = params.get('country', '').strip()
+    if len(country) > 80 or any(ord(char) < 32 for char in country):
+        raise OverviewError('国家或地区名称无效', 400)
+    if ranged:
+        if 'date' in params or 'hour' in params:
+            raise OverviewError('时间区间不能同时提供 date 或 hour', 400)
+        try:
+            start, end = _time(params.get('start_time')), _time(params.get('end_time'))
+            day = start.date().isoformat()
+        except ValueError as error:
+            raise OverviewError('请提供完整有效的秒级起止时间', 400) from error
+    if (ranged or country) and not isinstance(records, DeliveredIndex):
+        raise OverviewError('当前留存源尚不支持区间与地区查询；需要完成文件结果源', 400)
     kind = params.get('kind', 'all')
     if kind not in ['all', *manifest['kinds']]:
         raise OverviewError('该异常类型尚未接入', 400)
@@ -79,7 +93,7 @@ def get_core_overview(params):
     except ValueError as error:
         raise OverviewError('页码须为正整数，每页 1 至 100 条', 400) from error
     if not datetime.fromisoformat(profile['window_start']) <= start < end <= datetime.fromisoformat(profile['window_end_exclusive']):
-        raise OverviewError('日期超出项目数据窗口', 400)
+        raise OverviewError('起止时间须有序且位于项目数据窗口内', 400)
     retained_start = datetime.fromisoformat(manifest['window']['start']).astimezone(zone)
     retained_end = datetime.fromisoformat(manifest['window']['end_exclusive']).astimezone(zone)
     cursor = retained_start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -98,6 +112,8 @@ def get_core_overview(params):
                   'level': level, 'sort': sort, 'q': query, 'page': page, 'page_size': page_size},
         'overview': None, 'trend': None, 'events': None,
     }
+    if ranged or country:
+        response['query'].update(window_mode='range' if ranged else 'day', country=country)
     if isinstance(records, DeliveredIndex):
         return attach_rib_statistics(records.query(response))
     if isinstance(records, DailyIndex):

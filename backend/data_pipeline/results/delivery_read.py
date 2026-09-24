@@ -1,6 +1,9 @@
 """交付库的只读查询；不扫描历史 Parquet、不触发生产。"""
 import hashlib
 import json
+from ast import literal_eval
+from bisect import bisect_right
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -37,40 +40,115 @@ def _covered_intervals(meta, start, end):
     )
 
 
-def _hour_windows(intervals, day_start):
-    return [
-        (max(left, day_start + timedelta(hours=hour)),
-         min(right, day_start + timedelta(hours=hour + 1)))
-        for hour in range(24)
-        for left, right in intervals
-        if max(left, day_start + timedelta(hours=hour))
-        < min(right, day_start + timedelta(hours=hour + 1))
-    ]
+def _bucket_windows(intervals, start, end, seconds):
+    cursor = start.replace(hour=(start.hour // (seconds // 3600)) * (seconds // 3600), minute=0, second=0, microsecond=0)
+    result = []
+    while cursor < end:
+        boundary = cursor + timedelta(seconds=seconds)
+        result.extend((max(left, cursor), min(right, boundary)) for left, right in intervals
+                      if max(left, cursor) < min(right, boundary))
+        cursor = boundary
+    return result
+
+
+def _countries(value):
+    """复用来源明确记录的国家名称；不由 ASN、攻击方或搜索文本猜测归属。"""
+    if isinstance(value, list):
+        return {item.strip() for item in value if isinstance(item, str) and item.strip()}
+    if not isinstance(value, str) or not value.strip():
+        return set()
+    text = value.strip()
+    if text.startswith(('[', '(')):
+        try:
+            parsed = literal_eval(text)
+            return _countries(list(parsed)) if isinstance(parsed, (list, tuple)) else set()
+        except (ValueError, SyntaxError, RecursionError):
+            return set()
+    return {text}
+
+
+def available_countries():
+    with conn_11.cursor() as cur:
+        cur.execute("SELECT DISTINCT subject FROM result_delivery.features WHERE scope='country'")
+        countries = {row[0] for row in cur.fetchall() if row[0]}
+        cur.execute("SELECT DISTINCT data->'attacked_country' FROM result_delivery.event_list")
+        for row in cur.fetchall():
+            countries.update(_countries(row[0]))
+    return sorted(countries)
 
 
 def _started_at(item):
     return datetime.fromisoformat(item['start_time'].replace('Z', '+00:00'))
 
 
-def _event_trends(items, windows, projection_errors):
+def _bucket_items(items, windows):
+    """只解析一次事件时间，归入有覆盖的半开桶；间隙与右端点仍排除。"""
+    starts = [left for left, _ in windows]
+    groups = [[] for _ in windows]
+    if not windows:
+        return groups
+    for item in items:
+        started_at = _started_at(item).astimezone(starts[0].tzinfo)
+        index = bisect_right(starts, started_at) - 1
+        if index >= 0 and started_at < windows[index][1]:
+            groups[index].append(item)
+    return groups
+
+
+def _event_trends(groups, windows, projection_errors, seconds=3600, ranged=False):
     """计数当前事件事实，每次修订不会成为一次新事件；不解释为并发数。"""
     result = {
         'state': 'unavailable' if projection_errors else 'available',
-        'metric': 'recorded_event_starts', 'filter_scope': 'date_and_family',
-        'bucket_seconds': 3600, 'series': [],
+        'metric': 'recorded_event_starts', 'filter_scope': 'window_country_and_family' if ranged else 'date_and_family',
+        'bucket_seconds': seconds, 'series': [],
     }
     if projection_errors:
         result['message'] = '部分交付事件尚不能解释，六类趋势暂不可用；缺失不表示零。'
         return result
+    counts = [Counter(item['kind'] for item in group) for group in groups]
     for kind in KINDS:
-        selected = [item for item in items if item['kind'] == kind]
         buckets = [
             {'start': left.isoformat(), 'end_exclusive': right.isoformat(),
-             'value': sum(left <= _started_at(item) < right for item in selected)}
-            for left, right in windows
+             'value': count[kind]}
+            for (left, right), count in zip(windows, counts)
         ]
-        result['series'].append({'kind': kind, 'total': len(selected), 'buckets': buckets})
+        result['series'].append({'kind': kind, 'total': sum(count[kind] for count in counts), 'buckets': buckets})
     return result
+
+
+def _core_summaries(cur, where, values, search):
+    """统计和分页只取标量；完整投影留到选定当前页后再读取。"""
+    fields = ('reference', 'kind', 'object', 'start_time', 'address_family', 'level')
+    columns = [f"core_item->>'{field}'" for field in fields]
+    columns.append("core_item ? 'level_conflict'")
+    if search:
+        columns.extend(["core_item->>'record_number'", "core_item->'asns'",
+                        "core_item->>'parent_prefix'", "core_item->>'country_name'"])
+    cur.execute(f"SELECT {', '.join(columns)} FROM result_delivery.events WHERE {where} AND core_item IS NOT NULL", values)
+    items = []
+    for row in cur.fetchall():
+        item = dict(zip(fields, row[:6]))
+        if row[6]:
+            item['level_conflict'] = True  # 只供既有筛选判断字段存在；不作为公开投影返回。
+        if search:
+            item.update(record_number=row[7], asns=row[8], country_name=row[10])
+            if row[9] is not None:
+                item['parent_prefix'] = row[9]
+        items.append(item)
+    return items
+
+
+def _page_items(items):
+    if not items:
+        return []
+    references = [item['reference'] for item in items]
+    # 同一只读、可重复读事务，列表投影和统计继续绑定同一版本。
+    with conn_11.cursor() as cur:
+        cur.execute('SELECT core_item FROM result_delivery.events WHERE reference = ANY(%s) AND core_item IS NOT NULL', (references,))
+        records = {row[0]['reference']: row[0] for row in cur.fetchall()}
+    if len(records) != len(references) or set(records) != set(references):
+        raise InputError('分页事件投影与统计不一致')
+    return [records[reference] for reference in references]
 
 
 def status(conn=conn_11):
@@ -147,6 +225,17 @@ class DeliveredIndex:
         meta = self.status; response['metadata']['result_delivery'] = meta
         start = datetime.fromisoformat(response['query']['start']); end = datetime.fromisoformat(response['query']['end_exclusive'])
         intervals = _covered_intervals(meta, start, end)
+        country = response['query'].get('country', '')
+        scoped = 'window_mode' in response['query']
+        if scoped:
+            response['metadata']['countries'] = available_countries()
+            if country and country not in response['metadata']['countries']:
+                raise InputError('当前结果源没有该国家或地区，请从地区列表选择', 400)
+            response['metadata']['query_coverage'] = {
+                'state': 'complete' if intervals == [(start, end)] else 'partial' if intervals else 'none',
+                'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a, b in intervals],
+                'country_basis': 'event_list.attacked_country',
+            }
         if not intervals:
             return response
         requested_hour = response['query']['hour']
@@ -160,34 +249,45 @@ class DeliveredIndex:
             for interval in intervals for value in interval
         )
         window_predicate = ' OR '.join("(data->>'s_time'>=%s AND data->>'s_time'<%s)" for _ in intervals)
+        # canonical_detail 将同一 start 写入 reference 和 data.s_time；生成 core_item
+        # 前 normalized_record 再核对身份与时间。已准入行无需展开大型证据正文来筛选。
+        event_window_predicate = ' OR '.join("(split_part(reference,'/',2)>=%s AND split_part(reference,'/',2)<%s)" for _ in intervals)
         with conn_11.cursor() as cur:
-            cur.execute(f"SELECT core_item FROM result_delivery.events WHERE ({window_predicate}) AND core_item IS NOT NULL",query_times)
-            items = [r[0] for r in cur.fetchall()]
-            cur.execute(f"SELECT count(*) FROM result_delivery.events WHERE ({window_predicate}) AND core_error IS NOT NULL",query_times)
+            scope_clause = ''
+            values = query_times
+            if country:
+                cur.execute(f"SELECT reference, data->'attacked_country' FROM result_delivery.event_list WHERE ({window_predicate})", query_times)
+                references = [row[0] for row in cur.fetchall() if country in _countries(row[1])]
+                scope_clause = ' AND reference = ANY(%s)'
+                values = (*query_times, references)
+            items = _core_summaries(cur, f'({event_window_predicate}){scope_clause}', values, bool(response['query']['q']))
+            cur.execute(f"SELECT count(*) FROM result_delivery.events WHERE ({window_predicate}){scope_clause} AND core_error IS NOT NULL",values)
             response['metadata']['projection_unavailable_records'] = cur.fetchone()[0]
-        items = [item for item in items if any(a <= _started_at(item) < b for a,b in intervals)]
+        seconds = 3600 if end-start <= timedelta(days=2) else 21600 if end-start <= timedelta(days=7) else 86400
+        windows = _bucket_windows(intervals, start, end, seconds)
+        groups = _bucket_items(items, windows)
         q=response['query']; family=q['family']
-        q['excluded_unknown_family']=sum(x['address_family']=='unknown' for x in items) if family in ('ipv4','ipv6') else 0
-        items=[x for x in items if family=='all' or x['address_family']==family or (family in ('ipv4','ipv6') and x['address_family']=='mixed')]
+        q['excluded_unknown_family']=sum(x['address_family']=='unknown' for group in groups for x in group) if family in ('ipv4','ipv6') else 0
+        groups=[[x for x in group if family=='all' or x['address_family']==family or (family in ('ipv4','ipv6') and x['address_family']=='mixed')] for group in groups]
+        items=[x for group in groups for x in group]
         total=len(items)
         zone=ZoneInfo(PROFILE['timezone'])
         hour=lambda x:datetime.fromisoformat(x['start_time'].replace('Z','+00:00')).astimezone(zone).hour
-        windows = _hour_windows(intervals, start)
         buckets = [
             {'start':a.isoformat(),'end_exclusive':b.isoformat(),
-             'value':len({x['object'] for x in items if x['kind']=='prefix_outage' and a <= _started_at(x) < b})}
-            for a,b in windows
+             'value':len({x['object'] for x in group if x['kind']=='prefix_outage'})}
+            for (a,b),group in zip(windows,groups)
         ]
         response['event_trends'] = _event_trends(
-            items, windows, response['metadata']['projection_unavailable_records'],
+            groups, windows, response['metadata']['projection_unavailable_records'], seconds, scoped,
         )
         items=[x for x in items if (q['kind']=='all' or x['kind']==q['kind']) and (q['hour'] is None or hour(x)==q['hour']) and (q['level']=='all' or overview_level_filter(x)==q['level']) and (not q['q'] or q['q'].lower() in overview_search_text(x))]
         items.sort(key=lambda x:x['reference']);items.sort(key=lambda x:x['start_time'],reverse=True)
         if q['sort']=='severity':items.sort(key=lambda x:{'high':0,'middle':1,'low':2}.get(x['level'],3))
         page,size=q['page'],q['page_size']
         response.update(state='available',overview={'record_count':total,'visible_prefixes':None,'visible_origin_ases':None},
-                        trend={'metric':'recorded_prefix_outage_starts_distinct','bucket_seconds':3600,'buckets':buckets},
-                        events={'total':len(items),'items':items[(page-1)*size:page*size],'distinct_prefixes':len({x['object'] for x in items if x['kind']=='prefix_outage'}),'page':page,'page_size':size,'page_count':(len(items)+size-1)//size})
+                        trend={'metric':'recorded_prefix_outage_starts_distinct','bucket_seconds':seconds,'buckets':buckets},
+                        events={'total':len(items),'items':_page_items(items[(page-1)*size:page*size]),'distinct_prefixes':len({x['object'] for x in items if x['kind']=='prefix_outage'}),'page':page,'page_size':size,'page_count':(len(items)+size-1)//size})
         return response
 
     def detail(self, ref):

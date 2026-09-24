@@ -1,7 +1,7 @@
 """独立 RIB 统计的业务读取；不在 HTTP 中生产 Resource 或共享快照。"""
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -44,12 +44,12 @@ def _window(params):
         raise ResourceError('必须且只能提供 start_time、end_time', 400)
     try:
         start, end = _time(params['start_time']), _time(params['end_time'])
-        if not start < end <= start + timedelta(days=1):
-            raise ValueError('窗口须为正且最多 24 小时')
+        if not start < end:
+            raise ValueError('窗口须为正')
         if not datetime.fromisoformat(PROFILE['window_start']) <= start < end <= datetime.fromisoformat(PROFILE['window_end_exclusive']):
             raise ValueError('超出数据档')
     except ValueError as error:
-        raise ResourceError('时间须精确到秒，窗口大于零且最多 24 小时，并在项目数据范围内', 400) from error
+        raise ResourceError('时间须精确到秒，窗口大于零且在项目数据范围内', 400) from error
     return start, end
 
 
@@ -103,6 +103,9 @@ def attach_rib_statistics(response):
     family = response['query']['family']
     metadata = {'state': 'not_calculated', 'family': family}
     response['metadata']['rib_statistics'] = metadata
+    if response['query'].get('country'):
+        metadata.update(state='not_applicable', message='地区 RIB 统计尚未生成')
+        return response
     if family == 'unknown':
         metadata.update(state='not_applicable', message='该 RIB 统计不提供未知地址族规模')
         return response
