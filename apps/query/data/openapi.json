@@ -366,7 +366,8 @@
                 "unknown"
               ],
               "default": "all"
-            }
+            },
+            "description": "按记录地址族筛选。前缀中断 prefix_outage 的对象是单个合法 CIDR，IPv4 与 IPv6 互斥；同版、同窗及相同其他筛选下可分族合计，并核对 family=all。多前缀对象可能为 mixed，同时纳入两侧；未知分类另保留，合计相等本身不能证明无重叠。query.excluded_unknown_family 在类型及列表筛选之前统计，不能当作当前类型的未知条数。"
           },
           {
             "name": "kind",
@@ -607,7 +608,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "使用中文事件类型，例如前缀中断、AS中断、国家中断；不是 Core 的 prefix_outage、as_outage、country_outage。"
           },
           {
             "name": "level",
@@ -621,7 +623,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "地域筛选：all 为全部，foreign 为国外，省略为国内。不是国家代码；IR、Iran 等不能用于筛选伊朗。"
           },
           {
             "name": "event_info",
@@ -635,7 +638,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "固定数据档下必须给完整日期范围，格式 YYYY-MM-DD_YYYY-MM-DD；查询单日时两侧写同一日。北京时间，从首日 00:00:00 到末日 23:59:59。错误提示中的允许日期范围不替代用户的查询窗口。"
           },
           {
             "name": "sort_mode",
@@ -680,7 +684,8 @@
               }
             }
           }
-        }
+        },
+        "summary": "查询兼容事件列表及数量；保留既有时长、编号和地域筛选"
       }
     },
     "/api/v1/events/top": {
@@ -1403,6 +1408,7 @@
     },
     "/api/v1/features/top": {
       "get": {
+        "summary": "读取指定国家、ASN 或采集范围的通告（宣告）、撤回活动及资源样本时序",
         "operationId": "getTopFeatures",
         "parameters": [
           {
@@ -1449,11 +1455,13 @@
               }
             }
           }
-        }
+        },
+        "description": "响应没有整体交付版本，样本时间沿用文件标签。需要精确窗口、资源末态或同版比较时，从当前批次支持的适用入口重新取得参与值及其元数据；若未取得则按标签样本陈述，不借其他响应补齐。 按用户 [start,end) 作标签样本统计时，先选择 start <= 标签 < end，排除兼容响应多返回的结束标签；标签筛选不能确认文件实际结束、整窗覆盖或版本。"
       }
     },
     "/api/v1/features/countries": {
       "get": {
+        "summary": "分页读取国家通告（宣告）、撤回活动及资源样本时序",
         "operationId": "getCountryFeatures",
         "parameters": [
           {
@@ -1509,11 +1517,13 @@
               }
             }
           }
-        }
+        },
+        "description": "响应没有整体交付版本，样本时间沿用文件标签。需要精确窗口、资源末态或同版比较时，从当前批次支持的适用入口重新取得参与值及其元数据；若未取得则按标签样本陈述，不借其他响应补齐。 按用户 [start,end) 作标签样本统计时，先选择 start <= 标签 < end，排除兼容响应多返回的结束标签；标签筛选不能确认文件实际结束、整窗覆盖或版本。"
       }
     },
     "/api/v1/features/countries/overview": {
       "get": {
+        "summary": "查询国家通告（宣告）、撤回、资源样本和关联异常的档案与候选排行",
         "operationId": "getCountryWorkbenchOverview",
         "parameters": [
           {
@@ -1564,11 +1574,12 @@
             }
           }
         },
-        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询国家已观测样本，最多 24 小时。活动、末态资源和事件数量分别解释，不推定窗口完整覆盖。并列活动峰值取首次。"
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询国家已观测样本，最多 24 小时。活动、末态资源和事件数量分别解释，不推定窗口完整覆盖。并列活动峰值取首次。 响应没有整体交付版本，样本时间沿用文件标签。需要精确窗口、资源末态或同版比较时，从当前批次支持的适用入口重新取得参与值及其元数据；若未取得则按标签样本陈述，不借其他响应补齐。"
       }
     },
     "/api/v1/features/ases": {
       "get": {
+        "summary": "分页读取 ASN 通告（宣告）、撤回活动及资源样本时序；默认 ASN 候选不是全体 ASN",
         "operationId": "getAsFeatures",
         "parameters": [
           {
@@ -1629,11 +1640,13 @@
               }
             }
           }
-        }
+        },
+        "description": "响应没有整体交付版本，样本时间沿用文件标签。需要精确窗口、资源末态或同版比较时，从当前批次支持的适用入口重新取得参与值及其元数据；若未取得则按标签样本陈述，不借其他响应补齐。 按用户 [start,end) 作标签样本统计时，先选择 start <= 标签 < end，排除兼容响应多返回的结束标签；标签筛选不能确认文件实际结束、整窗覆盖或版本。"
       }
     },
     "/api/v1/features/ases/overview": {
       "get": {
+        "summary": "查询 ASN 通告（宣告）、撤回、资源样本和关联异常的档案与运营候选排行",
         "operationId": "getAsWorkbenchOverview",
         "parameters": [
           {
@@ -1709,7 +1722,7 @@
             }
           }
         },
-        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。"
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。 响应没有整体交付版本，样本时间沿用文件标签。需要精确窗口、资源末态或同版比较时，从当前批次支持的适用入口重新取得参与值及其元数据；若未取得则按标签样本陈述，不借其他响应补齐。"
       }
     },
     "/api/v1/features/ases/events": {
@@ -1790,7 +1803,8 @@
             }
           }
         },
-        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。 仅查询六类核心事件中开始时间满足 start_time <= s_time < end_time 的保存记录，以数字边界精确匹配 attacked_as（受影响 ASN 字段）。不搜索 attacker_as、路径成员或正文中的其他参与角色；零命中仅适用于该字段与开始窗口，不证明全部角色无关联或实际未断网。受影响角色沿用检测记录，不代表已证实真实受害或责任。"
+        "description": "按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。 仅查询六类核心事件中开始时间满足 start_time <= s_time < end_time 的保存记录，以数字边界精确匹配 attacked_as（受影响 ASN 字段）。不搜索 attacker_as、路径成员或正文中的其他参与角色；零命中仅适用于该字段与开始窗口，不证明全部角色无关联或实际未断网。受影响角色沿用检测记录，不代表已证实真实受害或责任。 本入口只返回总数及最近最多 50 条记录，没有翻页参数；total_page 是有结果时为 1、无结果时为 0 的兼容标记，不是取全明细的证明。响应无整体交付版本，不能继承其他响应的版本作跨请求同版比较。",
+        "summary": "查询指定 ASN 受影响角色的关联事件总数及最近最多 50 条记录"
       }
     },
     "/api/v1/features/outages/country-as": {
@@ -2228,6 +2242,7 @@
     },
     "/api/v1/features/summary": {
       "get": {
+        "summary": "汇总采集器、国家或单 ASN 已保存的通告（宣告）、撤回活动与最新资源样本",
         "operationId": "queryFeatureSummary",
         "description": "查询采集器、国家或单ASN的已保存Feature样本汇总；只纳入完整文件，不将稀疏缺行解释为零或当前状态。",
         "parameters": [
@@ -2355,7 +2370,8 @@
         "required": true,
         "schema": {
           "type": "string"
-        }
+        },
+        "description": "采集范围用 collector 或“路由采集点”；rrc 后接数字也仅选择当前绑定的采集范围，不切换采集器。国家用保存的中文名，例如“伊朗”；ASN 用十进制数字或 AS 前缀，例如 48715、AS48715。实际采集器以响应来源为准。"
       },
       "Country": {
         "name": "country",
@@ -7289,13 +7305,16 @@
               "not_available",
               "observed_no_path",
               "observed_paths"
-            ]
+            ],
+            "description": "先按状态解释该阶段：not_available 表示没有保留路径快照，网络路径状态未知；observed_no_path 表示已保存快照没有路径；observed_paths 表示已保存快照有路径。"
           },
           "snapshot_count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "该阶段已保存路径快照条数，不是连续覆盖证明。"
           },
           "path_count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "该阶段各已保存快照的路径条目数之和，跨快照可重复，不是路径变化次数。status=not_available 时的 0 仅表示包内没有条目，展示观测路径数应为未知；只有实际快照状态 observed_no_path 才支持报告观测到 0 条。"
           },
           "evidence_ids": {
             "type": "array",
@@ -8102,7 +8121,7 @@
               "number",
               "null"
             ],
-            "description": "已观测活动样本总体标准差／均值×100。均值为零、样本少于两个或缺少标准差时 null；不是故障概率。"
+            "description": "已保存活动样本总体标准差／均值×100，单位 %，描述活动次数相对离散程度。均值为零、样本少于两个或缺少标准差时 null；不衡量前缀持续可见、路由状态稳定或故障概率。"
           },
           "anomaly_count": {
             "type": "integer",
@@ -8185,13 +8204,16 @@
             "type": "string"
           },
           "candidate_pool_size": {
-            "type": "integer"
+            "type": "integer",
+            "description": "静态 ASN 池大小，不是当前查询对象数或指标排名参与者数。"
           },
           "scope_size": {
-            "type": "integer"
+            "type": "integer",
+            "description": "实际查询对象数，包含没有当前 Feature 样本的对象。普通模式为静态优先、重要、窗口异常及可选指定 ASN 去重后的集合；事件窗口模式仅查询指定 ASN。"
           },
           "feature_asn_count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "当前查询候选中实际具有 Feature 样本的 ASN 数；各指标排名另排除不可计算值，不代表完整窗口覆盖。"
           },
           "important_asn_count": {
             "type": "integer"
@@ -8243,7 +8265,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AsProfile"
-            }
+            },
+            "description": "按宣告与撤回之和降序返回 Top N；参与者须属于当前查询候选、具有当前样本且总活动量可计算，不是宣告单项或全体 ASN 排名。"
           },
           "withdraw_rate_rankings": {
             "type": "array",
@@ -8310,13 +8333,15 @@
             "description": "六类核心事件中，开始时间满足 start_time <= s_time < end_time 且受影响 ASN 字段精确匹配的记录总数，以字符串返回；不是当前页长度。0 仅表示此范围零命中，不证明其他角色无关联或实际未断网。"
           },
           "total_page": {
-            "type": "integer"
+            "type": "integer",
+            "description": "兼容结果标记：匹配总数非零时为 1，否则为 0；不表示完整页数。本入口没有翻页参数。"
           },
           "data": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/EventItem"
-            }
+            },
+            "description": "按开始时间倒序返回最近 page_size 条，最多 50 条；所选窗口的匹配总数另见 record_count。明细被截取时只解释已返回记录，不能据此计算全量类型或等级分布。"
           }
         }
       },

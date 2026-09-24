@@ -5,8 +5,15 @@ export class ToolFailure extends Error {
   constructor(kind, message) { super(message); this.kind = kind; }
 }
 
+// 执行与模型可见的工具说明共用默认额度，避免说明与实际边界漂移。
+export const EXECUTION_LIMITS = Object.freeze({ timeoutMs: 15_000, maxRequests: 16 });
+const RESULT_RESPONSE_HEADERS = [
+  'x-domeye-result-state', 'x-domeye-result-version', 'x-domeye-result-start',
+  'x-domeye-result-end-exclusive', 'x-domeye-result-coverage',
+];
+
 // 代码仅在独立线程中的 QuickJS-WASM 执行；请求能力留在宿主。
-export function runCode({ code, spec, request, signal, timeoutMs = 15_000, memoryBytes = 64 * 1024 * 1024, maxRequests = 16, maxRequestBytes = 64 * 1024, maxResultBytes = 4 * 1024 * 1024 }) {
+export function runCode({ code, spec, request, signal, timeoutMs = EXECUTION_LIMITS.timeoutMs, memoryBytes = 64 * 1024 * 1024, maxRequests = EXECUTION_LIMITS.maxRequests, maxRequestBytes = 64 * 1024, maxResultBytes = 4 * 1024 * 1024 }) {
   if (typeof code !== 'string' || !code.trim() || code.length > 100_000) return Promise.reject(new ToolFailure('input', 'code 须为非空且不超过 100000 字符的 JavaScript。'));
   if ((spec === undefined) === (request === undefined)) return Promise.reject(new ToolFailure('input', '执行时须明确选择 spec 或 request 上下文。'));
   if (signal?.aborted) return Promise.reject(new ToolFailure('code', '本次执行已停止。'));
@@ -76,7 +83,13 @@ export function createRequest({ baseUrl, paths, onResponse = () => {}, maxRespon
     const text = Buffer.concat(chunks).toString('utf8');
     let body = text || null;
     if (text) { try { body = JSON.parse(text); } catch { /* 非 JSON 正文按原文返回。 */ } }
-    const result = { status: response.status, body };
+    // 只保留服务端的交付元数据；Cookie 等无关响应头不进入沙箱或会话记录。
+    const headers = {};
+    for (const name of RESULT_RESPONSE_HEADERS) {
+      const value = response.headers.get(name);
+      if (value !== null) headers[name] = value;
+    }
+    const result = { status: response.status, body, ...(Object.keys(headers).length ? { headers } : {}) };
     onResponse({ request: structuredClone(input), response: structuredClone(result) });
     return result;
   };

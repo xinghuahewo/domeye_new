@@ -25,7 +25,7 @@ npm run web
 
 | 新会话选择 | 服务器只读入口 | 来源 |
 | --- | --- | --- |
-| 2 月 24 日完成结果 | `127.0.0.1:28683` | `iran-business-20260921d` 已交付的完成文件 |
+| 2026 年 2 月 24 日完成结果 | `127.0.0.1:28683` | `iran-business-20260921d` 已交付的完成文件 |
 | 三日任务已交付结果 | `127.0.0.1:28572` | `iran-three-days-20260922a` 已完成部分；不宣称三日完整 |
 
 两批分别绑定自己的实际 OpenAPI，查询时发现覆盖和版本；不跨批次借用参数或数据。服务器直接读本机 API；本地使用时须将这两个端口通过 SSH 转发。`DOMEYE_QUERY_API_BASE_URL` 是宿主显式覆盖，CLI 对所选批次生效，页面仅对默认完成文件批次生效，改变前须核对接口合同。
@@ -47,7 +47,11 @@ node cli.mjs --dataset three-day --prompt '这批数据完整了吗？'
 | `search({code})` | JavaScript 查询已展开引用的 OpenAPI，逐步选出完整接口路径及必要结构；不读业务数据 |
 | `execute({code})` | 独立 QuickJS-WASM 中经 `domeye.request()` 读取和计算，返回代码选择的结果 |
 
-`domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次请求、4 MiB 结果；每个问题最多 20 次工具调用。
+`domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`，并在实际返回时保留可选 `headers`：`x-domeye-result-state`、`x-domeye-result-version`、`x-domeye-result-start`、`x-domeye-result-end-exclusive`、`x-domeye-result-coverage`。键使用小写，缺失不补齐；Cookie及其他响应头不进入沙箱或记录。这些交付头也独立保存在同次HTTP的范围回执中，模型聚合或省略正文时仍可核对。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次 `domeye.request` 调用、4 MiB 结果；被请求策略拦截的调用也占次数，每个问题最多 20 次工具调用。时间与请求次数由执行器的同一份默认额度写入模型可见的工具说明，未提高限额。
+
+版本冲突后须发现并按新版本整题重取。Core 已明确声明完成文件来源时，可用 `/api/v1/healthz` 中同一 source_run、collector 和交付格式的 `result_delivery` 重新确认一次；健康响应本身仍无整体交付版本。未知绑定、独立留存或来源不符不能借此恢复，旧版本也不会被静默替换。该恢复只涉及只读请求策略，不触发数据生产或服务重启。
+
+Core 的完整交付绑定已确认时，与完成文件的版本化查询入口共享已确认版本及一次恢复额度；后续跨入口读取也须显式带版本。目录发现和健康发现恢复同一来源的版本状态，之前已读的查询仍须整题重取。首次识别共享绑定时若发现版本不同，保留冲突正文，不将两份读数同时确认为可用。响应头只保留服务端交付上下文；现有自动版本策略仍核对正文版本，不把通用头自动升级为所有正文结果的同版保证，也不以头部首末范围替代对象样本窗口。
 
 工具发现和收窄遵循 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果超过 24000 个 JavaScript 字符时附 TRUNCATED 并提示收窄；原始结果继续保存。宿主注入和执行边界先对照 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
 
@@ -55,7 +59,9 @@ Pi 0.87.0、DeepSeek `deepseek-v4-pro`、high 推理、标准请求。会话记�
 
 ## 准备文档检索
 
-QMD 2.8.3 固定使用 `1e370683cf1233a433c56e498d1f58d34e92484a` 的 20 篇业务原文。项目 Git 的 `query-docs-20260923` 标签保留这份来源，独立于应用发布提交；准备脚本用 `git show` 读取固定提交，不读取源码目录的未提交文档。该标签保全原分支来源，不表示其全部后端修改已合入 main。
+QMD 2.8.3 固定使用 `aa31830e9044a987b331d4bd36859bac0d432a8c` 的 20 篇业务原文。项目 Git 的 `query-docs-20260923-coverage9` 标签保留这份来源，独立于应用发布提交；准备脚本用 `git show` 读取固定提交，不读取源码目录的未提交文档。该标签保全原分支来源，不表示其全部后端修改已合入 main。
+
+docs 复用 QMD 的关键词和向量检索。原查询及按空白、标点分开的词组最多进行 8 次关键词检索；词法命中达到既有分数门槛后优先选入，再用向量候选补足，按文档去重，保留 3 篇主结果和每篇 80 行的原上限。命中末段时向前补足行预算，避免遗漏同篇定义。返回内容仍逐一核对固定文件散列、索引正文和来源行号；向量执行没有候选等底层错误仍明确失败。没有领域词表、标准答案或额外模型。
 
 ```bash
 # 以下命令从 apps/query 执行，DOMEYE_QUERY_STATE_DIR 已设置

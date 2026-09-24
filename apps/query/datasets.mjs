@@ -2,7 +2,7 @@ import { API_SOURCE_COMMIT } from './source.mjs';
 
 // 宿主登记本项目的两个读取入口。批次固定于会话，覆盖与版本仍由实际查询发现。
 export const PROJECT_DATASETS = Object.freeze([
-  Object.freeze({ id: 'completed-files', label: '2 月 24 日完成结果',
+  Object.freeze({ id: 'completed-files', label: '2026 年 2 月 24 日完成结果',
     description: '本项目已交付的完成文件；实际覆盖在查询时确认。',
     apiBaseUrl: 'http://127.0.0.1:28683', specFile: 'openapi.json',
     sourceRun: '/home/bgpdata/domeye-new-runtime/dev/runs/iran-business-20260921d',

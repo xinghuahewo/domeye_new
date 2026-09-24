@@ -178,6 +178,26 @@ async function retrieve({ settings, query }) {
     // 非空且完整的向量集合应有候选；QMD 将部分嵌入错误转换为 null，不能冒充无命中。
     if (!hits.length && files.size) throw new Error('QMD 未产生向量候选，请检查嵌入模型和索引。');
     if (hits.some(hit => !Number.isFinite(hit.score))) throw new Error('QMD 返回了无效相似度。');
+    // 向量容易遗漏精确术语。复用 QMD 的关键词检索补充原查询及其词组，
+    // 不使用领域词表、答案规则或新的模型；片段数量与分数门槛保持不变。
+    const lexicalQueries = [...new Set([query, ...query.split(/[\s,，。;；:：!?！？]+/u)]
+      .filter(term => term.length >= 2))].slice(0, 8);
+    const lexical = new Map();
+    for (const term of lexicalQueries) {
+      const matches = await store.searchLex(term, { limit: maxResults, collection: 'domeye' });
+      for (const hit of matches) {
+        if (!Number.isFinite(hit.score)) throw new Error('QMD 返回了无效关键词分数。');
+        if (hit.score < minScore) continue;
+        const previous = lexical.get(hit.filepath);
+        if (!previous || hit.score > previous.score) lexical.set(hit.filepath, { ...hit, matchedTerm: term });
+      }
+    }
+    // 关键词与向量分数不混排：先给精确术语命中的原文，再补向量候选。
+    const selected = new Map();
+    for (const hit of [...lexical.values()].sort((a, b) => b.score - a.score)
+      .concat(hits.filter(hit => hit.score >= minScore))) {
+      if (!selected.has(hit.filepath) && selected.size < maxResults) selected.set(hit.filepath, hit);
+    }
     const results = [], primary = [];
     async function original(path) {
       const source = files.get(path);
@@ -198,17 +218,19 @@ async function retrieve({ settings, query }) {
       if (!text || text !== lines.slice(start, end).join('\n')) throw new Error(`原文行区间校验失败：${path}`);
       return { title, source: `domeye@${DOCS_SOURCE_COMMIT}:${path}:L${start + 1}-L${end}`, text };
     }
-    for (const hit of hits.filter(hit => hit.score >= minScore)) {
+    for (const hit of selected.values()) {
       const prefix = 'qmd://domeye/';
       if (!hit.filepath.startsWith(prefix)) throw new Error('QMD 返回了范围之外的文档。');
       const path = hit.filepath.slice(prefix.length);
       const { raw, lines } = await original(path);
-      if (!Number.isSafeInteger(hit.chunkPos) || hit.chunkPos < 0 || hit.chunkPos > raw.length) {
+      const chunkPos = hit.matchedTerm !== undefined
+        ? Math.max(0, raw.toLowerCase().indexOf(hit.matchedTerm.toLowerCase())) : hit.chunkPos;
+      if (!Number.isSafeInteger(chunkPos) || chunkPos < 0 || chunkPos > raw.length) {
         throw new Error(`索引片段位置无效：${path}`);
       }
-      const chunkLine = raw.slice(0, hit.chunkPos ?? 0).split('\n').length - 1;
-      // 篇幅容许时保留整篇，避免语义命中靠后段落时丢掉同篇定义与限制。
-      const start = lines.length <= maxLines ? 0 : Math.max(0, chunkLine - 3);
+      const chunkLine = raw.slice(0, chunkPos).split('\n').length - 1;
+      // 命中末段时向前补足已有行预算，避免略超上限就丢掉同篇前部定义。
+      const start = Math.max(0, Math.min(chunkLine - 3, lines.length - maxLines));
       const end = Math.min(lines.length, start + maxLines);
       const result = await excerpt(path, hit.title, lines, start, end);
       results.push(result); primary.push({ path, source: result.source, text: result.text });

@@ -153,6 +153,182 @@ test('同值字符串不证明 Core 独立；明确交付绑定将故障关联�
   assert.deepEqual(linked.snapshot().unresolvedFailures, []);
 });
 
+const delivered = (version, extra = {}) => ({ state: 'available', version, binding: {
+  source_run: 'synthetic-run', collector: 'rrc25', schema_version: 'completed-file-delivery/v1', ...extra,
+} });
+const deliveredCore = version => available(version, { metadata: {
+  interpretation_version: 'completed-file-results/v1', result_delivery: delivered(version),
+} });
+
+test('已确认同一交付来源的 Core 与汇总共享版本，变化后原查询全部重取', async () => {
+  let version = 'synthetic-v1';
+  const h = harness(request => request.query.version && request.query.version !== version ? failed(409)
+    : request.path === paths.core ? deliveredCore(version) : available(version));
+  const coreQuery = { date: '2000-01-01' };
+  await h.request(input('core', coreQuery));
+  version = 'synthetic-v2';
+  await blocked(h.request(input('feature', { scope: 'collector' })), '显式');
+  assert.equal(h.calls.length, 1, '确认来源后，不发出无版本的第二入口请求');
+  assert.equal(h.snapshot().families.delivery.version, 'synthetic-v1');
+  assert.deepEqual(await h.request(input('feature', { scope: 'collector', version: 'synthetic-v1' })), failed(409));
+  await h.request(input('discover'));
+  assert.equal(h.snapshot().families.core.version, version);
+  assert.deepEqual(h.snapshot().unresolvedFailures, []);
+  assert.equal(h.snapshot().restartRequired, true);
+  await blocked(h.request(input('core', { ...coreQuery, version: 'synthetic-v1' })), '显式');
+  await h.request(input('core', { ...coreQuery, version }));
+  await h.request(input('feature', { scope: 'collector', version }));
+  assert.equal(h.snapshot().restartRequired, false);
+});
+
+test('首次识别 Core 交付来源时，不能接受与已读汇总不同的版本', async () => {
+  let version = 'synthetic-v1';
+  const h = harness(request => request.path === paths.health
+    ? { status: 200, body: { result_delivery: delivered(version) } }
+    : request.path === paths.core ? deliveredCore(version) : available(version));
+  const featureQuery = { scope: 'collector' };
+  await h.request(input('feature', featureQuery));
+  version = 'synthetic-v2';
+  assert.deepEqual(await h.request(input('core')), deliveredCore(version), '冲突正文原样保留');
+  assert.equal(h.events.at(-1).versionAssurance, 'mismatch');
+  assert.equal(h.events.at(-1).expectedVersion, 'synthetic-v1');
+  assert.deepEqual(h.snapshot().unresolvedFailures.sort(), ['core', 'delivery']);
+  await h.request(input('health'));
+  assert.equal(h.snapshot().families.core.version, version);
+  assert.equal(h.snapshot().families.delivery.version, version);
+  assert.equal(h.snapshot().restartRequired, true);
+  await h.request(input('feature', { ...featureQuery, version }));
+  assert.equal(h.snapshot().restartRequired, false);
+});
+
+test('交付目录恢复同时解除已绑定 Core 冲突，不遗留无法重取的旧版本', async () => {
+  let version = 'synthetic-v1';
+  const h = harness(request => request.query.version && request.query.version !== version ? failed(409)
+    : request.path === paths.core ? deliveredCore(version) : available(version));
+  await h.request(input('core'));
+  await h.request(input('statistics', { version, bucket: 'hour' }));
+  version = 'synthetic-v2';
+  await h.request(input('core', { version: 'synthetic-v1' }));
+  await h.request(input('discover'));
+  assert.deepEqual(h.snapshot().unresolvedFailures, []);
+  assert.equal(h.snapshot().families.core.version, version);
+  assert.equal(h.snapshot().pendingReplay.length, 2);
+  await h.request(input('core', { version }));
+  await h.request(input('statistics', { version, bucket: 'hour' }));
+  assert.equal(h.snapshot().restartRequired, false);
+});
+
+test('同一交付的两个发现入口共享一次恢复额度，不能换入口再次恢复', async () => {
+  for (const firstDiscovery of ['health', 'discover']) {
+    let version = 'synthetic-v1', failDiscovery = true;
+    const h = harness(request => {
+      if (request.path === paths.health) return { status: 200, body: { result_delivery: failDiscovery ? undefined : delivered(version) } };
+      if (request.path === paths.discover) return failDiscovery ? failed(503) : available(version);
+      return request.query.version && request.query.version !== version ? failed(409) : deliveredCore(version);
+    });
+    await h.request(input('core'));
+    version = 'synthetic-v2';
+    await h.request(input('core', { version: 'synthetic-v1' }));
+    await h.request(input(firstDiscovery));
+    failDiscovery = false;
+    if (firstDiscovery === 'health') await blocked(h.request(input('discover')), '已尝试');
+    else await h.request(input('health'));
+    assert.equal(h.snapshot().families.core.conflict, true);
+    assert.equal(h.snapshot().families.delivery.conflict, true);
+    assert.equal(h.snapshot().families.core.version, 'synthetic-v1');
+    assert.equal(h.snapshot().families.core.refreshUsed, true);
+    assert.equal(h.snapshot().families.delivery.refreshUsed, true);
+  }
+});
+
+test('已确认交付 Core 冲突后可从健康入口同一来源重新发现；旧版受限且整题重取', async () => {
+  let version = 'synthetic-v1';
+  const h = harness(request => request.path === paths.health
+    ? { status: 200, body: { status: 'ok', result_delivery: delivered(version) } }
+    : request.query.version && request.query.version !== version ? failed(409) : deliveredCore(version));
+  await h.request(input('core', { date: '2026-02-27' }));
+  await h.request(input('core', { date: '2026-02-28', version }));
+  version = 'synthetic-v2';
+  const query = input('core', { date: '2026-02-27', version: 'synthetic-v1' });
+  assert.deepEqual(await h.request(query), failed(409));
+  await blocked(h.request(input('core', { date: '2026-02-27' })));
+  await blocked(h.request(input('core', { date: '2026-02-27', version })));
+  const raw = await h.request(input('health'));
+  assert.equal(raw.body.result_delivery.version, version);
+  assert.equal(raw.body.version, undefined, '不把嵌套发现版本改写为健康正文顶层版本');
+  assert.equal(h.snapshot().families.core.version, version);
+  assert.equal(h.snapshot().families.delivery.version, version);
+  assert.deepEqual(h.snapshot().unresolvedFailures, []);
+  assert.equal(h.snapshot().pendingReplay.length, 2);
+  await blocked(h.request(query), '显式');
+  await h.request(input('core', { date: '2026-02-27', version }));
+  assert.equal(h.snapshot().restartRequired, true);
+  await h.request(input('core', { date: '2026-02-28', version }));
+  assert.equal(h.snapshot().restartRequired, false);
+  version = 'synthetic-v3';
+  await h.request(input('core', { date: '2026-02-27', version: 'synthetic-v2' }));
+  await h.request(input('health'));
+  assert.equal(h.snapshot().families.core.version, 'synthetic-v2', '同轮第二次健康读取不再恢复');
+  await blocked(h.request(input('core', { date: '2026-02-27', version })));
+  h.beginTurn();
+  await h.request(input('health'));
+  await h.request(input('core', { date: '2026-02-27', version }));
+});
+
+test('健康读取缺少或更换交付绑定、发现不可用均不解除 Core 冲突', async () => {
+  for (const discovery of [undefined, delivered('synthetic-v2', { source_run: 'another-run' }),
+    delivered('synthetic-v2', { collector: 'rrc00' }), delivered('synthetic-v2', { schema_version: 'other' }),
+    { ...delivered('synthetic-v2'), state: 'unavailable' }]) {
+    let first = true;
+    const h = harness(request => request.path === paths.health
+      ? { status: 200, body: { status: 'ok', result_delivery: discovery } }
+      : first ? (first = false, deliveredCore('synthetic-v1')) : failed(409));
+    await h.request(input('core'));
+    await h.request(input('core', { version: 'synthetic-v1' }));
+    await h.request(input('health'));
+    assert.equal(h.snapshot().families.core.version, 'synthetic-v1');
+    assert.equal(h.snapshot().families.core.conflict, true);
+    assert.equal(h.snapshot().families.core.refreshUsed, true);
+    await blocked(h.request(input('core', { version: 'synthetic-v2' })));
+  }
+});
+
+test('不匹配正文不能改写已确认来源，再用同一新来源的健康响应恢复', async () => {
+  for (const changedBinding of [{ source_run: 'another-run' }, { collector: 'rrc00' }]) {
+    let first = true;
+    const changedDelivery = delivered('synthetic-v2', changedBinding);
+    const mismatch = available('synthetic-v2', { metadata: {
+      interpretation_version: 'completed-file-results/v1', result_delivery: changedDelivery,
+    } });
+    const h = harness(request => request.path === paths.health
+      ? { status: 200, body: { status: 'ok', result_delivery: changedDelivery } }
+      : first ? (first = false, deliveredCore('synthetic-v1')) : mismatch);
+    await h.request(input('core'));
+    assert.deepEqual(await h.request(input('core', { version: 'synthetic-v1' })), mismatch);
+    await h.request(input('health'));
+    assert.equal(h.snapshot().families.core.version, 'synthetic-v1');
+    assert.equal(h.snapshot().families.core.conflict, true);
+    await blocked(h.request(input('core', { version: 'synthetic-v2' })));
+    assert.equal(h.calls.length, 3, '来源变化不能获准发出新版本业务请求');
+  }
+});
+
+test('相同版本不能代替交付来源证据；健康入口不恢复未知或独立 Core', async () => {
+  for (const metadata of [undefined, { interpretation_version: 'recorded-anomaly-overview/v3',
+    source: { instance: 'synthetic-retained', collector_id: 'rrc25' } }]) {
+    let first = true;
+    const h = harness(request => request.path === paths.health
+      ? { status: 200, body: { result_delivery: delivered('synthetic-v2') } }
+      : first ? (first = false, available('synthetic-v1', { metadata })) : failed(409));
+    await h.request(input('core'));
+    await h.request(input('core', { version: 'synthetic-v1' }));
+    await h.request(input('health'));
+    assert.equal(h.snapshot().families.core.conflict, true);
+    assert.equal(h.snapshot().families.core.refreshUsed, false);
+    await blocked(h.request(input('core', { version: 'synthetic-v2' })));
+  }
+});
+
 test('503 同请求重试恢复后合法同版读取继续；下一用户 turn 重置重试而保留版本', async () => {
   let failCount = 0;
   const h = harness(request => request.path === paths.statistics && ++failCount === 1 ? failed(503) : available());

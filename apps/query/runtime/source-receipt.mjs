@@ -52,7 +52,14 @@ export function makeSourceReceipt({ toolCallId, event, response, maxScopeBytes =
   return {
     toolCallId, id: structuredClone(event.id), turn: structuredClone(event.turn),
     request: structuredClone(event.request), status: response.status, source,
-    note: '仅对应这次 HTTP 响应，不是任意 JavaScript 返回值的字段血缘；不能从值相同推导来源。版本未确认不能借其他响应的覆盖，版本已确认也不等于跨入口语义可比。',
+    ...(isObject(response.headers) ? { headers: structuredClone(response.headers) } : {}),
+    note: '仅对应这次 HTTP 响应，不是任意 JavaScript 返回值的字段血缘；不能从值相同推导来源。版本未确认不能借其他响应的覆盖，版本已确认也不等于跨入口语义可比。' +
+      (isObject(response.headers)
+        ? ' headers 保留同次响应的服务端交付上下文；是否适用于正文结果须按接口来源核对，不替代对象样本窗口。source 的版本保证仍按正文版本判定。'
+        : '') +
+      (bodyVersion === null
+        ? ' 本次正文未返回整体版本，正文内各结果的发布身份分别核对。只按本响应自有证据陈述；不能借其他响应补版本、覆盖或末态时间，也不能用相邻样本标签补文件结束边界。需要同版或精确窗口比较时，从适用入口重取参与值及其元数据；资源只给最新样本时可分别查询两端。否则按已保存标签样本陈述，把版本或实际窗口保留为未确认。'
+        : ''),
     scope,
     scopeInfo: {
       bodyType, omittedFields, scopeBytes: bytesOf(scope), maxScopeBytes,

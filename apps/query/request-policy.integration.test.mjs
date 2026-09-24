@@ -3,6 +3,170 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 
+test('实际 execute 保留同次交付响应头、原文和失败，响应头不冒充正文版本', async () => {
+  const deliveryHeaders = {
+    'x-domeye-result-state': 'available',
+    'x-domeye-result-version': 'synthetic-delivery-v1',
+    'x-domeye-result-start': '2000-01-01T00:00:00Z',
+    'x-domeye-result-end-exclusive': '2000-01-01T00:05:00Z',
+    'x-domeye-result-coverage': 'partial_window',
+  };
+  const rows = [{ t: '2000-01-01 08:00:00', announce: 0, withdraw: null }];
+  let unavailable = false;
+  const evidence = [];
+  const server = createServer((req, res) => {
+    res.writeHead(unavailable ? 503 : 200, {
+      ...deliveryHeaders,
+      'x-domeye-result-state': unavailable ? 'unavailable' : 'available',
+      'content-type': 'application/json',
+      'set-cookie': 'synthetic-cookie=not-for-tools',
+      'x-domeye-result-debug': 'synthetic-internal-detail',
+    });
+    res.end(JSON.stringify(unavailable ? { state: 'unavailable', message: '合成读取失败' } : rows));
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, {
+    namedExports: { createDocs: async () => async () => ({ matches: [] }) },
+  });
+  let registered;
+  try {
+    const { createTools } = await import('./tools.mjs?response-headers');
+    registered = await createTools({ apiBaseUrl: `http://127.0.0.1:${server.address().port}`,
+      onEvidence: (type, value) => evidence.push({ type, value }) });
+    registered.beginTurn();
+    const execute = registered.tools.find(tool => tool.name === 'execute');
+    const requestCode = 'await domeye.request({method:"GET",path:"/api/v1/features/top"})';
+    const raw = await execute.execute('headers-raw', { code: `async () => ${requestCode}` });
+    assert.deepEqual(raw.details, { status: 200, body: rows, headers: deliveryHeaders });
+    assert.deepEqual(JSON.parse(raw.content[0].text), raw.details);
+    assert.deepEqual(evidence.find(item => item.type === 'http').value.response, raw.details);
+
+    const projected = await execute.execute('headers-projected', {
+      code: `async () => {const response = ${requestCode}; return {samples: response.body.length};}`,
+    });
+    assert.deepEqual(projected.details, { samples: 1 });
+    const receipt = JSON.parse(projected.content[1].text).requestControl.responses[0];
+    assert.deepEqual(receipt.headers, deliveryHeaders);
+    assert.deepEqual(receipt.scope, {});
+    assert.equal(receipt.source.responseVersion, null);
+    assert.equal(receipt.source.versionAssurance, 'unverified');
+    assert.equal(receipt.source.family, 'compatibility');
+
+    unavailable = true;
+    const failed = await execute.execute('headers-failure', { code: `async () => ${requestCode}` });
+    assert.equal(failed.details.status, 503);
+    assert.deepEqual(failed.details.body, { state: 'unavailable', message: '合成读取失败' });
+    assert.deepEqual(failed.details.headers, { ...deliveryHeaders, 'x-domeye-result-state': 'unavailable' });
+    assert.deepEqual(JSON.parse(failed.content[1].text).requestControl.responses[0].headers, failed.details.headers);
+    assert.equal(JSON.stringify([raw, projected, failed, evidence]).includes('synthetic-cookie'), false);
+    assert.equal(JSON.stringify([raw, projected, failed, evidence]).includes('synthetic-internal-detail'), false);
+  } finally {
+    await registered?.close(); docsMock.restore(); server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('实际 execute 链路阻止已绑定交付的无版本跨入口读取，并从目录恢复整题', async () => {
+  let version = 'synthetic-v1';
+  const binding = { source_run: 'synthetic-run', collector: 'synthetic-collector', schema_version: 'completed-file-delivery/v1' };
+  const reads = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    reads.push({ path: url.pathname, version: url.searchParams.get('version') });
+    const conflict = url.searchParams.has('version') && url.searchParams.get('version') !== version;
+    const body = conflict ? { state: 'unavailable', message: '人工版本冲突，不是零活动' }
+      : { state: 'available', version, ...(url.pathname === '/api/v1/core-overview' ? {
+        metadata: { interpretation_version: 'completed-file-results/v1', result_delivery: { state: 'available', version, binding } },
+      } : {}) };
+    res.writeHead(conflict ? 409 : 200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, { namedExports: { createDocs: async () => async () => ({ matches: [] }) } });
+  let registered;
+  try {
+    const { createTools } = await import('./tools.mjs?shared-delivery-version');
+    registered = await createTools({ apiBaseUrl: `http://127.0.0.1:${server.address().port}` });
+    const execute = registered.tools.find(tool => tool.name === 'execute');
+    const call = (id, path, query = {}) => execute.execute(id, { code: `async () => await domeye.request(${JSON.stringify({ method: 'GET', path, query })})` });
+    const control = result => JSON.parse(result.content[1].text).requestControl;
+    const window = { scope: 'collector', start_time: '2000-01-01 00:00:00', end_time: '2000-01-01 01:00:00' };
+    registered.beginTurn();
+    await call('core-first', '/api/v1/core-overview', { date: '2000-01-01' });
+    version = 'synthetic-v2';
+    await assert.rejects(call('unversioned-feature', '/api/v1/features/summary', window), error => {
+      const result = JSON.parse(error.message);
+      assert.equal(result.error.kind, 'policy');
+      assert.equal(result.requestControl.events.at(-1).reason, 'version_required');
+      assert.deepEqual(result.requestControl.responses, []);
+      return true;
+    });
+    assert.equal(reads.length, 1);
+    const conflict = await call('feature-old', '/api/v1/features/summary', { ...window, version: 'synthetic-v1' });
+    assert.equal(conflict.details.status, 409);
+    assert.equal(conflict.details.body.message, '人工版本冲突，不是零活动');
+    const recovered = control(await call('discover', '/api/v1/data-availability'));
+    assert.deepEqual(recovered.unresolvedFailures, []);
+    assert.equal(recovered.restartRequired, true);
+    assert.deepEqual(recovered.events.filter(event => event.type === 'version_changed').map(event => event.family).sort(), ['core', 'delivery']);
+    const replayed = control(await call('core-replay', '/api/v1/core-overview', { date: '2000-01-01', version }));
+    assert.equal(replayed.restartRequired, false);
+    const feature = await call('feature-new', '/api/v1/features/summary', { ...window, version });
+    assert.equal(feature.details.body.version, version);
+    assert.equal(control(feature).responses[0].source.versionAssurance, 'matched');
+    assert.deepEqual(reads.map(row => row.version), [null, 'synthetic-v1', null, 'synthetic-v2', 'synthetic-v2']);
+  } finally {
+    await registered?.close(); docsMock.restore(); server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('三日规范的已交付 Core 通过健康发现恢复，工具保留 409 原文与整题重取回执', async () => {
+  let version = 'synthetic-v1';
+  const binding = { source_run: 'synthetic-three-day', collector: 'rrc25', schema_version: 'completed-file-delivery/v1' };
+  const delivery = () => ({ state: 'available', version, binding });
+  const reads = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1'); reads.push(url.pathname);
+    const health = url.pathname === '/api/v1/healthz';
+    const conflict = !health && url.searchParams.has('version') && url.searchParams.get('version') !== version;
+    res.writeHead(conflict ? 409 : 200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(conflict ? { state: 'unavailable', message: '人工版本冲突' }
+      : health ? { status: 'ok', result_delivery: delivery() }
+      : { state: 'available', version, metadata: { interpretation_version: 'completed-file-results/v1', result_delivery: delivery() }, events: { total: 7 } }));
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, { namedExports: { createDocs: async () => async () => ({ matches: [] }) } });
+  let registered;
+  try {
+    const { createTools } = await import('./tools.mjs?three-day-core-recovery');
+    registered = await createTools({ apiBaseUrl: `http://127.0.0.1:${server.address().port}`, specFile: 'openapi-three-day.json' });
+    const execute = registered.tools.find(tool => tool.name === 'execute');
+    const call = (id, path, query = {}) => execute.execute(id, { code: `async () => await domeye.request(${JSON.stringify({ method: 'GET', path, query })})` });
+    const control = result => JSON.parse(result.content[1].text).requestControl;
+    registered.beginTurn();
+    await call('first', '/api/v1/core-overview', { date: '2026-02-27' });
+    version = 'synthetic-v2';
+    const conflict = await call('conflict', '/api/v1/core-overview', { date: '2026-02-28', version: 'synthetic-v1' });
+    assert.equal(conflict.details.status, 409);
+    assert.equal(control(conflict).responses[0].status, 409);
+    const discovery = await call('rediscover', '/api/v1/healthz');
+    assert.equal(discovery.details.body.version, undefined);
+    assert.equal(control(discovery).responses[0].source.responseVersion, null);
+    assert.equal(control(discovery).restartRequired, true);
+    assert.deepEqual(control(discovery).unresolvedFailures, []);
+    assert.ok(control(discovery).events.some(event => event.family === 'core' && event.type === 'version_changed' && event.version === version));
+    await assert.rejects(call('old', '/api/v1/core-overview', { date: '2026-02-27', version: 'synthetic-v1' }), /显式/);
+    const replay = await call('replay', '/api/v1/core-overview', { date: '2026-02-27', version });
+    assert.equal(control(replay).restartRequired, false);
+    assert.equal(control(replay).responses[0].source.versionAssurance, 'matched');
+    assert.equal(reads.length, 4, '被拦截的旧版请求不发送 HTTP');
+  } finally {
+    await registered?.close(); docsMock.restore(); server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('版本发现失败即时说明该族本轮恢复结束，原文、其他族和下一轮恢复保持', async () => {
   const conflict={state:'unavailable',message:'人工版本变化，请重新发现数据后再查询'};
   const reads=[];let recover=false;
