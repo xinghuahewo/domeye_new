@@ -682,7 +682,7 @@
       "EndTime": {"name": "end_time", "in": "query", "required": true, "schema": {"type": "string"},"description": "Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。"},
       "Target": {"name": "target", "in": "query", "required": true, "schema": {"type": "string"}},
       "Country": {"name": "country", "in": "query", "required": true, "schema": {"type": "string"}},
-      "DeliveredCountry": {"name": "country", "in": "query", "required": true, "description": "当前结果源的国家或地区名称，须精确使用 /api/v1/core-overview 响应 metadata.countries 中的值。未列入目录的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。", "schema": {"type": "string", "minLength": 1, "maxLength": 80}},
+      "DeliveredCountry": {"name": "country", "in": "query", "required": true, "description": "当前结果源的国家或地区名称。先对 /api/v1/core-overview 使用 start_time/end_time 且不传 country 查询，从响应 metadata.countries 选择名称；仅 date 模式不返回该目录。country 须精确匹配目录值，未列入的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。", "schema": {"type": "string", "minLength": 1, "maxLength": 80}},
       "PageNum": {"name": "page_num", "in": "query", "schema": {"type": "integer", "minimum": 1}},
       "FeaturePageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "enum": [5, 10, 20, 50]}}
     },

@@ -71,7 +71,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 `GET /api/v1/features/countries/series` 要求 `country`、`start_time`、`end_time`，可选 `version`。国家名沿用数据库名称，`collect` 不作为国家；时间按北京时间 `[start_time,end_time)`，单次最多 24 小时。该入口只读指定国家的既有五分钟样本，不提供国家排名和前窗比较；总览仍使用 `/features/countries/overview`。
 
-三个国家曲线入口（本接口、`outages/country-as`、`outages/country-prefix`）共用当前结果源的国家目录。`country` 须精确使用 `/api/v1/core-overview` 返回的 `metadata.countries` 名称；目录之外的代码、别名或拼写返回 400，不能把未识别对象解释为零中断或空样本。目录读取失败返回 503。已识别国家在覆盖内没有中断记录时仍可返回观测值 0，缺少 Feature 样本仍保留空数组；对象识别与数值可用性分别判断。
+三个国家曲线入口（本接口、`outages/country-as`、`outages/country-prefix`）共用当前结果源的国家目录。先使用 `start_time/end_time` 且不传 `country` 查询 `/api/v1/core-overview`，从响应 `metadata.countries` 选择名称；仅传 `date` 的模式不返回该目录。三个入口的 `country` 须精确匹配目录值；目录之外的代码、别名或拼写返回 400，不能把未识别对象解释为零中断或空样本。目录读取失败返回 503。已识别国家在覆盖内没有中断记录时仍可返回观测值 0，缺少 Feature 样本仍保留空数组；对象识别与数值可用性分别判断。
 
 响应 `query` 保留查询范围，`metadata` 给出数据版本、采集器、实际处理覆盖和各字段单位，`data` 复用 `CountrySeriesPoint`。`announce/withdraw` 的单位为 `accepted_route_element`，即通过过滤的宣告／撤回路由元素次数；一条 BGP 消息可包含多个元素，不能解释为消息条数。`ipv4_addresses` 为 IPv4 地址数，`ipv4_prefixes/ipv6_prefixes` 分别为 /24、/48 等价量，不能当作实际前缀条数。处理覆盖不证明 Feature 样本齐全；只返回覆盖内实际存储的样本，字段未知为 null，缺少样本不补零。字段、单位定义仍见[活动](../metrics/activity.md)和[资源](../metrics/resources.md)。
 
