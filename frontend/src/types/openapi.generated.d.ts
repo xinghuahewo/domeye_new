@@ -215,7 +215,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 将旧五段式事件引用解析为稳定 incident ID、当前不可变 publication 和最新已发布修订。 */
+        /** @description 按显式配置的数据源解析国家事件引用。完成文件模式直接返回共用 Core 事件详情（country-outage-delivery/v1），含当前数据版本、生命周期和已记录的峰值成员，不依赖增强目录，也不产生 publication。普通统计使用既有国家 Feature 与中断时序入口，其可用性由各自响应表达。未启用完成文件模式时保留历史发布解析。 */
         get: operations["resolveCountryOutage"];
         put?: never;
         post?: never;
@@ -1009,6 +1009,12 @@ export interface components {
                 page_count: number;
             } | null;
             event_trends?: components["schemas"]["CoreEventTrends"];
+        };
+        /** @description 完成文件数据库中的国家事件解析结果；直接复用 Core 详情，版本指向本次数据读取，不是不可变发布身份。 */
+        DeliveredCountryOutageResolution: {
+            /** @constant */
+            schema_version: "country-outage-delivery/v1";
+            event: components["schemas"]["CoreOverviewDetail"];
         };
         CoreOverviewDetail: {
             /** @enum {string} */
@@ -2992,6 +2998,8 @@ export interface operations {
         parameters: {
             query: {
                 ref: string;
+                /** @description 仅完成文件模式支持。省略时首次读取当前版本；提供时须与当前版本一致，不提供历史版本会话。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3005,7 +3013,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CountryOutageResolutionV2"] | components["schemas"]["CountryOutageGeneralResolutionV1"];
+                    "application/json": components["schemas"]["DeliveredCountryOutageResolution"] | components["schemas"]["CountryOutageResolutionV2"] | components["schemas"]["CountryOutageGeneralResolutionV1"];
                 };
             };
             /** @description 引用不是合法的 country_outage 五段式引用 */
@@ -3015,14 +3023,21 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description 引用格式合法，但旧事实数据源中不存在该事件 */
+            /** @description 当前所选数据源中不存在该事件 */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description 注册表或旧事实数据源暂不可用 */
+            /** @description 请求版本与当前数据版本不一致 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 所选数据源暂不可读或事件校验失败；不会切换到旧来源 */
             503: {
                 headers: {
                     [name: string]: unknown;

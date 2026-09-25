@@ -13,14 +13,17 @@ defineEmits<{ retry: [] }>()
 const query = ref('')
 const page = ref(1)
 const pageSize = 24
+const incident = computed(() => props.record?.item.country_incident)
+const membership = computed(() => incident.value?.asn_membership)
+const outageAsns = computed(() => props.record?.item.asns.length || membership.value ? props.record!.item.asns : null)
 const filteredAsns = computed(() => {
   const needle = query.value.trim().replace(/^AS/i, '')
-  return (props.record?.outageAsns ?? []).filter((asn) => asn.includes(needle))
+  return (outageAsns.value ?? []).filter((asn) => asn.includes(needle))
 })
 const pageCount = computed(() => Math.max(1, Math.ceil(filteredAsns.value.length / pageSize)))
 const visibleAsns = computed(() => filteredAsns.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 watch(query, () => { page.value = 1 })
-watch(() => props.record?.bundle.sourceRecord.detailReference, () => { query.value = ''; page.value = 1 })
+watch(() => props.record?.item.reference, () => { query.value = ''; page.value = 1 })
 watch(pageCount, (count) => { page.value = Math.min(page.value, count) })
 const valueText = (value: number | null) => value === null ? '未知' : value.toLocaleString('zh-CN')
 const timeText = (value: string | null) => value ? toBusinessTime(new Date(value)) : '未知'
@@ -33,25 +36,29 @@ const timeText = (value: string | null) => value ? toBusinessTime(new Date(value
     <PageState v-else-if="error" kind="error" title="基础记录暂不可用" :detail="error" @retry="$emit('retry')" />
     <template v-else-if="record">
       <dl class="record-facts">
-        <div><dt>事件开始时间（北京时间）</dt><dd>{{ timeText(record.bundle.event.eventTimeUtc) }}</dd></div>
-        <div><dt>记录中的中断 AS</dt><dd>{{ valueText(record.outageAsCount) }}</dd></div>
-        <div><dt>记录中的 AS 总数</dt><dd>{{ valueText(record.totalAsCount) }}</dd></div>
-        <div><dt>事件结束时间（北京时间）</dt><dd>{{ timeText(record.bundle.event.endTimeUtc) }}</dd></div>
+        <div><dt>事件检测时间（北京时间）</dt><dd>{{ timeText(record.item.start_time) }}</dd></div>
+        <div><dt>最早中断时间（北京时间）</dt><dd>{{ timeText(incident?.onset_at ?? null) }}</dd></div>
+        <div><dt>AS 影响峰值时间（北京时间）</dt><dd>{{ timeText(incident?.peak_at ?? null) }}</dd></div>
+        <div><dt>事件状态</dt><dd>{{ record.item.lifecycle?.state === 'ongoing' ? '截至观测仍未结束' : record.item.lifecycle?.state === 'ended' ? '已结束' : '未知' }}</dd></div>
+        <div><dt>峰值受影响 AS</dt><dd>{{ valueText(membership?.count ?? null) }}</dd></div>
+        <div><dt>观测集合 AS 总数</dt><dd>{{ valueText(membership?.total ?? null) }}</dd></div>
+        <div><dt>峰值受影响比例</dt><dd>{{ membership ? (membership.ratio * 100).toFixed(2) + '%' : '未知' }}</dd></div>
+        <div><dt>事件结束时间（北京时间）</dt><dd>{{ record.item.lifecycle?.state === 'ongoing' ? '尚未结束' : timeText(record.item.end_time.value) }}</dd></div>
       </dl>
-      <p class="record-boundary">这是检测记录中的数量和名单，不代表全国实际断网或用户影响。下方时序按国家和所选时间单独统计。</p>
+      <p v-if="record.item.lifecycle?.state === 'ongoing'" class="record-boundary">截至 {{ timeText(record.item.lifecycle.observed_at) }}（北京时间），检测记录仍未结束。覆盖终点不是恢复时间。</p>
+      <p class="record-boundary">{{ membership ? '数量和名单对应 AS 影响峰值时刻，不是整个事件的累计成员。' : '此记录尚未提供可核对的峰值成员口径。' }}这是 BGP 检测结果，不代表全国实际断网或用户影响。下方时序按国家和所选时间单独统计。</p>
       <p v-if="record.delivery" class="record-coverage">
         本批数据覆盖：{{ timeText(record.delivery.start) }} — {{ timeText(record.delivery.endExclusive) }}（北京时间，不含终点）
-        · {{ record.delivery.coverage === 'partial_window' ? '部分时段已处理' : record.delivery.coverage === 'complete_window' ? '所选时段已处理' : '覆盖状态未知' }}
+        · {{ record.delivery.coverage === 'partial_window' ? '部分时段已处理' : '覆盖状态未知' }}
       </p>
-      <p v-else class="record-coverage">来源为已绑定的事件事实记录；接口未提供批次版本和实际覆盖时间。</p>
       <div class="record-as-header">
-        <h3>检测记录中的中断 AS 名单</h3>
-        <label v-if="record.outageAsns !== null">查找 ASN <input v-model="query" placeholder="例如 AS12345" type="search" /></label>
+        <h3>{{ membership ? '峰值时刻的受影响 AS 名单' : '检测记录中的 AS 名单' }}</h3>
+        <label v-if="outageAsns !== null">查找 ASN <input v-model="query" placeholder="例如 AS12345" type="search" /></label>
       </div>
-      <p v-if="record.outageAsns === null">记录未提供有效的 AS 名单，不能解释为零。</p>
+      <p v-if="outageAsns === null">记录未提供有效的 AS 名单，不能解释为零。</p>
       <template v-else>
-        <p>名单共 {{ record.outageAsns.length }} 个 AS<span v-if="query">，匹配 {{ filteredAsns.length }} 个</span>。</p>
-        <p v-if="record.outageAsCount !== null && record.outageAsCount !== record.outageAsns.length" role="status">记录数量与名单长度不一致，暂不能确认名单完整性。</p>
+        <p>名单共 {{ outageAsns.length }} 个 AS<span v-if="query">，匹配 {{ filteredAsns.length }} 个</span>。</p>
+        <p v-if="membership && membership.count !== outageAsns.length" role="status">记录数量与名单长度不一致，暂不能确认名单完整性。</p>
         <ul class="record-as-list"><li v-for="asn in visibleAsns" :key="asn">AS{{ asn }}</li></ul>
         <p v-if="!filteredAsns.length">{{ query ? '没有匹配的 ASN。' : '此记录提供了空名单。' }}</p>
         <nav v-if="pageCount > 1" class="record-pagination" aria-label="中断 AS 名单分页">
@@ -62,8 +69,8 @@ const timeText = (value: string | null) => value ? toBusinessTime(new Date(value
       </template>
       <details class="record-source">
         <summary>查看基础记录来源</summary>
-        <p>事件引用：{{ record.bundle.sourceRecord.detailReference }}</p>
-        <p>观察点代码：{{ record.bundle.sourceRecord.sourceCode }}</p>
+        <p>事件引用：{{ record.item.reference }}</p>
+        <p>采集器：{{ record.source.collector_id }}</p>
         <p v-if="record.delivery">批次版本：{{ record.delivery.version }}</p>
         <p>数据覆盖终点不等同于事件结束或恢复时间。</p>
       </details>

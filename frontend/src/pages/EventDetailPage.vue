@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
         <div class="incident-title">
           <RouterLink class="back-link" to="/events">← 返回异常事件</RouterLink>
           <p class="eyebrow">事件详情</p>
-          <h1>国家中断 · {{ countryRecord?.bundle.event.object || parseDetailUrl(reference)?.problem }}</h1>
+          <h1>国家中断 · {{ countryRecord?.item.country_name || countryRecord?.item.object || parseDetailUrl(reference)?.problem }}</h1>
         </div>
       </header>
       <CountryOutageRecord :record="countryRecord" :loading="loading" :error="error" @retry="load" />

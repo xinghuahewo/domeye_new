@@ -29,17 +29,24 @@ describe('中断响应到详情图表', () => {
   it('拒绝旧裸数组，避免把未升级 API 当作已核对覆盖的曲线', async () => {
     const response = reply()
     vi.mocked(apiGetWithResultMetadata).mockResolvedValue({ result: response.result, data: response.data.data })
-    await expect(getCountryEventSeries('as', '测试地区', range)).rejects.toThrow('匹配的 API')
+    await expect(getCountryEventSeries('as', '测试地区', range, 'delivery_test')).rejects.toThrow('匹配的 API')
   })
 
   it('保留真实零、未处理点和排他截止的断线边界', async () => {
     vi.mocked(apiGetWithResultMetadata).mockResolvedValue(reply())
-    const result = await getCountryEventSeries('as', '测试地区', range)
+    const result = await getCountryEventSeries('as', '测试地区', range, 'delivery_test')
     expect(result.series.count).toEqual([
       ['2026-03-01T11:15:00.000Z', 1], ['2026-03-01T11:18:00.000Z', 0],
       ['2026-03-01T11:20:00.000Z', null], ['2026-03-01T11:21:00.000Z', null],
       ['2026-03-01T11:24:00.000Z', null],
     ])
+  })
+
+  it.each(['features', 'as', 'prefix'] as const)('拒绝把更新版本的 %s 图叠到旧版事件上', async (kind) => {
+    const response = reply()
+    if (kind === 'prefix') response.data.metadata.unit = 'prefix'
+    vi.mocked(apiGetWithResultMetadata).mockResolvedValue(response)
+    await expect(getCountryEventSeries(kind, '测试地区', range, 'older_event')).rejects.toThrow('事件版本')
   })
 
   it('不足一个采样间隔的内部缺口也不能连线', () => {
@@ -60,7 +67,7 @@ describe('中断响应到详情图表', () => {
     if (field === 'country') response.data.query.country = '另一地区'
     if (field === 'window') response.data.query.start = '2026-03-01T19:12:00+08:00'
     vi.mocked(apiGetWithResultMetadata).mockResolvedValue(response)
-    await expect(getCountryEventSeries('as', '测试地区', range)).rejects.toThrow('不一致')
+    await expect(getCountryEventSeries('as', '测试地区', range, 'delivery_test')).rejects.toThrow('不一致')
   })
 
   it('兼容已有时区和旧本地时间，不重复追加偏移', () => {

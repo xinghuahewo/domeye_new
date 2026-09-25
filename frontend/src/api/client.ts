@@ -1,4 +1,4 @@
-import axios, { type AxiosRequestConfig } from 'axios'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
 export const DEFAULT_API_TIMEOUT_MS = 60_000
 
@@ -38,11 +38,11 @@ export async function apiGet<T>(url: string, config?: AxiosRequestConfig): Promi
   return response.data
 }
 
-export async function apiGetWithResultMetadata<T>(url: string, config?: AxiosRequestConfig): Promise<{
+async function getWithResultMetadata<T>(client: AxiosInstance, url: string, config?: AxiosRequestConfig): Promise<{
   data: T
   result: Record<string, string>
 }> {
-  const response = await api.get<T>(url, config)
+  const response = await client.get<T>(url, config)
   const result: Record<string, string> = {}
   for (const key of ['state', 'version', 'start', 'end-exclusive', 'coverage']) {
     const value = response.headers[`x-domeye-result-${key}`]
@@ -50,6 +50,9 @@ export async function apiGetWithResultMetadata<T>(url: string, config?: AxiosReq
   }
   return { data: response.data, result }
 }
+
+export const apiGetWithResultMetadata = <T>(url: string, config?: AxiosRequestConfig) => getWithResultMetadata<T>(api, url, config)
+export const apiV2GetWithResultMetadata = <T>(url: string, config?: AxiosRequestConfig) => getWithResultMetadata<T>(apiV2, url, config)
 
 export async function apiV2Get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
   const response = await apiV2.get<T>(url, config)

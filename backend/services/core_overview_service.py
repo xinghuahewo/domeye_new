@@ -158,13 +158,16 @@ def get_core_overview(params):
     return response
 
 
-def get_core_overview_record(params):
+def get_core_overview_record(params, *, require_version=True):
+    """共用事件详情；引用解析首次读取可省略版本，后续读取仍校验版本。"""
     if set(params) - {'ref', 'version'}:
         raise OverviewError('存在不支持的详情参数', 400)
-    if not params.get('version') or not params.get('ref'):
+    if not params.get('ref') or (require_version and not params.get('version')):
         raise OverviewError('详情必须携带原引用及列表版本', 400)
+    if 'version' in params and not params['version']:
+        raise OverviewError('版本参数不能为空', 400)
     manifest, records, version = _load()
-    if params['version'] != version:
+    if 'version' in params and params['version'] != version:
         raise OverviewError('详情版本与当前留存输入不一致', 409)
     if isinstance(records, (DailyIndex, DeliveredIndex)):
         return records.detail(params['ref'])

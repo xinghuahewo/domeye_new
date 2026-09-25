@@ -381,6 +381,55 @@ def test_unstructured_country_keeps_unknown_and_stale_version_stays_409(delivery
     assert client.get(URL + '/record', query_string={'ref': ref, 'version': 'older'}).status_code == 409
 
 
+def test_country_resolution_reads_delivery_without_enhanced_directory(delivery, client, monkeypatch, tmp_path):
+    monkeypatch.setenv('DOMEYE_COUNTRY_OUTAGE_GENERAL_READ_MODEL', str(tmp_path / 'missing'))
+    # 即使旧增强读取器不可用，也不应进入它；完成文件模式明确选择现有数据库。
+    from web.api.v2 import country_outages
+    def unexpected(*args, **kwargs):
+        raise AssertionError('完成文件模式不应调用增强目录或旧事实入口')
+    monkeypatch.setattr(country_outages, '_data_layer_call', unexpected)
+    monkeypatch.setattr(country_outages, 'resolve_country_outage', unexpected)
+    ref, _ = add_record(delivery, 'country_outage', structured_incident=structured_country(),
+                        peak_snapshot_id='snapshot_fixture', structured_v2=True)
+    response = client.get('/api/v2/events/resolve', query_string={'ref': ref.replace(' ', '+')})
+    assert response.status_code == 200
+    payload = response.get_json()
+    validate(payload, 'DeliveredCountryOutageResolution')
+    event = payload['event']
+    core = client.get(URL + '/record', query_string={'ref': ref, 'version': event['version']}).get_json()
+    assert event['item'] == core['item']
+    assert event['record']['content_version'] == core['record']['content_version']
+    assert response.headers['X-Domeye-Result-Version'] == event['version']
+    assert event['item']['lifecycle']['state'] == 'ongoing'
+    assert event['item']['country_incident']['asn_membership']['basis'] == 'peak_snapshot'
+    assert not {'publication_id', 'revision', 'capabilities'} & payload.keys()
+
+
+@pytest.mark.parametrize('params,code', [
+    ({}, 400), ({'ref': 'bad'}, 400),
+    ({'ref': 'as_outage/2026-02-24 08:10:00/64501/1/r'}, 400),
+    ({'ref': 'country_outage/2026-02-24 08:10:00/ZZ/1/r'}, 404),
+    ({'ref': 'country_outage/2026-02-24 08:10:00/ZZ/1/r', 'version': 'older'}, 409),
+    ({'ref': 'country_outage/2026-02-24 08:10:00/ZZ/1/r', 'version': ''}, 400),
+    ({'ref': 'country_outage/2026-02-24 08:10:00/ZZ/1/r', 'extra': 'x'}, 400),
+    ({'ref': ['country_outage/2026-02-24 08:10:00/ZZ/1/r', 'bad']}, 400),
+])
+def test_country_resolution_preserves_query_errors(delivery, client, params, code):
+    response = client.get('/api/v2/events/resolve', query_string=params)
+    assert response.status_code == code
+
+
+def test_country_resolution_failure_is_not_a_legacy_fallback(delivery, client, monkeypatch):
+    from web.api.v2 import country_outages
+    def unexpected(*args, **kwargs):
+        raise AssertionError('数据失败不能切换旧来源')
+    monkeypatch.setattr(country_outages, '_general_read_call', unexpected)
+    ref, _ = add_record(delivery, 'country_outage', structured_v2=True, structured_incident={})
+    response = client.get('/api/v2/events/resolve', query_string={'ref': ref})
+    assert response.status_code == 503
+    assert response.get_json()['observation_state'] == 'unavailable'
+
+
 def test_country_recorded_full_recovery_ends_the_detector_event(delivery, client):
     incident = structured_country()
     incident.update(recovery_state='fully_recovered', duration_state='exact',

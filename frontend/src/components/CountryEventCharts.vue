@@ -9,7 +9,7 @@ import { businessTimezone } from '@/utils/businessTime'
 import { cleanText, errorMessage } from '@/utils/normalize'
 
 const props = defineProps<{ record: CountryOutageRecord }>()
-const country = computed(() => cleanText(props.record.bundle.factRecord.outage_country) || props.record.bundle.event.object)
+const country = computed(() => cleanText(props.record.item.country_name))
 const range = ref<FeatureRange | null>(null)
 const startInput = ref('')
 const endInput = ref('')
@@ -41,8 +41,8 @@ const charts = computed(() => panels.map((panel) => {
     yMin: resource && values.length ? Math.max(0, Math.floor(Math.min(...values) - padding)) : 0,
     yMax: resource && values.length ? Math.ceil(Math.max(...values) + padding) : null }
 }))
-const markers = computed(() => props.record.bundle.event.eventTimeUtc
-  ? [{ time: props.record.bundle.event.eventTimeUtc, label: '事件开始' }] : [])
+const markers = computed(() => [{ time: props.record.item.start_time, label: '事件检测' },
+  ...(props.record.item.country_incident?.peak_at ? [{ time: props.record.item.country_incident.peak_at, label: 'AS 影响峰值' }] : [])])
 const busy = computed(() => Object.values(state).some((item) => item.loading))
 
 async function readCharts(selected: FeatureRange, background = false) {
@@ -60,12 +60,13 @@ async function readCharts(selected: FeatureRange, background = false) {
     endInput.value = selected.end_time.replace(' ', 'T')
   }
   const selectedCountry = country.value
+  const selectedVersion = props.record.delivery.version
   pending++
   try {
   await Promise.all((['features', 'as', 'prefix'] as const).map(async (kind) => {
-    state[kind] = { data: sameWindow ? state[kind].data : null, loading: true, error: '' }
+    state[kind] = { data: sameWindow && state[kind].data?.version === selectedVersion ? state[kind].data : null, loading: true, error: '' }
     try {
-      const data = await getCountryEventSeries(kind, selectedCountry, selected)
+      const data = await getCountryEventSeries(kind, selectedCountry, selected, selectedVersion)
       if (token === generation) state[kind].data = data
     } catch (cause) {
       if (token === generation) state[kind].error = errorMessage(cause)
@@ -84,8 +85,8 @@ function resetRange() {
   catch (cause) { rangeError.value = errorMessage(cause) }
 }
 watch(() => props.record, (record, previous) => {
-  if (record.bundle.sourceRecord.detailReference !== previous?.bundle.sourceRecord.detailReference) { resetRange(); return }
-  try { void readCharts(automaticWindow || !range.value ? countryEventWindow(record) : range.value, true) }
+  if (record.item.reference !== previous?.item.reference) { resetRange(); return }
+  try { void readCharts(automaticWindow || !range.value ? countryEventWindow(record) : range.value, record.delivery.version === previous?.delivery.version) }
   catch (cause) { rangeError.value = errorMessage(cause) }
 }, { immediate: true })
 onBeforeUnmount(() => { generation++ })

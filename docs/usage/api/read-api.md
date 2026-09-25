@@ -55,13 +55,15 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 | GET 路径 | 用途 | 主要参数与注意点 |
 | --- | --- | --- |
-| `/api/v2/events/resolve` | 解析具体国家事件引用及可用能力 | `ref`；从返回结果保持内部事件和发布绑定 |
+| `/api/v2/events/resolve` | 按所选来源解析国家事件 | `ref`；完成文件模式返回共用详情和数据版本，可选 `version` 校验一致性；历史响应保持发布绑定 |
 | `/api/v2/country-outages/{incident_id}/overview` | 该事件观测概况 | `publication_id`，沿用解析结果 |
 | `/api/v2/country-outages/{incident_id}/series` | 该事件窗口曲线与指标说明 | `publication_id`；区分轨道型与列表型结果 |
 | `/api/v2/country-outages/{incident_id}/asns` | 已提供的 ASN 名单 | `publication_id`、`page`、`page_size`、`query` 及该结果家族支持的分类／地址族／排序筛选 |
 | `/api/v2/country-outages/{incident_id}/path-downstreams` | 指定事件的路径下游关联 | `publication_id`、`affected_asn`、`scope`、`query`、`page`、`page_size` |
 | `/api/v2/country-outages/{incident_id}/trend` | 已有确定性趋势产品 | `publication_id`；是否有结果依赖实际绑定 |
 | `/api/v2/country-outages/{incident_id}/audit` | 内部审计信息 | `publication_id`；通常不进入业务回答正文 |
+
+候选已实现、尚未部署：完成文件模式返回 `schema_version=country-outage-delivery/v1`，`event` 复用 Core 详情。首次解析可省略版本，响应自带实际版本和覆盖；后续携带版本若已变化则返回 409。此家族没有 `publication_id`，不应再拼接上表的历史发布接口。已有峰值、名单和生命周期直接读取 `event.item`；普通统计沿用国家 Feature 与下方中断曲线 API。它们仍需检查各自数据覆盖、单位和同次阅读的版本。专用增强能力是否可用由实际绑定决定，解析成功不宣称路径关联等均可用。
 
 不同国家响应家族对 `asns` 筛选与能力的支持不完全相同。先按返回能力选择，再按该家族校验参数；不把所有可见参数视为每个事件都支持。历史 ASN 窗口名单不当作某个时点的成员集合。
 

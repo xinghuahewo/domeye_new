@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+
+import psycopg2
 
 from flask import request
 from flask_restful import Resource
@@ -17,6 +20,7 @@ from services.country_outage_service import (
     CountryOutageNotFound,
     CountryOutageSourceUnavailable,
     EventStoryUnavailable,
+    canonical_country_outage_reference,
     get_country_outage_asns,
     get_country_outage_audit,
     get_country_outage_overview,
@@ -24,6 +28,7 @@ from services.country_outage_service import (
     get_country_outage_series,
     resolve_country_outage,
 )
+from services.core_overview_service import OverviewError, get_core_overview_record
 from services.features_service import get_country_feature_series
 from services.data_layer_224_310_runtime import (
     DataLayerIntegrityError,
@@ -143,6 +148,20 @@ class CountryOutageResolveResource(Resource):
                 "observation_state": "invalid_reference",
             }, 400
         try:
+            if set(request.args) - {"ref", "version"} or any(
+                len(request.args.getlist(key)) != 1 for key in request.args
+            ):
+                raise OverviewError("存在不支持或重复的查询参数", 400)
+            legacy_reference = canonical_country_outage_reference(legacy_reference)
+            if os.environ.get("DOMEYE_RESULT_DELIVERY") == "true":
+                params = {**request.args.to_dict(), "ref": legacy_reference}
+                event = get_core_overview_record(params, require_version=False)
+                return {
+                    "schema_version": "country-outage-delivery/v1",
+                    "event": event,
+                }, 200, {"Cache-Control": "private, no-store"}
+            if "version" in request.args:
+                raise OverviewError("version 仅适用于完成文件数据源", 400)
             selected, payload = _general_read_call("resolve", legacy_reference)
             if selected:
                 return _etag_response(payload, "resolve")
@@ -158,6 +177,18 @@ class CountryOutageResolveResource(Resource):
             }, 400
         except CountryOutageNotFound:
             return _not_found()
+        except OverviewError as error:
+            if error.status == 404:
+                return _not_found()
+            return {
+                "status": False,
+                "msg": str(error),
+                "observation_state": {
+                    400: "invalid_query", 409: "version_conflict",
+                }.get(error.status, "unavailable"),
+            }, error.status
+        except psycopg2.Error:
+            return _unavailable(CountryOutageSourceUnavailable("事件数据库暂不可读"))
         except (
             CountryOutageRegistryError,
             CountryOutageSourceUnavailable,

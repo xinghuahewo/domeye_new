@@ -33,7 +33,7 @@
 | 独立 RIB 资源 | `/api/v1/resources` | 读取半开窗口内已交付的 global 独立点；最多 24 小时，固定八项资源指标，保留主值／适用性／单位 |
 | 历史事件事实 | `/api/v1/events`、`/events/top`、事件详情、evidence-bundle、story | 分清全量窗口列表、近期列表、特定事件叙事；事实与生命周期限制一同读取 |
 | 国家与 ASN 活动资源 | `/api/v1/features/top`、`/countries`、`/ases`及档案／ASN 关联事件入口 | 活动与资源单位分别解释；对象分页不等于完整时间覆盖，运营候选排名不等于全部 ASN |
-| 国家事件分析 | `/api/v2/events/resolve`，以及 `/api/v2/country-outages/{incident_id}` 下的 overview、series、asns、path-downstreams、trend、audit | 先解析、检查能力，再保持 `publication_id` 读取；只有审计权限的结果不当作普通业务能力 |
+| 国家事件分析 | `/api/v2/events/resolve`，以及 `/api/v2/country-outages/{incident_id}` 下的 overview、series、asns、path-downstreams、trend、audit | 按解析响应家族读取：完成文件候选直接返回 Core 详情和版本；历史发布保持 `publication_id`，只读审计不当作普通业务能力 |
 
 每条完整路径与参数见[业务 API 导航](../usage/api/read-api.md)，精确字段以 [OpenAPI](../../contracts/openapi.json) 为准。导航负责“怎么查”，合同负责程序如何调用，指标页负责“这个数是什么意思”。
 

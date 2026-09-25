@@ -3,7 +3,6 @@ import type { CountryOutageRecord } from './countryOutageRecord'
 import type { FeatureRange } from './features'
 import { businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
 import { isRecord, normalizeCountryOverview, normalizeOutagePoints } from '@/utils/normalize'
-import dataProfile from '../../../config/data-profile.json'
 
 export type CountryChartKind = 'features' | 'as' | 'prefix'
 export type ChartPoints = Array<[string, number | null]>
@@ -17,13 +16,13 @@ const rangeTime = (value: string) => Date.parse(businessTimeToIso(value))
 
 /** 默认从事件前一个整点开始，最多一天；实际覆盖终点不是事件结束时间。 */
 export function countryEventWindow(record: CountryOutageRecord): FeatureRange {
-  const eventStart = Date.parse(record.bundle.event.eventTimeUtc || '')
+  const eventStart = Date.parse(record.item.start_time)
   if (!Number.isFinite(eventStart)) throw new Error('事件缺少有效开始时间')
   const start = Math.max(Math.floor(eventStart / hour) * hour - hour,
-    Date.parse(record.delivery?.start || dataProfile.window_start))
-  const eventEnd = record.bundle.event.endTimeUtc ? Date.parse(record.bundle.event.endTimeUtc) + hour : Infinity
+    Date.parse(record.delivery.start))
+  const eventEnd = record.item.end_time.value ? Date.parse(record.item.end_time.value) + hour : Infinity
   const end = Math.min(start + 24 * hour, eventEnd,
-    Date.parse(record.delivery?.endExclusive || dataProfile.window_end_exclusive))
+    Date.parse(record.delivery.endExclusive))
   if (start >= end) throw new Error('事件附近尚无可查询的已覆盖时段')
   return { start_time: toBusinessTime(new Date(start)), end_time: toBusinessTime(new Date(end)) }
 }
@@ -33,15 +32,18 @@ export function validateCountryEventRange(range: FeatureRange, record: CountryOu
   const end = rangeTime(range.end_time)
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new Error('请选择有效的起止时间')
   if (end - start > 24 * hour) throw new Error('单次最多查询 24 小时，可调整时间查看其他时段')
-  if (start < Date.parse(record.delivery?.start || dataProfile.window_start)
-    || end > Date.parse(record.delivery?.endExclusive || dataProfile.window_end_exclusive)) {
+  if (start < Date.parse(record.delivery.start)
+    || end > Date.parse(record.delivery.endExclusive)) {
     throw new Error('所选时间超出当前数据覆盖范围，请调整起止时间')
   }
 }
 
-export async function getCountryEventSeries(kind: CountryChartKind, country: string, range: FeatureRange): Promise<CountryChartData> {
+export async function getCountryEventSeries(kind: CountryChartKind, country: string, range: FeatureRange, eventVersion: string): Promise<CountryChartData> {
   const endpoint = kind === 'features' ? 'features/countries/overview' : `features/outages/country-${kind}`
-  const { data, result } = await apiGetWithResultMetadata<unknown>(endpoint, { params: { country, ...range } })
+  const { data, result } = await apiGetWithResultMetadata<unknown>(endpoint, { params: { country, ...range,
+    ...(kind === 'features' ? {} : { version: eventVersion }),
+  } })
+  if (!eventVersion || result.version !== eventVersion) throw new Error('统计与事件版本不一致，请刷新事件后重试')
   // 使用每次查询自己的覆盖范围，避免接口补槽的零延伸到尚未处理的时间。
   if (Object.keys(result).length && (result.state !== 'available' || !result.version
     || !Number.isFinite(Date.parse(result.start || '')) || !Number.isFinite(Date.parse(result['end-exclusive'] || ''))
