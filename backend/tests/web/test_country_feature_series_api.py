@@ -54,6 +54,8 @@ def test_single_country_series_reuses_bounded_read_and_preserves_null(source, cl
     assert [p['time'] for p in payload['data']] == ['2026-03-01T19:00:00+08:00', '2026-03-01T19:05:00+08:00', '2026-03-01T19:15:00+08:00']
     assert all(p['announce']==0 and p['withdraw'] is None for p in payload['data'])
     assert payload['metadata']['version'] == response.headers['X-Domeye-Result-Version']
+    assert payload['metadata']['units']['announce'] == 'accepted_route_element'
+    assert payload['metadata']['units']['withdraw'] == 'accepted_route_element'
     assert payload['metadata']['units']['ipv4_prefixes'] == 'ipv4_24_equivalent'
     assert payload['metadata']['units']['ipv4_addresses'] == 'ipv4_address'
     contract = json.loads((Path(__file__).resolve().parents[3]/'contracts/openapi.json').read_text())

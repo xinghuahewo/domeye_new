@@ -24,7 +24,7 @@ const state = reactive<Record<CountryChartKind, ChartState>>({
   prefix: { data: null, loading: false, error: '' },
 })
 const panels = [
-  { id: 'messages', kind: 'features' as const, title: 'BGP 报文时序', unit: '条', note: '每 5 分钟的通告与撤销报文数', lines: [{ key: 'announce', name: '通告', color: '#167c80' }, { key: 'withdraw', name: '撤销', color: '#ce683c' }] },
+  { id: 'messages', kind: 'features' as const, title: 'BGP 路由活动', unit: '次', note: '每 5 分钟通过过滤的通告与撤销路由元素次数，一条消息可包含多个元素', lines: [{ key: 'announce', name: '通告', color: '#167c80' }, { key: 'withdraw', name: '撤销', color: '#ce683c' }] },
   { id: 'ipv4', kind: 'features' as const, title: 'IPv4 地址数量变化', unit: '个地址', note: '每 5 分钟的路由可见 IPv4 地址量', lines: [{ key: 'ipv4Addresses', name: 'IPv4 地址', color: '#167c80' }] },
   { id: 'v4-prefix', kind: 'features' as const, title: 'IPv4 /24 等价量变化', unit: '/24', note: '地址资源折算值，不是实际前缀条数', lines: [{ key: 'ipv4Prefixes', name: 'IPv4 /24 等价量', color: '#4879b0' }] },
   { id: 'v6-prefix', kind: 'features' as const, title: 'IPv6 /48 等价量变化', unit: '/48', note: '地址资源折算值，与 IPv4 分开计量', lines: [{ key: 'ipv6Prefixes', name: 'IPv6 /48 等价量', color: '#8662ad' }] },

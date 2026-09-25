@@ -30,7 +30,7 @@ _COUNTRY_CACHE_TTL_SECONDS = 30
 _COUNTRY_CACHE_MAX_ENTRIES = 32
 
 COUNTRY_SERIES_UNITS = {
-    'announce': 'message', 'withdraw': 'message',
+    'announce': 'accepted_route_element', 'withdraw': 'accepted_route_element',
     'ipv4_prefixes': 'ipv4_24_equivalent', 'ipv6_prefixes': 'ipv6_48_equivalent',
     'ipv4_addresses': 'ipv4_address',
 }

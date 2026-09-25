@@ -383,18 +383,21 @@
     "/events": {
       "get": {
         "operationId": "getEvents",
+        "summary": "兼容事件列表，保留国内默认与历史筛选",
+        "description": "按事件开始时间查询；保留至少 3 分钟或未记录时长、事件编号小于 10 等既有筛选，数量不等于全部交付事件。country 选择国内、国外或全部，不接受具体国家名。查询完成文件中的具体国家、时间窗、类型及生命周期时，使用 /api/v1/core-overview；国家详情引用来自该列表 item.reference。",
         "parameters": [
           {"name": "page_num", "in": "query", "schema": {"type": "integer", "minimum": 1}},
           {"name": "page_size", "in": "query", "schema": {"type": "integer", "enum": [10, 50, 100, 200]}},
           {"name": "event_type", "in": "query", "schema": {"type": "string"}},
           {"name": "level", "in": "query", "schema": {"type": "string"}},
-          {"name": "country", "in": "query", "schema": {"type": "string"}},
+          {"name": "country", "in": "query", "description": "地域范围，不是国家名称或国家代码。省略时为国内；all 为全部，foreign 为国外。", "schema": {"type": "string", "enum": ["domestic", "foreign", "all"], "default": "domestic"}},
           {"name": "event_info", "in": "query", "schema": {"type": "string"}},
-          {"name": "date", "in": "query", "schema": {"type": "string"}},
+          {"name": "date", "in": "query", "description": "启用数据窗口限制时必须提供完整范围，使用下划线连接两个边界：YYYY-MM-DD_YYYY-MM-DD；同一天须重复写日期，例如 2026-02-01_2026-02-01。也支持 YYYY-MM-DD HH:MM:SS_YYYY-MM-DD HH:MM:SS。按北京时间及兼容的双端包含规则筛选；单个日期或逗号分隔均不是完整范围。", "schema": {"type": "string"}},
           {"name": "sort_mode", "in": "query", "schema": {"type": "string"}}
         ],
         "responses": {
           "200": {"description": "分页事件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EventPage"}}}},
+          "400": {"description": "已启用数据窗口限制，但日期范围缺失、格式无效或超出范围", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FeatureQueryError"}}}},
           "503": {
             "description": "源数据库不可用或所需月表读取不完整；不返回列表、部分结果或零计数",
             "content": {"application/json": {"schema": {
@@ -2180,7 +2183,7 @@
           "withdraw": {"type": "integer"}
         }
       },
-      "CountryFeatureSeriesPayload": {"type": "object", "additionalProperties": false, "required": ["query", "metadata", "data"], "properties": {"query": {"type": "object", "required": ["country", "start", "end_exclusive", "timezone", "window_boundary"], "properties": {"country": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end_exclusive": {"type": "string", "format": "date-time"}, "timezone": {"const": "Asia/Shanghai"}, "window_boundary": {"const": "[start,end)"}}}, "metadata": {"type": "object", "required": ["version", "collector_id", "interpretation_version", "sample_seconds", "data_start", "data_end_exclusive", "units", "coverage"], "properties": {"version": {"type": "string"}, "collector_id": {"type": "string"}, "interpretation_version": {"const": "country-feature-series/v1"}, "sample_seconds": {"const": 300}, "data_start": {"type": "string", "format": "date-time"}, "data_end_exclusive": {"type": "string", "format": "date-time"}, "units": {"type": "object", "required": ["announce", "withdraw", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses"], "properties": {"announce": {"const": "message"}, "withdraw": {"const": "message"}, "ipv4_prefixes": {"const": "ipv4_24_equivalent"}, "ipv6_prefixes": {"const": "ipv6_48_equivalent"}, "ipv4_addresses": {"const": "ipv4_address"}}}, "coverage": {"type": "object", "required": ["state", "intervals"], "properties": {"state": {"enum": ["complete", "partial", "none"]}, "intervals": {"type": "array", "items": {"$ref": "#/components/schemas/ResultDeliveryInterval"}}}}}}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}}}, "description": "指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和报文量分别保留单位；空值表示字段未知，缺样本不等于零。"},
+      "CountryFeatureSeriesPayload": {"type": "object", "additionalProperties": false, "required": ["query", "metadata", "data"], "properties": {"query": {"type": "object", "required": ["country", "start", "end_exclusive", "timezone", "window_boundary"], "properties": {"country": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end_exclusive": {"type": "string", "format": "date-time"}, "timezone": {"const": "Asia/Shanghai"}, "window_boundary": {"const": "[start,end)"}}}, "metadata": {"type": "object", "required": ["version", "collector_id", "interpretation_version", "sample_seconds", "data_start", "data_end_exclusive", "units", "coverage"], "properties": {"version": {"type": "string"}, "collector_id": {"type": "string"}, "interpretation_version": {"const": "country-feature-series/v1"}, "sample_seconds": {"const": 300}, "data_start": {"type": "string", "format": "date-time"}, "data_end_exclusive": {"type": "string", "format": "date-time"}, "units": {"type": "object", "required": ["announce", "withdraw", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses"], "properties": {"announce": {"const": "accepted_route_element", "description": "通过 Feature 过滤的宣告路由元素次数，不是 BGP 消息条数"}, "withdraw": {"const": "accepted_route_element", "description": "通过 Feature 过滤的撤回路由元素次数，不是 BGP 消息条数"}, "ipv4_prefixes": {"const": "ipv4_24_equivalent"}, "ipv6_prefixes": {"const": "ipv6_48_equivalent"}, "ipv4_addresses": {"const": "ipv4_address"}}}, "coverage": {"type": "object", "required": ["state", "intervals"], "properties": {"state": {"enum": ["complete", "partial", "none"]}, "intervals": {"type": "array", "items": {"$ref": "#/components/schemas/ResultDeliveryInterval"}}}}}}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/CountrySeriesPoint"}}}, "description": "指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和已接受路由元素次数分别保留单位；一条 BGP 消息可包含多个元素，活动计数不是消息条数。空值表示字段未知，缺样本不等于零。"},
       "CountrySeriesPoint": {
         "type": "object",
         "required": ["time", "announce", "withdraw", "ipv4_prefixes", "ipv6_prefixes", "ipv4_addresses"],

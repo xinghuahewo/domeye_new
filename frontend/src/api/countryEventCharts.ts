@@ -62,7 +62,7 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
     if (metadata.interpretation_version !== 'country-feature-series/v1' || metadata.sample_seconds !== 300
       || !Array.isArray(payload.data) || !Array.isArray(metadata.coverage?.intervals)) throw new Error('国家时序响应结构不完整')
     const fields = [
-      ['announce', 'announce', 'message'], ['withdraw', 'withdraw', 'message'],
+      ['announce', 'announce', 'accepted_route_element'], ['withdraw', 'withdraw', 'accepted_route_element'],
       ['ipv4Addresses', 'ipv4_addresses', 'ipv4_address'],
       ['ipv4Prefixes', 'ipv4_prefixes', 'ipv4_24_equivalent'],
       ['ipv6Prefixes', 'ipv6_prefixes', 'ipv6_48_equivalent'],

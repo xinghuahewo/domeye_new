@@ -82,7 +82,7 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   const data = {
     query: response.data.query,
     metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v1', sample_seconds: 300,
-      units: { announce: 'message', withdraw: 'message', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_equivalent', ipv6_prefixes: 'ipv6_48_equivalent' },
+      units: { announce: 'accepted_route_element', withdraw: 'accepted_route_element', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_equivalent', ipv6_prefixes: 'ipv6_48_equivalent' },
       coverage: { state: 'partial', intervals: [
         { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
         { start: '2026-03-01T19:17:00+08:00', end_exclusive: '2026-03-01T19:20:00+08:00' },
@@ -100,6 +100,9 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   expect(result.series.withdraw?.[0]?.[1]).toBeNull()
   expect(result.series.ipv4Addresses?.[0]?.[1]).toBe(2048)
   expect(result.series.ipv4Prefixes?.[0]?.[1]).toBe(8)
+  data.metadata.units.announce = 'message'
+  await expect(getCountryEventSeries('features', '测试地区', range, 'delivery_test')).rejects.toThrow('单位')
+  data.metadata.units.announce = 'accepted_route_element'
   data.metadata.units.ipv4_prefixes = 'prefix'
   await expect(getCountryEventSeries('features', '测试地区', range, 'delivery_test')).rejects.toThrow('单位')
 })

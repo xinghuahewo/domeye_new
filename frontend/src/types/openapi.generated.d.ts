@@ -129,6 +129,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * 兼容事件列表，保留国内默认与历史筛选
+         * @description 按事件开始时间查询；保留至少 3 分钟或未记录时长、事件编号小于 10 等既有筛选，数量不等于全部交付事件。country 选择国内、国外或全部，不接受具体国家名。查询完成文件中的具体国家、时间窗、类型及生命周期时，使用 /api/v1/core-overview；国家详情引用来自该列表 item.reference。
+         */
         get: operations["getEvents"];
         put?: never;
         post?: never;
@@ -2086,7 +2090,7 @@ export interface components {
             announce: number;
             withdraw: number;
         };
-        /** @description 指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和报文量分别保留单位；空值表示字段未知，缺样本不等于零。 */
+        /** @description 指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和已接受路由元素次数分别保留单位；一条 BGP 消息可包含多个元素，活动计数不是消息条数。空值表示字段未知，缺样本不等于零。 */
         CountryFeatureSeriesPayload: {
             query: {
                 country: string;
@@ -2111,10 +2115,16 @@ export interface components {
                 /** Format: date-time */
                 data_end_exclusive: string;
                 units: {
-                    /** @constant */
-                    announce: "message";
-                    /** @constant */
-                    withdraw: "message";
+                    /**
+                     * @description 通过 Feature 过滤的宣告路由元素次数，不是 BGP 消息条数
+                     * @constant
+                     */
+                    announce: "accepted_route_element";
+                    /**
+                     * @description 通过 Feature 过滤的撤回路由元素次数，不是 BGP 消息条数
+                     * @constant
+                     */
+                    withdraw: "accepted_route_element";
                     /** @constant */
                     ipv4_prefixes: "ipv4_24_equivalent";
                     /** @constant */
@@ -2885,8 +2895,10 @@ export interface operations {
                 page_size?: 10 | 50 | 100 | 200;
                 event_type?: string;
                 level?: string;
-                country?: string;
+                /** @description 地域范围，不是国家名称或国家代码。省略时为国内；all 为全部，foreign 为国外。 */
+                country?: "domestic" | "foreign" | "all";
                 event_info?: string;
+                /** @description 启用数据窗口限制时必须提供完整范围，使用下划线连接两个边界：YYYY-MM-DD_YYYY-MM-DD；同一天须重复写日期，例如 2026-02-01_2026-02-01。也支持 YYYY-MM-DD HH:MM:SS_YYYY-MM-DD HH:MM:SS。按北京时间及兼容的双端包含规则筛选；单个日期或逗号分隔均不是完整范围。 */
                 date?: string;
                 sort_mode?: string;
             };
@@ -2903,6 +2915,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventPage"];
+                };
+            };
+            /** @description 已启用数据窗口限制，但日期范围缺失、格式无效或超出范围 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
                 };
             };
             /** @description 源数据库不可用或所需月表读取不完整；不返回列表、部分结果或零计数 */
