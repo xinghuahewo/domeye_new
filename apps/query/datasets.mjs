@@ -9,7 +9,7 @@ export const PROJECT_DATASETS = Object.freeze([
     apiSourceCommit: API_SOURCE_COMMIT, apiSourceSnapshot: null }),
   Object.freeze({ id: 'three-day', label: '三日任务已交付结果',
     description: '仅查询本项目已完成并可读的部分，不代表三日完整。',
-    apiBaseUrl: 'http://127.0.0.1:28572', specFile: 'openapi-three-day.json',
+    apiBaseUrl: 'http://127.0.0.1:28473', specFile: 'openapi-three-day.json',
     sourceRun: '/home/bgpdata/domeye-new-runtime/dev/runs/iran-three-days-20260922a',
     apiSourceCommit: null, apiSourceSnapshot: 'three-day-source.json' }),
 ]);
