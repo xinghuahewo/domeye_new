@@ -1,6 +1,6 @@
 // 只按已知业务合同定位来源，不递归寻找同名 version，也不借通用响应头推断正文版本。
 export const DELIVERY_SERIES = new Map([
-  ['/api/v1/features/countries/series', ['country-feature-series/v1', 'country-feature-series/v2', 'country-feature-series/v3']],
+  ['/api/v1/features/countries/series', ['country-feature-series/v1', 'country-feature-series/v2', 'country-feature-series/v3', 'country-feature-series/v4']],
   ...['country-as', 'country-prefix', 'as-prefix', 'global-as', 'global-prefix']
     .map(kind => [`/api/v1/features/outages/${kind}`, ['outage-series/v2']]),
 ]);
