@@ -93,6 +93,8 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 ## 调用结束时检查什么
 
+上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计候选已实现尚未部署)。该候选接口扩展尚未部署。
+
 同时检查 HTTP 状态和响应正文；部分兼容接口以 `status:false` 表示业务失败。状态正常后，再判断数值是否适用、是否还有分页、是否包含当前问题所需的对象与时间。详见[查询步骤](../guides/query-data.md)与[结果状态](../rules/result-states.md)。
 
 ## ASN 事件窗口参数

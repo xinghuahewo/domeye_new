@@ -383,7 +383,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 只读单个国家和最多 24 小时的半开窗口，复用现有五分钟 Feature 查询，不计算全国家排名或前窗聚合。要求完成文件来源以核对版本与处理覆盖；不重新计算、写库或生成制品。country 沿用数据库国家名称，collect 不属于此入口。数据错误返回 503，缺样本保留空数组与覆盖信息。 */
+        /** @description 只读单个国家和最多 24 小时的半开窗口，复用现有五分钟 Feature 查询，不计算全国家排名或前窗聚合。要求完成文件来源以核对版本与处理覆盖；不重新计算、写库或生成制品。country 沿用数据库国家名称，collect 不属于此入口。数据错误返回 503，缺样本保留空数组与覆盖信息。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getCountryFeatureSeries"];
         put?: never;
         post?: never;
@@ -467,7 +467,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getCountryAsOutages"];
         put?: never;
         post?: never;
@@ -484,7 +484,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getCountryPrefixOutages"];
         put?: never;
         post?: never;
@@ -501,7 +501,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getAsPrefixOutages"];
         put?: never;
         post?: never;
@@ -518,7 +518,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getGlobalAsOutages"];
         put?: never;
         post?: never;
@@ -535,7 +535,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getGlobalPrefixOutages"];
         put?: never;
         post?: never;
@@ -2090,6 +2090,67 @@ export interface components {
             announce: number;
             withdraw: number;
         };
+        /** @description 数值与其实际时点不可分开使用；null 保留该处未知，不回退为较早已知值。 */
+        SeriesStatisticPoint: {
+            value: number | null;
+            /** Format: date-time */
+            at: string;
+        };
+        /** @description 首末项是纳入的实际样本，资源使用 resource_state_at，中断使用 time_slot。极值与均值仅针对已知采样，不代表时间加权平均或连续区间状态。首点没有正常基线资格；两端差不表示事件恢复。缺端点、只有一个样本或首末时点不递增时不算差；首值零时比例为 null。 */
+        SeriesPointStatistics: {
+            /** @constant */
+            kind: "point";
+            unit: string;
+            sample_count: number;
+            known_sample_count: number;
+            first: components["schemas"]["SeriesStatisticPoint"] | null;
+            last: components["schemas"]["SeriesStatisticPoint"] | null;
+            known_sample_minimum: components["schemas"]["SeriesStatisticPoint"] | null;
+            known_sample_maximum: components["schemas"]["SeriesStatisticPoint"] | null;
+            known_sample_mean: number | null;
+            first_to_last: {
+                from: components["schemas"]["SeriesStatisticPoint"];
+                to: components["schemas"]["SeriesStatisticPoint"];
+                delta: number;
+                percent_of_first: number | null;
+            } | null;
+        };
+        /** @description known_window_sum 仅累加纳入文件的已知计数，范围见 source_intervals；不能冒充请求整桶合计。有重叠窗口时不求和。total 仅当来源窗口无重叠且恰好覆盖整个桶、交付覆盖完整、该指标无空值时可用；否则为 null。文件窗口不按比例拆分。 */
+        SeriesWindowStatistics: {
+            /** @constant */
+            kind: "window_count";
+            unit: string;
+            sample_count: number;
+            known_sample_count: number;
+            source_intervals: components["schemas"]["ResultDeliveryInterval"][];
+            overlapping_windows: boolean;
+            known_window_sum: number | null;
+            total: number | null;
+        };
+        /** @description 按请求起点锚定、左闭右开分桶，末桶在查询末端截短。按 selection_time 选择原样本，资源实际时点及活动来源窗口可能晚于标签。沿用本响应 query、metadata 的对象、版本、观察点、单位和总体。coverage 是处理覆盖，不等于每项指标无缺样本。 */
+        SeriesStatistics: {
+            /** @constant */
+            schema_version: "series-statistics/v1";
+            interval_seconds: number;
+            /** @enum {unknown} */
+            selection_time: "time" | "time_slot";
+            /** @constant */
+            extrema_ties: "earliest_sample";
+            buckets: {
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end_exclusive: string;
+                coverage: {
+                    /** @enum {unknown} */
+                    state: "complete" | "partial" | "none";
+                    intervals: components["schemas"]["ResultDeliveryInterval"][];
+                };
+                metrics: {
+                    [key: string]: components["schemas"]["SeriesPointStatistics"] | components["schemas"]["SeriesWindowStatistics"];
+                };
+            }[];
+        };
         /** @description 指定国家现有五分钟 Feature 样本及各自来源文件时间。按标签选择实际交付内已存样本，不补零；资源按文件末态使用，活动按实际文件窗口使用。非对齐查询的文件窗口可能超出标签请求范围，不能据此声称精确整窗统计。此入口不计算排名、正常基线或恢复状态。 */
         CountryFeatureSeriesPayload: {
             query: {
@@ -2170,6 +2231,7 @@ export interface components {
                 };
             };
             data: components["schemas"]["DeliveredCountrySeriesPoint"][];
+            summary?: components["schemas"]["SeriesStatistics"];
         };
         DeliveredCountrySeriesPoint: components["schemas"]["CountrySeriesPoint"] & {
             /** @description 与本行特征同 ordinal 的已交付文件身份和声明的输入区间，不以样本标签加五分钟猜测。 */
@@ -2417,6 +2479,7 @@ export interface components {
                 population: "detected_asns" | "coarse_routing_prefixes";
             };
             data: components["schemas"]["OutagePoint"][];
+            summary?: components["schemas"]["SeriesStatistics"];
         };
         FeatureQueryError: {
             /** @constant */
@@ -3497,6 +3560,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选；不匹配当前交付版本时返回 409。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;
@@ -3725,6 +3790,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;
@@ -3773,6 +3840,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;
@@ -3820,6 +3889,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;
@@ -3866,6 +3937,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;
@@ -3912,6 +3985,8 @@ export interface operations {
                 end_time: components["parameters"]["EndTime"];
                 /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
                 version?: string;
+                /** @description 可选分桶统计间隔（整数秒）。提供后保留原 data，并增加 summary，直接取得带实际时点的首末量、已知样本均值/极值、端点变化及活动合计；按查询起点分桶，末桶截短。省略则只返回原样本。比较时保留 query、metadata 与完整统计点。 */
+                summary_seconds?: number;
             };
             header?: never;
             path?: never;

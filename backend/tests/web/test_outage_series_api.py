@@ -108,7 +108,7 @@ def test_five_series_share_coverage_distinct_counts_and_previous_month_events(
         {'kind': kind, 'asn': '64501', field: identifier, 's_time': '2026-03-01 19:14:00', 'e_time': '2026-03-01 19:18:00'},
         {'kind': kind, 'asn': '64501', field: identifier, 's_time': '2026-03-01 19:27:00', 'e_time': None},
     ]
-    response = get_curve(client, path, **params)
+    response = get_curve(client, path, summary_seconds=600, **params)
     assert response.status_code == 200
     body = response.get_json(); validate(body)
     assert [point['outage_count'] for point in body['data']] == [1, 1, None, None]
@@ -118,6 +118,10 @@ def test_five_series_share_coverage_distinct_counts_and_previous_month_events(
     assert body['metadata']['version'] == response.headers['X-Domeye-Result-Version']
     assert body['query']['end_exclusive'] == '2026-03-01T19:27:00+08:00'
     assert len(outage_rows['queries']) == 1
+    stats = body['summary']['buckets'][0]['metrics']['outage_count']
+    assert stats['known_sample_count'] == 2
+    assert stats['last'] == {'value': None, 'at': '2026-03-01T19:24:00+08:00'}
+    assert stats['first_to_last'] is None
 
 
 @pytest.mark.parametrize('path,kind,field,identifier', [

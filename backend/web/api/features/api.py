@@ -2,6 +2,7 @@ from flask import request
 from flask_restful import Resource
 from services.asn_service import get_asn_recent_events, get_asn_workbench
 from services.country_service import get_country_series, get_country_workbench
+from services.series_statistics import summarize_series
 
 from services.features_service import (
     get_as_feature_series,
@@ -123,7 +124,7 @@ class _FeatureSeriesResource(Resource):
     selector = None
 
     def get(self):
-        allowed = {'start_time', 'end_time', 'version'} | ({self.selector} if self.selector else set())
+        allowed = {'start_time', 'end_time', 'version', 'summary_seconds'} | ({self.selector} if self.selector else set())
         if set(request.args) - allowed or any(len(request.args.getlist(key)) != 1 for key in request.args):
             return {'status': False, 'msg': '时序参数重复或不受支持'}, 400
         selected = request.args.get(self.selector, '').strip() if self.selector else None
@@ -137,16 +138,23 @@ class _FeatureSeriesResource(Resource):
         version = request.args.get('version')
         if version is not None and not version.strip():
             return {'status': False, 'msg': '版本不能为空'}, 400
+        summary = request.args.get('summary_seconds')
+        if summary is not None and (not summary.isascii() or not summary.isdigit() or not 60 <= int(summary) <= 86400):
+            return {'status': False, 'msg': 'summary_seconds 必须为 60 至 86400 的整数秒'}, 400
         options = {
             'country': selected if self.selector == 'country' else None,
             'start_time': request.args.get('start_time'),
             'end_time': request.args.get('end_time'), 'version': version,
         }
         if self.kind == 'country_features':
-            return get_country_series(**options)
-        if self.kind == 'as':
-            return get_as_outage_feature(**options)
-        return get_prefix_outage_feature(**options, asn=selected if self.selector == 'asn' else None)
+            result = get_country_series(**options)
+        elif self.kind == 'as':
+            result = get_as_outage_feature(**options)
+        else:
+            result = get_prefix_outage_feature(**options, asn=selected if self.selector == 'asn' else None)
+        if summary is not None and isinstance(result, dict) and 'data' in result:
+            result = {**result, 'summary': summarize_series(result, int(summary))}
+        return result
 
 
 class CountryASOutageFeatureResource(_FeatureSeriesResource):
