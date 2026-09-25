@@ -389,7 +389,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 只读单个国家和最多 24 小时的半开窗口，复用现有五分钟 Feature 查询，不计算全国家排名或前窗聚合。要求完成文件来源以核对版本与处理覆盖；不重新计算、写库或生成制品。country 沿用数据库国家名称，collect 不属于此入口。数据错误返回 503，缺样本保留空数组与覆盖信息。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
+        /** @description 只读单个国家和最多 24 小时的现有 Feature。data.activity 仅含查询内完整文件区间，data.resources 独立包含 (start_time,end_time] 的资源末态点；不按文件标签选值。版本与处理覆盖由完成文件来源提供，不重新计算或写库。country 沿用数据库国家名称，collect 不属于此入口。数据错误返回 503，缺样本保留空数组。summary_seconds 在同次读取中增加分桶统计；精确活动合计不能覆盖整桶时 total 为 null，known_window_sum 仅对应所列实际区间。 */
         get: operations["getCountryFeatureSeries"];
         put?: never;
         post?: never;
@@ -2133,13 +2133,11 @@ export interface components {
             known_window_sum: number | null;
             total: number | null;
         };
-        /** @description 按请求起点锚定、左闭右开分桶，末桶在查询末端截短。按 selection_time 选择原样本，资源实际时点及活动来源窗口可能晚于标签。沿用本响应 query、metadata 的对象、版本、观察点、单位和总体。coverage 是处理覆盖，不等于每项指标无缺样本。 */
+        /** @description 按请求起点分桶，末桶在查询末端截短。活动仅纳入完全包含于桶内的文件区间；资源按 (桶起点,桶终点] 选择实际 at；中断按 [桶起点,桶终点) 选择 time_slot。来源标签不参与选择，不插值或切分计数。沿用本响应 query、metadata 的对象、版本、观察点和单位。coverage 是处理覆盖，不等于每项指标无缺样本。 */
         SeriesStatistics: {
             /** @constant */
-            schema_version: "series-statistics/v1";
+            schema_version: "series-statistics/v2";
             interval_seconds: number;
-            /** @enum {unknown} */
-            selection_time: "source.label" | "time_slot";
             /** @constant */
             extrema_ties: "earliest_sample";
             buckets: {
@@ -2157,7 +2155,7 @@ export interface components {
                 };
             }[];
         };
-        /** @description 指定国家现有五分钟 Feature 样本，活动计数与资源状态各自携带时间。按 source.label 选择实际交付内的来源文件；activity 的次数属于其 start/end_exclusive 区间，resources 的数量属于其 at 时点。文件标签只用于选择和追溯，不能代替测量时间。不补零；非对齐查询可能选中跨越请求边界的文件，不能据此声称精确整窗统计。此入口不计算排名、正常基线或恢复状态。 */
+        /** @description 指定国家现有 Feature 活动区间和资源末态，分别放在 data.activity、data.resources 数组，按各自实际时间选择。活动仅纳入查询内完整文件区间；资源纳入 (start,end] 的实际末态点。source.label 只追溯来源，不能代替测量时间。两类数组可有不同长度；缺样本不补零。处理 coverage 完整不代表活动区间恰好覆盖查询；精确活动合计以 summary 的 total 为准。此入口不计算排名、正常基线或恢复状态。 */
         CountryFeatureSeriesPayload: {
             query: {
                 country: string;
@@ -2167,14 +2165,17 @@ export interface components {
                 end_exclusive: string;
                 /** @constant */
                 timezone: "Asia/Shanghai";
-                /** @constant */
+                /**
+                 * @description 活动查询区间为 [start,end)；资源是区间内文件处理后的末态，按 (start,end] 选择实际 at。
+                 * @constant
+                 */
                 window_boundary: "[start,end)";
             };
             metadata: {
                 version: string;
                 collector_id: string;
                 /** @constant */
-                interpretation_version: "country-feature-series/v3";
+                interpretation_version: "country-feature-series/v4";
                 /** @constant */
                 sample_seconds: 300;
                 /** Format: date-time */
@@ -2227,34 +2228,36 @@ export interface components {
                     ipv4_addresses: "ipv4_24_union_blocks_x256";
                 };
             };
-            data: components["schemas"]["DeliveredCountrySeriesPoint"][];
+            data: {
+                activity: components["schemas"]["DeliveredCountryActivity"][];
+                resources: components["schemas"]["DeliveredCountryResources"][];
+            };
             summary?: components["schemas"]["SeriesStatistics"];
         };
-        /** @description 同一来源的活动与资源分别绑定统计区间和状态时点；没有共用的测量时间字段。 */
-        DeliveredCountrySeriesPoint: {
-            /** @description 同 ordinal 的已交付文件身份与标签；label 仅用于样本选择和追溯，不是资源时点。 */
-            source: {
-                id: string;
-                /** Format: date-time */
-                label: string;
-            };
-            /** @description 实际来源文件的半开输入区间及其中通过 Feature 过滤的活动元素次数；不是消息条数或路由状态变化次数。按本区间解释，不能用文件标签或资源时点替代。 */
-            activity: {
-                /** Format: date-time */
-                start: string;
-                /** Format: date-time */
-                end_exclusive: string;
-                announce: number | null;
-                withdraw: number | null;
-            };
-            /** @description 完整文件处理后的资源状态，at 取实际文件窗口末边界，不从标签加五分钟猜测；数量沿用 metadata.units 和 measurement。不是区间累计，不代表点间连续不变。 */
-            resources: {
-                /** Format: date-time */
-                at: string;
-                ipv4_prefixes: number | null;
-                ipv6_prefixes: number | null;
-                ipv4_addresses: number | null;
-            };
+        /** @description 同 ordinal 的已交付文件身份与标签；label 只用于追溯，不用于选择测量值。 */
+        DeliveredCountrySeriesSource: {
+            id: string;
+            /** Format: date-time */
+            label: string;
+        };
+        /** @description 实际文件区间内通过 Feature 过滤的活动元素次数。仅返回 start >= query.start 且 end_exclusive <= query.end_exclusive 的完整区间，不切分、不按比例折算；不是消息条数或状态变化次数。 */
+        DeliveredCountryActivity: {
+            source: components["schemas"]["DeliveredCountrySeriesSource"];
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
+            announce: number | null;
+            withdraw: number | null;
+        };
+        /** @description 完整文件处理后的资源状态，at 取实际窗口末边界。独立选择 query.start < at <= query.end_exclusive 的末态点，允许来源标签在查询起点之前。不是区间累计，不代表点间连续不变。 */
+        DeliveredCountryResources: {
+            source: components["schemas"]["DeliveredCountrySeriesSource"];
+            /** Format: date-time */
+            at: string;
+            ipv4_prefixes: number | null;
+            ipv6_prefixes: number | null;
+            ipv4_addresses: number | null;
         };
         CountrySeriesPoint: {
             time: string;

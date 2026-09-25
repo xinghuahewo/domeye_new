@@ -47,20 +47,50 @@ def test_feature_summary_keeps_real_points_and_unknown_activity(source, client):
     validate(body, 'CountryFeatureSeriesPayload')
 
 
-def test_unaligned_windows_do_not_claim_exact_bucket_totals(source, client):
+def test_unaligned_windows_exclude_cross_boundary_activity_but_keep_in_window_states(source, client):
     source['meta']['intervals'] = [{'start': source['meta']['start'],
                                   'end_exclusive': source['meta']['end_exclusive']}]
-    source['rows'] = [row(5, announce=12, withdraw=1), row(10, announce=6, withdraw=0)]
+    source['rows'] = [row(0, announce=40), row(5, announce=12, withdraw=1),
+                      row(10, announce=6, withdraw=0)]
     body = client.get(URL, query_string={**QUERY, 'start_time': '2026-03-01 19:01:00',
                          'end_time': '2026-03-01 19:12:00', 'summary_seconds': 660}).get_json()
     bucket = body['summary']['buckets'][0]
     activity = bucket['metrics']['announce']
     assert bucket['coverage']['state'] == 'complete'
     assert activity['source_intervals'] == [{'start': '2026-03-01T19:05:00+08:00',
-                                            'end_exclusive': '2026-03-01T19:15:00+08:00'}]
-    assert activity['known_window_sum'] == 18
+                                            'end_exclusive': '2026-03-01T19:10:00+08:00'}]
+    assert activity['known_window_sum'] == 12
     assert activity['total'] is None
-    assert bucket['metrics']['ipv4_addresses']['last']['at'] == '2026-03-01T19:15:00+08:00'
+    resource = bucket['metrics']['ipv4_addresses']
+    assert resource['first']['at'] == '2026-03-01T19:05:00+08:00'
+    assert resource['last']['at'] == '2026-03-01T19:10:00+08:00'
+    assert len(body['data']['activity']) == 1
+    assert [p['at'] for p in body['data']['resources']] == [resource['first']['at'], resource['last']['at']]
+
+
+def test_complete_query_files_crossing_bucket_edges_are_not_prorated(source, client):
+    source['meta']['intervals'] = [{'start': source['meta']['start'], 'end_exclusive': source['meta']['end_exclusive']}]
+    source['rows'] = [row(0, announce=20), row(5, announce=40), row(10, announce=80)]
+    body = client.get(URL, query_string={**QUERY, 'start_time': '2026-03-01 19:02:00',
+                         'end_time': '2026-03-01 19:12:00', 'summary_seconds': 300}).get_json()
+    assert [p['announce'] for p in body['data']['activity']] == [40]
+    first, second = body['summary']['buckets']
+    assert first['metrics']['ipv4_addresses']['last']['at'] == '2026-03-01T19:05:00+08:00'
+    assert second['metrics']['ipv4_addresses']['last']['at'] == '2026-03-01T19:10:00+08:00'
+    for bucket in (first, second):
+        assert bucket['metrics']['announce']['known_window_sum'] is None
+        assert bucket['metrics']['announce']['total'] is None
+
+
+def test_short_window_can_have_a_closing_resource_without_activity(source, client):
+    source['rows'] = [row(0, announce=20)]
+    body = client.get(URL, query_string={**QUERY, 'start_time': '2026-03-01 19:03:00',
+                         'end_time': '2026-03-01 19:05:00', 'summary_seconds': 120}).get_json()
+    assert body['data']['activity'] == []
+    resource = body['summary']['buckets'][0]['metrics']['ipv4_addresses']
+    assert resource['first'] == {'at': '2026-03-01T19:05:00+08:00', 'value': 2048}
+    assert resource['first_to_last'] is None
+    assert body['summary']['buckets'][0]['metrics']['announce']['total'] is None
 
 
 def test_missing_last_resource_is_not_replaced_by_last_known(source, client):

@@ -59,35 +59,37 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
         if country not in delivery_read.available_countries(conn=conn):
             return {'status': False, 'msg': '国家名称不在当前结果源中，请按 start_time/end_time 查询 /api/v1/core-overview，并使用 metadata.countries 名称'}, 400
         coverage = delivery_read._covered_intervals(meta, start, end)
-        rows = delivery_read.read_country_feature_series(country, coverage[0][0].replace(tzinfo=None),
-                                                         coverage[-1][1].replace(tzinfo=None), conn) if coverage else []
-        points, times = [], set()
+        rows = delivery_read.read_country_feature_series(country, coverage[0][0], coverage[-1][1], conn) if coverage else []
+        delivered = delivery_read._covered_intervals(meta, datetime.datetime.fromisoformat(meta['start']),
+                                                     datetime.datetime.fromisoformat(meta['end_exclusive']))
+        activity, resources, times = [], [], set()
         for row in rows:
             at = row['time'].replace(tzinfo=zone)
-            if not any(left <= at < right for left, right in coverage):
+            left, right = row['source_start'], row['source_end']
+            if (not row['source_id'] or left is None or right is None
+                    or left.tzinfo is None or right.tzinfo is None or not left <= at < right):
+                raise InputError('国家时序缺少有效来源文件或窗口')
+            if not any(a <= left < right <= b for a, b in delivered):
                 continue
             if at in times or any(row[key] is not None and (type(row[key]) is not int or row[key] < 0)
                                   for key in COUNTRY_SERIES_UNITS):
                 raise InputError('国家时序含重复时点或无效数值')
             times.add(at)
-            left, right = row['source_start'], row['source_end']
-            if (not row['source_id'] or left is None or right is None
-                    or left.tzinfo is None or right.tzinfo is None or not left <= at < right):
-                raise InputError('国家时序缺少有效来源文件或窗口')
-            points.append({
-                'source': {'id': row['source_id'], 'label': at.isoformat()},
-                'activity': {'start': left.astimezone(zone).isoformat(),
-                             'end_exclusive': right.astimezone(zone).isoformat(),
-                             'announce': row['announce'], 'withdraw': row['withdraw']},
-                'resources': {'at': right.astimezone(zone).isoformat(),
-                              'ipv4_prefixes': row['ipv4_prefixes'], 'ipv6_prefixes': row['ipv6_prefixes'],
-                              'ipv4_addresses': row['ipv4_addresses']},
-            })
+            source = {'id': row['source_id'], 'label': at.isoformat()}
+            # 文件标签只追溯来源；区间计数不能切分，末态点可以独立落在查询内。
+            if start <= left < right <= end:
+                activity.append({'source': source, 'start': left.astimezone(zone).isoformat(),
+                                 'end_exclusive': right.astimezone(zone).isoformat(),
+                                 'announce': row['announce'], 'withdraw': row['withdraw']})
+            if start < right <= end:
+                resources.append({'source': source, 'at': right.astimezone(zone).isoformat(),
+                                  'ipv4_prefixes': row['ipv4_prefixes'], 'ipv6_prefixes': row['ipv6_prefixes'],
+                                  'ipv4_addresses': row['ipv4_addresses']})
         return {
             'query': {'country': country, 'start': start.isoformat(), 'end_exclusive': end.isoformat(),
                       'timezone': str(zone), 'window_boundary': '[start,end)'},
             'metadata': {'version': meta['version'], 'collector_id': meta['binding']['collector'],
-                         'interpretation_version': 'country-feature-series/v3', 'sample_seconds': 300,
+                         'interpretation_version': 'country-feature-series/v4', 'sample_seconds': 300,
                          'data_start': meta['start'], 'data_end_exclusive': meta['end_exclusive'],
                          'units': COUNTRY_SERIES_UNITS,
                          'measurement': {name: FEATURE_MEASUREMENT[field] for name, field in (
@@ -96,7 +98,8 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
                              ('ipv4_addresses', 'v4IP_num'))},
                          'coverage': {'state': 'complete' if coverage == [(start, end)] else 'partial' if coverage else 'none',
                                       'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a,b in coverage]}},
-            'data': points,
+            'data': {'activity': sorted(activity, key=lambda point: point['start']),
+                     'resources': sorted(resources, key=lambda point: point['at'])},
         }
     except (psycopg2.Error, InputError, ValueError, KeyError, TypeError, AttributeError):
         return {'status': False, 'msg': '国家时序数据或覆盖范围不可读取，不能解释为零'}, 503

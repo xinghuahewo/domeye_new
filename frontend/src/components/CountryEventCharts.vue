@@ -101,10 +101,10 @@ onBeforeUnmount(() => { generation++ })
     <form class="chart-range" @submit.prevent="applyRange">
       <label>开始时间<input v-model="startInput" type="datetime-local" step="1" required @input="automaticWindow = false" /></label>
       <label>结束时间<input v-model="endInput" type="datetime-local" step="1" required @input="automaticWindow = false" /></label>
-      <button type="submit" :disabled="busy">查询</button><span>北京时间 · 单次最多 24 小时 · 不含终点</span>
+      <button type="submit" :disabled="busy">查询</button><span>北京时间 · 单次最多 24 小时</span>
     </form>
     <p v-if="rangeError" class="chart-error" role="alert">{{ rangeError }}</p>
-    <p v-if="range" class="chart-window">当前图表：{{ range.start_time }} — {{ range.end_time }}。统计全国家同期记录，不限于上方事件名单；缺失时点保留断线。</p>
+    <p v-if="range" class="chart-window">当前图表：{{ range.start_time }} — {{ range.end_time }}。活动仅含窗口内完整统计区间，资源含窗口终点的末态，中断采样不含终点。统计全国家同期记录，不限于上方事件名单；缺失时点保留断线。</p>
     <div class="chart-grid">
       <section v-for="chart in charts" :key="chart.id" class="chart-panel">
         <header><h3>{{ chart.title }}</h3><p>{{ chart.note }}</p></header>

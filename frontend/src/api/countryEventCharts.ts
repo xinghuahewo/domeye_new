@@ -59,8 +59,9 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
   if (kind === 'features') {
     const payload = data as unknown as components['schemas']['CountryFeatureSeriesPayload']
     const { metadata } = payload
-    if (metadata.interpretation_version !== 'country-feature-series/v3' || metadata.sample_seconds !== 300
-      || !Array.isArray(payload.data) || !Array.isArray(metadata.coverage?.intervals)) throw new Error('国家时序响应结构不完整')
+    if (metadata.interpretation_version !== 'country-feature-series/v4' || metadata.sample_seconds !== 300
+      || !isRecord(payload.data) || !Array.isArray(payload.data.activity) || !Array.isArray(payload.data.resources)
+      || !Array.isArray(metadata.coverage?.intervals)) throw new Error('国家时序响应结构不完整')
     const fields = [
       ['announce', 'announce', 'accepted_route_element'], ['withdraw', 'withdraw', 'accepted_route_element'],
       ['ipv4Addresses', 'ipv4_addresses', 'ipv4_address'],
@@ -71,28 +72,40 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
     if (intervals.some(([left, right]) => !Number.isFinite(left) || !Number.isFinite(right) || left >= right || left < start || right > end)) {
       throw new Error('国家时序覆盖范围无效')
     }
-    const labels = payload.data.map((point) => Date.parse(point.source?.label))
-    if (new Set(labels).size !== labels.length || labels.some((time) => !intervals.some(([left, right]) => left <= time && time < right))) {
-      throw new Error('国家时序时点重复或位于处理覆盖之外')
-    }
-    const resourceTimes = payload.data.map((point, i) => {
-      const left = Date.parse(point.activity?.start)
-      const right = Date.parse(point.activity?.end_exclusive)
-      const stateAt = Date.parse(point.resources?.at)
-      if (!point.source?.id || !Number.isFinite(stateAt) || stateAt !== right
-        || !(left <= labels[i]! && labels[i]! < right)) throw new Error('国家时序来源窗口或资源时点无效')
-      return stateAt
+    const activityTimes = payload.data.activity.map((point) => {
+      const left = Date.parse(point.start)
+      const right = Date.parse(point.end_exclusive)
+      const label = Date.parse(point.source?.label)
+      if (!point.source?.id || !(left <= label && label < right)
+        || !intervals.some(([a, b]) => a <= left && left < right && right <= b)) {
+        throw new Error('国家时序活动区间越过查询或处理覆盖')
+      }
+      return left
     })
-    const activityTimes = payload.data.map((point) => Date.parse(point.activity.start))
+    const resourceTimes = payload.data.resources.map((point) => {
+      const at = Date.parse(point.at)
+      const label = Date.parse(point.source?.label)
+      if (!point.source?.id || !Number.isFinite(label) || !(label < at)
+        || !intervals.some(([left, right]) => left < at && at <= right)) {
+        throw new Error('国家时序资源时点越过查询或处理覆盖')
+      }
+      return at
+    })
+    if (new Set(activityTimes).size !== activityTimes.length || new Set(resourceTimes).size !== resourceTimes.length) {
+      throw new Error('国家时序含重复测量时间')
+    }
     for (const [chartKey, field, unit] of fields) {
       if (metadata.units?.[field] !== unit) throw new Error('国家时序单位与图表不一致')
       const resource = field !== 'announce' && field !== 'withdraw'
       const values = new Map<number, number | null>()
-      for (let time = Math.ceil(start / 300_000) * 300_000; time < end; time += 300_000) values.set(time + (resource ? 300_000 : 0), null)
-      payload.data.forEach((point, i) => {
-        const value = field === 'announce' || field === 'withdraw' ? point.activity[field] : point.resources[field]
+      const first = (resource ? Math.floor(start / 300_000) + 1 : Math.ceil(start / 300_000)) * 300_000
+      for (let time = first; resource ? time <= end : time < end; time += 300_000) values.set(time, null)
+      const samples = field === 'announce' || field === 'withdraw'
+        ? payload.data.activity.map((point, i) => [activityTimes[i]!, point[field]] as const)
+        : payload.data.resources.map((point, i) => [resourceTimes[i]!, point[field]] as const)
+      samples.forEach(([at, value]) => {
         if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('国家时序存在无效数值')
-        values.set((resource ? resourceTimes : activityTimes)[i]!, value)
+        values.set(at, value)
       })
       // 小于五分钟的处理缺口也须断线；覆盖终点不能画成恢复或零。
       intervals.forEach(([, right], i) => {

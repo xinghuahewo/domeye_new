@@ -81,16 +81,19 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   const response = reply()
   const data = {
     query: response.data.query,
-    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v3', sample_seconds: 300,
+    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v4', sample_seconds: 300,
       units: { announce: 'accepted_route_element', withdraw: 'accepted_route_element', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_covered_block', ipv6_prefixes: 'ipv6_48_covered_block' },
       coverage: { state: 'partial', intervals: [
         { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
         { start: '2026-03-01T19:17:00+08:00', end_exclusive: '2026-03-01T19:20:00+08:00' },
       ] },
     },
-    data: [{ source: { id: '测试文件', label: '2026-03-01T19:15:00+08:00' },
-      activity: { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00', announce: 0, withdraw: null },
-      resources: { at: '2026-03-01T19:16:00+08:00', ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2 } }],
+    data: {
+      activity: [{ source: { id: '测试文件', label: '2026-03-01T19:15:00+08:00' },
+        start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00', announce: 0, withdraw: null }],
+      resources: [{ source: { id: '测试文件', label: '2026-03-01T19:15:00+08:00' },
+        at: '2026-03-01T19:16:00+08:00', ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2 }],
+    },
   }
   vi.mocked(apiGetWithResultMetadata).mockResolvedValue({ result: response.result, data })
   const result = await getCountryEventSeries('features', '测试地区', range, 'delivery_test')
@@ -109,4 +112,16 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   data.metadata.units.announce = 'accepted_route_element'
   data.metadata.units.ipv4_prefixes = 'prefix'
   await expect(getCountryEventSeries('features', '测试地区', range, 'delivery_test')).rejects.toThrow('单位')
+  data.metadata.units.ipv4_prefixes = 'ipv4_24_covered_block'
+  // 非整点窗口仍保留起点前文件的窗口内末态，不画查询结束后的空槽或数值。
+  const unaligned = { start_time: '2026-03-01 19:15:30', end_time: '2026-03-01 19:16:30' }
+  data.query = { ...data.query, start: '2026-03-01T19:15:30+08:00', end_exclusive: '2026-03-01T19:16:30+08:00' }
+  data.metadata.coverage.intervals = [{ start: data.query.start, end_exclusive: '2026-03-01T19:16:00+08:00' }]
+  data.data.activity = []
+  const bounded = await getCountryEventSeries('features', '测试地区', unaligned, 'delivery_test')
+  expect(bounded.series.ipv4Addresses).toEqual([
+    ['2026-03-01T11:16:00.000Z', 2048], ['2026-03-01T11:16:15.000Z', null],
+  ])
+  data.data.resources[0]!.at = '2026-03-01T19:17:00+08:00'
+  await expect(getCountryEventSeries('features', '测试地区', unaligned, 'delivery_test')).rejects.toThrow('资源时点越过')
 })

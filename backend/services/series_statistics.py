@@ -48,40 +48,35 @@ def _window_statistics(rows, metric, unit, start, end, covered):
 
 
 def summarize_series(payload, seconds):
-    """按查询起点分桶，保留原样本标签选择规则与各指标自身的时间语义。"""
+    """按实际测量时间分桶；活动仅纳入完整区间，资源纳入桶末状态点。"""
     query, meta = payload['query'], payload['metadata']
     start, end = datetime.fromisoformat(query['start']), datetime.fromisoformat(query['end_exclusive'])
     outage = meta['interpretation_version'] == 'outage-series/v2'
-    label = 'time_slot' if outage else 'source.label'
     metrics = {'outage_count': meta['unit']} if outage else meta['units']
     coverage = [(datetime.fromisoformat(part['start']), datetime.fromisoformat(part['end_exclusive']))
                 for part in meta['coverage']['intervals']]
-    def sample_time(row):
-        return datetime.fromisoformat(row['time_slot'] if outage else row['source']['label'])
-
-    rows = sorted(payload['data'], key=sample_time)
-    selected = {}
-    for row in rows:
-        at = sample_time(row)
-        if start <= at < end:
-            selected.setdefault(int((at - start).total_seconds() // seconds), []).append(row)
-    buckets, left, index = [], start, 0
+    point_field = 'time_slot' if outage else 'at'
+    point_rows = payload['data'] if outage else payload['data']['resources']
+    points = sorted([(datetime.fromisoformat(row[point_field]), row) for row in point_rows], key=lambda p: p[0])
+    windows = [] if outage else [(datetime.fromisoformat(row['start']),
+                                  datetime.fromisoformat(row['end_exclusive']), row)
+                                 for row in payload['data']['activity']]
+    buckets, left = [], start
     while left < end:
         right = min(left + timedelta(seconds=seconds), end)
         parts, _ = _intervals([(max(left, a), min(right, b)) for a, b in coverage if a < right and b > left])
         covered = parts == [(left, right)]
-        samples = selected.get(index, [])
+        samples = [row for at, row in points if (left <= at < right if outage else left < at <= right)]
+        activity = [row for a, b, row in windows if left <= a < b <= right]
         stats = {}
         for metric, unit in metrics.items():
             if not outage and metric in ('announce', 'withdraw'):
-                stats[metric] = _window_statistics([row['activity'] for row in samples],
-                                                  metric, unit, left, right, covered)
+                stats[metric] = _window_statistics(activity, metric, unit, left, right, covered)
             else:
-                stats[metric] = _point_statistics(samples if outage else [row['resources'] for row in samples],
-                                                 metric, unit, 'time_slot' if outage else 'at')
+                stats[metric] = _point_statistics(samples, metric, unit, point_field)
         buckets.append({'start': left.isoformat(), 'end_exclusive': right.isoformat(),
                         'coverage': {'state': 'complete' if covered else 'partial' if parts else 'none',
                                      'intervals': _encode(parts)}, 'metrics': stats})
-        left, index = right, index + 1
-    return {'schema_version': 'series-statistics/v1', 'interval_seconds': seconds,
-            'selection_time': label, 'extrema_ties': 'earliest_sample', 'buckets': buckets}
+        left = right
+    return {'schema_version': 'series-statistics/v2', 'interval_seconds': seconds,
+            'extrema_ties': 'earliest_sample', 'buckets': buckets}

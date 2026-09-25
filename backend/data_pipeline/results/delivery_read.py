@@ -207,8 +207,11 @@ def read_country_feature_series(country, start, end, conn=conn_11):
                               f.window_start AS source_start, f.window_end AS source_end
                        FROM result_delivery.features x
                        LEFT JOIN result_delivery.files f USING (ordinal)
-                       WHERE x.scope = 'country' AND x.subject = %s AND x.t >= %s AND x.t < %s
-                       ORDER BY x.t""", (country, start, end))
+                       WHERE x.scope = 'country' AND x.subject = %s
+                         AND ((f.window_end > %s AND f.window_start < %s)
+                              OR (x.t >= %s AND x.t < %s))
+                       ORDER BY x.t""", (country, start, end,
+                                         start.replace(tzinfo=None), end.replace(tzinfo=None)))
         return cur.fetchall()
 
 

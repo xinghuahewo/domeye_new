@@ -73,7 +73,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 三个国家曲线入口（本接口、`outages/country-as`、`outages/country-prefix`）共用当前结果源的国家目录。先使用 `start_time/end_time` 且不传 `country` 查询 `/api/v1/core-overview`，从响应 `metadata.countries` 选择名称；仅传 `date` 的模式不返回该目录。三个入口的 `country` 须精确匹配目录值；目录之外的代码、别名或拼写返回 400，不能把未识别对象解释为零中断或空样本。目录读取失败返回 503。已识别国家在覆盖内没有中断记录时仍可返回观测值 0，缺少 Feature 样本仍保留空数组；对象识别与数值可用性分别判断。
 
-候选响应 `country-feature-series/v3` 尚未部署。`query` 保留按 `source.label` 文件标签选择的查询范围，`metadata` 给出版本、采集器、处理覆盖、单位与实际计量方式。每个样本的 `source` 保留已有交付文件身份和标签；`activity` 的活动次数直接绑定实际 `start/end_exclusive` 区间，`resources` 的资源数量直接绑定文件末态时点 `at`。没有共用的测量时间字段，文件标签不代替资源时点。非对齐查询可能选中超出请求端点的完整文件，不得把标签范围当作精确活动区间。处理覆盖不证明样本齐全；字段未知为 null，缺样本不补零。活动、覆盖块数与地址折算的定义分别见[活动](../metrics/activity.md)和[资源](../metrics/resources.md)，不能仅从字段名推断计量对象。
+候选响应 `country-feature-series/v4` 尚未部署。`data.activity` 与 `data.resources` 是独立数组：活动仅纳入完整落在查询窗口内的文件区间，资源按 `start < at <= end` 选择文件处理后的末态点，允许来源文件从查询起点之前开始。跨边界的活动计数不切分、不按比例折算；没有对应活动行的资源末态仍可读取。`source.label` 只追溯来源，不参与测量值选择。`metadata` 给出版本、采集器、处理覆盖、单位与计量方式。处理覆盖不证明每项指标齐全；字段未知为 null，缺样本不补零。活动、覆盖块数与地址折算的定义分别见[活动](../metrics/activity.md)和[资源](../metrics/resources.md)。
 
 前端按同版结果补空槽和处理缺口的断线。版本冲突 409，查询无效 400，读取失败、重复时点或无效数值 503。此候选需要完成文件来源；没有覆盖与版本的历史源不冒充已核对曲线。
 
