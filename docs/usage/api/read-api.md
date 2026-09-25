@@ -63,21 +63,21 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 | `/api/v2/country-outages/{incident_id}/trend` | 已有确定性趋势产品 | `publication_id`；是否有结果依赖实际绑定 |
 | `/api/v2/country-outages/{incident_id}/audit` | 内部审计信息 | `publication_id`；通常不进入业务回答正文 |
 
-候选已实现、尚未部署：完成文件模式返回 `schema_version=country-outage-delivery/v1`，`event` 复用 Core 详情。首次解析可省略版本，响应自带实际版本和覆盖；后续携带版本若已变化则返回 409。此家族没有 `publication_id`，不应再拼接上表的历史发布接口。已有峰值、名单和生命周期直接读取 `event.item`；普通统计沿用国家 Feature 与下方中断曲线 API。它们仍需检查各自数据覆盖、单位和同次阅读的版本。专用增强能力是否可用由实际绑定决定，解析成功不宣称路径关联等均可用。
+完成文件模式返回 `schema_version=country-outage-delivery/v1`，`event` 复用 Core 详情。首次解析可省略版本，响应自带实际版本和覆盖；后续携带版本若已变化则返回 409。此家族没有 `publication_id`，不应再拼接上表的历史发布接口。已有峰值、名单和生命周期直接读取 `event.item`；普通统计沿用国家 Feature 与下方中断曲线 API。它们仍需检查各自数据覆盖、单位和同次阅读的版本。专用增强能力是否可用由实际绑定决定，解析成功不宣称路径关联等均可用。
 
 不同国家响应家族对 `asns` 筛选与能力的支持不完全相同。先按返回能力选择，再按该家族校验参数；不把所有可见参数视为每个事件都支持。历史 ASN 窗口名单不当作某个时点的成员集合。
 
-## 单国路由活动与资源曲线（候选已实现，尚未部署）
+## 单国路由活动与资源曲线
 
 `GET /api/v1/features/countries/series` 要求 `country`、`start_time`、`end_time`，可选 `version`。国家名沿用数据库名称，`collect` 不作为国家；时间按北京时间 `[start_time,end_time)`，单次最多 24 小时。该入口只读指定国家的既有五分钟样本，不提供国家排名和前窗比较；总览仍使用 `/features/countries/overview`。
 
 三个国家曲线入口（本接口、`outages/country-as`、`outages/country-prefix`）共用当前结果源的国家目录。先使用 `start_time/end_time` 且不传 `country` 查询 `/api/v1/core-overview`，从响应 `metadata.countries` 选择名称；仅传 `date` 的模式不返回该目录。三个入口的 `country` 须精确匹配目录值；目录之外的代码、别名或拼写返回 400，不能把未识别对象解释为零中断或空样本。目录读取失败返回 503。已识别国家在覆盖内没有中断记录时仍可返回观测值 0，缺少 Feature 样本仍保留空数组；对象识别与数值可用性分别判断。
 
-候选响应 `country-feature-series/v4` 尚未部署。`data.activity` 与 `data.resources` 是独立数组：活动仅纳入完整落在查询窗口内的文件区间，资源按 `start < at <= end` 选择文件处理后的末态点，允许来源文件从查询起点之前开始。跨边界的活动计数不切分、不按比例折算；没有对应活动行的资源末态仍可读取。`source.label` 只追溯来源，不参与测量值选择。`metadata` 给出版本、采集器、处理覆盖、单位与计量方式。处理覆盖不证明每项指标齐全；字段未知为 null，缺样本不补零。活动、覆盖块数与地址折算的定义分别见[活动](../metrics/activity.md)和[资源](../metrics/resources.md)。
+`country-feature-series/v4` 响应中，`data.activity` 与 `data.resources` 是独立数组：活动仅纳入完整落在查询窗口内的文件区间，资源按 `start < at <= end` 选择文件处理后的末态点，允许来源文件从查询起点之前开始。跨边界的活动计数不切分、不按比例折算；没有对应活动行的资源末态仍可读取。`source.label` 只追溯来源，不参与测量值选择。`metadata` 给出版本、采集器、处理覆盖、单位与计量方式。处理覆盖不证明每项指标齐全；字段未知为 null，缺样本不补零。活动、覆盖块数与地址折算的定义分别见[活动](../metrics/activity.md)和[资源](../metrics/resources.md)。
 
-前端按同版结果补空槽和处理缺口的断线。版本冲突 409，查询无效 400，读取失败、重复时点或无效数值 503。此候选需要完成文件来源；没有覆盖与版本的历史源不冒充已核对曲线。
+前端按同版结果补空槽和处理缺口的断线。版本冲突 409，查询无效 400，读取失败、重复时点或无效数值 503。此接口需要完成文件来源；没有覆盖与版本的历史源不冒充已核对曲线。
 
-## 同一国家两窗比较（候选已实现，尚未部署）
+## 同一国家两窗比较
 
 `GET /api/v1/features/countries/comparison` 使用 `country`、`start_time/end_time` 与 `reference_start_time/reference_end_time` 指定同一国家的当前窗和参照窗，可选 `version`；每窗最多 24 小时。它在同次只读请求内复用上述 Feature 和下述中断时序，返回通告、撤回、IPv4/IPv6 资源量、AS 与前缀中断数量的两侧值、实际时间和比较资格，无需调用方重新从裸数字拼接合计或增幅。
 
@@ -85,9 +85,9 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 这些指标的总体由 `population` 表达：Feature 国家记录、检测 ASN、粗路由前缀分别统计，不替换成某次事件峰值成员。`reference` 只是所选参照窗，不自动成为正常基线；`recovery_assessment=not_assessed`，事件状态和恢复仍需事件记录及适用证据。本入口不自动平移或扩大请求窗口。读取失败返回 503，版本变化返回 409，不将失败值变成空集或零。
 
-## 中断曲线（候选已迭代，尚未部署）
+## 中断曲线
 
-以下五个入口在候选实现中共用已交付事件与覆盖查询，OpenAPI 已同步移除 deprecated。现网旧实现与新响应不能混用；统计定义和逐点状态以[中断时序覆盖合同](../metrics/events.md#中断时序的覆盖合同候选实现尚未部署)为准。
+以下五个入口共用已交付事件与覆盖查询，OpenAPI 已同步移除 deprecated。旧响应与新响应不能混用；统计定义和逐点状态以[中断时序覆盖合同](../metrics/events.md#中断时序的覆盖合同)为准。
 
 | GET 路径 | 统计对象 | 必需参数 |
 | --- | --- | --- |
@@ -101,7 +101,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 ## 调用结束时检查什么
 
-上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计候选已实现尚未部署)。该候选接口扩展尚未部署。
+上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计)。运行版本以实际部署与接口响应为准。
 
 同时检查 HTTP 状态和响应正文；部分兼容接口以 `status:false` 表示业务失败。状态正常后，再判断数值是否适用、是否还有分页、是否包含当前问题所需的对象与时间。详见[查询步骤](../guides/query-data.md)与[结果状态](../rules/result-states.md)。
 
