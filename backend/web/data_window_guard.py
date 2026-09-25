@@ -81,6 +81,7 @@ def enforce_request_data_window():
         half_open = path.startswith('/api/v1/features/outages/') or path in {
             "/api/v1/features/countries/overview",
             "/api/v1/features/countries/series",
+            "/api/v1/features/countries/comparison",
             "/api/v1/features/ases/overview",
             "/api/v1/features/ases/events",
         }
@@ -90,6 +91,11 @@ def enforce_request_data_window():
         )
         if not inside:
             return _error(window_start, window_end, "特征时间超出窗口")
+        if path == '/api/v1/features/countries/comparison':
+            reference_start = _timestamp(request.args.get('reference_start_time'))
+            reference_end = _timestamp(request.args.get('reference_end_time'))
+            if reference_start is None or reference_end is None or not window_start <= reference_start < reference_end <= window_end:
+                return _error(window_start, window_end, "比较参照时间无效或超出窗口")
         return None
 
     detail_start = (request.view_args or {}).get("start_time")

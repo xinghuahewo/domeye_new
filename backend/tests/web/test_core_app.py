@@ -24,6 +24,7 @@ EXPECTED_ROUTES = {
     '/api/v1/features/countries',
     '/api/v1/features/countries/overview',
     '/api/v1/features/countries/series',
+    '/api/v1/features/countries/comparison',
     '/api/v1/features/ases',
     '/api/v1/features/ases/overview',
     '/api/v1/features/ases/events',

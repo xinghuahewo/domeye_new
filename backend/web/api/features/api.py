@@ -2,6 +2,7 @@ from flask import request
 from flask_restful import Resource
 from services.asn_service import get_asn_recent_events, get_asn_workbench
 from services.country_service import get_country_series, get_country_workbench
+from services.country_comparison import get_country_comparison
 from services.series_statistics import summarize_series
 
 from services.features_service import (
@@ -182,3 +183,15 @@ class GlobalPrefixOutageFeatureResource(_FeatureSeriesResource):
 class CountryFeatureSeriesResource(_FeatureSeriesResource):
     kind = 'country_features'
     selector = 'country'
+
+
+class CountryComparisonResource(Resource):
+    def get(self):
+        allowed = {'country', 'start_time', 'end_time', 'reference_start_time', 'reference_end_time', 'version'}
+        if set(request.args) - allowed or any(len(request.args.getlist(key)) != 1 for key in request.args):
+            return {'status': False, 'msg': '比较参数重复或不受支持'}, 400
+        if not request.args.get('country', '').strip() or ('version' in request.args and not request.args['version'].strip()):
+            return {'status': False, 'msg': '国家名称和显式版本不能为空'}, 400
+        options = {key: request.args.get(key) for key in allowed}
+        options['country'] = options['country'].strip()
+        return get_country_comparison(**options)

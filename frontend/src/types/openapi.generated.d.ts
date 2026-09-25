@@ -382,6 +382,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/features/countries/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 比较同一国家两段时间的活动、资源及 AS/前缀中断
+         * @description 比较指定国家两个各不超过24小时的窗口，直接返回通告、撤回、IPv4/IPv6资源、AS和前缀中断的两侧值、实际时间、差值和百分比。活动是完整窗口合计，缺口、边界不齐或时长不等时 comparison=not_comparable 且不给增幅；资源及中断比较各窗末个样本，保留真实 at。复用现有只读时序，不重算检测或写库。结果是国家同期统计，不是事件峰值成员，也不构成恢复判断；事件状态读取事件详情的生命周期与实际观测时间。
+         */
+        get: operations["compareCountryWindows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/features/countries/series": {
         parameters: {
             query?: never;
@@ -2155,6 +2175,86 @@ export interface components {
                 };
             }[];
         };
+        /** @description 窗口内末个保存样本的数值和实际时点；保留末样本的空值，不回退到更早的已知值。不是整个小时恒定读数。 */
+        ComparisonPointReading: {
+            value: number | null;
+            /** Format: date-time */
+            at: string | null;
+        };
+        /** @description value 仅在完整文件无重叠、无空值且精确覆盖整个请求窗时为整窗合计，否则为 null。known_window_sum 只对应实际所列文件区间，不能冒充整窗 value 或参与整窗增幅。 */
+        ComparisonWindowReading: {
+            value: number | null;
+            known_window_sum: number | null;
+            source_intervals: components["schemas"]["ResultDeliveryInterval"][];
+        };
+        /** @description 以 current-reference 计算差值，百分比除以 reference；参照为零时百分比未知。活动需两侧均完整且时长相同。点量只比较返回的实际末样本。总体 country_feature_records、detected_asns、coarse_routing_prefixes 分别解释，不能和某次国家事件峰值成员互换；可比较的增减不证明事件恢复。 */
+        CountryMetricComparison: {
+            measurement: string;
+            population: string;
+            unit: string;
+            /** @enum {unknown} */
+            statistic: "last_sample" | "window_total";
+            reference: components["schemas"]["ComparisonPointReading"] | components["schemas"]["ComparisonWindowReading"];
+            current: components["schemas"]["ComparisonPointReading"] | components["schemas"]["ComparisonWindowReading"];
+            comparison: {
+                /** @enum {unknown} */
+                state: "comparable" | "not_comparable";
+                reasons: ("reference_total_unknown" | "current_total_unknown" | "reference_value_unknown" | "current_value_unknown" | "window_duration_mismatch")[];
+                delta: number | null;
+                percent_of_reference: number | null;
+            };
+        };
+        /** @description 同一国家、同一交付版本和观察点的两窗确定性比较，直接读已有 Feature 与 AS/前缀中断记录；不生成持久结果。各项保留统计方法、总体、单位、真实时点/区间及比较资格。通告和撤回分别返回。reference 是请求选择的参照，未验证为正常基线；本接口不评估事件恢复。 */
+        CountryComparisonPayload: {
+            query: {
+                country: string;
+                reference: {
+                    /** Format: date-time */
+                    start: string;
+                    /** Format: date-time */
+                    end_exclusive: string;
+                    seconds: number;
+                    coverage: {
+                        /** @enum {unknown} */
+                        state: "complete" | "partial" | "none";
+                        intervals: components["schemas"]["ResultDeliveryInterval"][];
+                    };
+                };
+                current: {
+                    /** Format: date-time */
+                    start: string;
+                    /** Format: date-time */
+                    end_exclusive: string;
+                    seconds: number;
+                    coverage: {
+                        /** @enum {unknown} */
+                        state: "complete" | "partial" | "none";
+                        intervals: components["schemas"]["ResultDeliveryInterval"][];
+                    };
+                };
+                /** @constant */
+                timezone: "Asia/Shanghai";
+            };
+            metadata: {
+                /** @constant */
+                interpretation_version: "country-window-comparison/v1";
+                version: string;
+                collector_id: string;
+                /** @constant */
+                scope: "country_statistics";
+                /** @constant */
+                recovery_assessment: "not_assessed";
+            };
+            metrics: {
+                announce: components["schemas"]["CountryMetricComparison"];
+                withdraw: components["schemas"]["CountryMetricComparison"];
+                ipv4_prefixes: components["schemas"]["CountryMetricComparison"];
+                ipv6_prefixes: components["schemas"]["CountryMetricComparison"];
+                ipv4_addresses: components["schemas"]["CountryMetricComparison"];
+                as_outage: components["schemas"]["CountryMetricComparison"];
+                prefix_outage: components["schemas"]["CountryMetricComparison"];
+            };
+        };
         /** @description 指定国家现有 Feature 活动区间和资源末态，分别放在 data.activity、data.resources 数组，按各自实际时间选择。活动仅纳入查询内完整文件区间；资源纳入 (start,end] 的实际末态点。source.label 只追溯来源，不能代替测量时间。两类数组可有不同长度；缺样本不补零。处理 coverage 完整不代表活动区间恰好覆盖查询；精确活动合计以 summary 的 total 为准。此入口不计算排名、正常基线或恢复状态。 */
         CountryFeatureSeriesPayload: {
             query: {
@@ -3551,6 +3651,66 @@ export interface operations {
             };
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+        };
+    };
+    compareCountryWindows: {
+        parameters: {
+            query: {
+                /** @description 当前结果源的国家或地区名称。先对 /api/v1/core-overview 使用 start_time/end_time 且不传 country 查询，从响应 metadata.countries 选择名称；仅 date 模式不返回该目录。country 须精确匹配目录值，未列入的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。 */
+                country: components["parameters"]["DeliveredCountry"];
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                start_time: components["parameters"]["StartTime"];
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                end_time: components["parameters"]["EndTime"];
+                /** @description 参照窗开始，北京时间 YYYY-MM-DD HH:MM:SS；并非已确认正常基线。 */
+                reference_start_time: string;
+                /** @description 参照窗排他终点，北京时间 YYYY-MM-DD HH:MM:SS。 */
+                reference_end_time: string;
+                /** @description 已取得版本时显式携带；不匹配当前交付返回409。 */
+                version?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 同版本两窗统计与逐指标比较资格 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountryComparisonPayload"];
+                };
+            };
+            /** @description 国家、两个窗口或查询参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 版本或观察点不一致 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 来源或必需统计读取失败，不当作零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

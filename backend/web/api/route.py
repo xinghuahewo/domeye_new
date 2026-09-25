@@ -22,6 +22,7 @@ from .features.api import (
     CountryASOutageFeatureResource,
     CountryFeatureListResource,
     CountryFeatureSeriesResource,
+    CountryComparisonResource,
     CountryPrefixOutageFeatureResource,
     CountryWorkbenchResource,
     GlobalASOutageFeatureResource,
@@ -65,6 +66,7 @@ api.add_resource(TopFeatureResource, '/features/top')
 api.add_resource(CountryFeatureListResource, '/features/countries')
 api.add_resource(CountryWorkbenchResource, '/features/countries/overview')
 api.add_resource(CountryFeatureSeriesResource, '/features/countries/series')
+api.add_resource(CountryComparisonResource, '/features/countries/comparison')
 api.add_resource(ASFeatureListResource, '/features/ases')
 api.add_resource(ASWorkbenchResource, '/features/ases/overview')
 api.add_resource(ASRecentEventsResource, '/features/ases/events')
