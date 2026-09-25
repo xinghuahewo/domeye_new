@@ -31,6 +31,22 @@ function harness(respond) {
   return { ...policy, calls, events };
 }
 
+test('单国时序 v2 的计量和时间含义进入来源回执，继续核对共享版本', async () => {
+  const body = samples('synthetic-v1', true);
+  body.metadata.interpretation_version = 'country-feature-series/v2';
+  body.metadata.measurement = { ipv4_addresses: 'ipv4_24_union_blocks_x256' };
+  body.metadata.time_basis = { time: 'source_file_label', activity: 'source_window', resource: 'resource_state_at' };
+  const h = harness(() => body);
+  const response = await h.request(input(features));
+  const event = h.events.at(-1);
+  assert.equal(event.versionAssurance, 'confirmed');
+  const receipt = makeSourceReceipt({ toolCallId: 'feature-v2', event, response });
+  assert.deepEqual(receipt.scope.metadata.measurement, body.metadata.measurement);
+  assert.deepEqual(receipt.scope.metadata.time_basis, body.metadata.time_basis);
+  await h.request(input(features, 'synthetic-v1'));
+  assert.equal(h.events.at(-1).versionAssurance, 'matched');
+});
+
 test('嵌套版本和范围进入同一次 HTTP 回执，缺省的后续版本不能绕过校验', async () => {
   const h = harness(() => samples('synthetic-v1'));
   const response = await h.request(input(series));

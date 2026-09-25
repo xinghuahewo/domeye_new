@@ -1,8 +1,8 @@
 // 只按已知业务合同定位来源，不递归寻找同名 version，也不借通用响应头推断正文版本。
 export const DELIVERY_SERIES = new Map([
-  ['/api/v1/features/countries/series', 'country-feature-series/v1'],
+  ['/api/v1/features/countries/series', ['country-feature-series/v1', 'country-feature-series/v2']],
   ...['country-as', 'country-prefix', 'as-prefix', 'global-as', 'global-prefix']
-    .map(kind => [`/api/v1/features/outages/${kind}`, 'outage-series/v2']),
+    .map(kind => [`/api/v1/features/outages/${kind}`, ['outage-series/v2']]),
 ]);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -11,7 +11,7 @@ export function responseSource(path, body) {
   const record = resolved ? body.event : body;
   const interpretation = DELIVERY_SERIES.get(path);
   const versionPath = interpretation
-    ? (body?.metadata?.interpretation_version === interpretation && typeof body.metadata.collector_id === 'string'
+    ? (interpretation.includes(body?.metadata?.interpretation_version) && typeof body.metadata.collector_id === 'string'
       && body.metadata.collector_id.trim() ? ['metadata', 'version'] : null)
     : resolved ? ['event', 'version'] : ['version'];
   let version = versionPath ? body : null;
@@ -23,7 +23,7 @@ export function responseSource(path, body) {
 export function sourceMetadata(path, body) {
   const entries = [];
   const core = ['/api/v1/core-overview', '/api/v1/core-overview/record'].includes(path);
-  const series = DELIVERY_SERIES.has(path) && body?.metadata?.interpretation_version === DELIVERY_SERIES.get(path);
+  const series = DELIVERY_SERIES.get(path)?.includes(body?.metadata?.interpretation_version);
   if ((core || series) && object(body) && Object.hasOwn(body, 'metadata')) entries.push(['metadata', body.metadata]);
   if (core && object(body?.item) && Object.hasOwn(body.item, 'lifecycle')) entries.push(['item.lifecycle', body.item.lifecycle]);
   if (path === '/api/v2/events/resolve' && body?.schema_version === 'country-outage-delivery/v1') {
