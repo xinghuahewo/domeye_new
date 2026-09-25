@@ -12,7 +12,7 @@
     "check": "node --check agent.mjs && node --check tools.mjs && node --check cli.mjs && node --check server.mjs && node --check web/app.js && node --check runtime/source-receipt.mjs && node --check runtime/truncate.mjs && node --check runtime/settings.mjs && node --check scripts/prepare-docs.mjs",
     "test:executor": "node --test runtime/executor.test.mjs",
     "test:session": "node --experimental-test-module-mocks --test session.test.mjs",
-    "test:contracts": "node --test spec.test.mjs datasets.test.mjs docs.test.mjs runtime/request-policy.test.mjs runtime/source-receipt.test.mjs runtime/settings.test.mjs runtime/model-options.test.mjs",
+    "test:contracts": "node --test spec.test.mjs datasets.test.mjs docs.test.mjs runtime/request-policy.test.mjs runtime/source-receipt.test.mjs runtime/response-source.test.mjs runtime/settings.test.mjs runtime/model-options.test.mjs",
     "test:integration": "node --experimental-test-module-mocks --test request-policy.integration.test.mjs",
     "test:search": "node --experimental-test-module-mocks --test search.integration.test.mjs tools-context.integration.test.mjs",
     "web": "node server.mjs",
