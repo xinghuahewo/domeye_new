@@ -18,5 +18,7 @@ export function formatBusinessEndTime(end: string, start: string, full = false):
 
 // 当前固定数据档由 Vite 校验为 +08:00；数据库特征时间没有时区后缀。
 export function businessTimeToIso(value: string): string {
-  return new Date(`${value.replace(' ', 'T')}${dataProfile.window_start.slice(-6)}`).toISOString()
+  const timestamp = value.replace(' ', 'T')
+  const offset = /(?:Z|[+-]\d{2}:\d{2})$/i.test(timestamp) ? '' : dataProfile.window_start.slice(-6)
+  return new Date(`${timestamp}${offset}`).toISOString()
 }

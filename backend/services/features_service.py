@@ -1,9 +1,17 @@
 import datetime
+import os
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import psycopg2
+from flask import g, has_request_context
 
 from config.config import BIG_COUNTRY, FEATURE_COUNTRY_TABLE, FEATURE_OTHER_TABLE, SOURCE
 from config.database import conn_11
 from database.feature_asn import select_as_feature_db
 from database.feature_country import select_country_feature_db
+from data_pipeline.overview.input import InputError
+from data_pipeline.results import delivery_read
 from utils import data_loader
 from utils.data_loader import as_info, prefix_info
 from utils.get_as_info import get_as_country
@@ -11,9 +19,7 @@ from utils.get_event import (
     deal_features,
     deal_outage,
     get_as_features_list,
-    get_as_outage_by_interval,
     get_country_feature_list,
-    get_prefix_outage_by_interval,
 )
 
 
@@ -151,49 +157,67 @@ def get_as_feature_series(start_time, end_time, asn='', country='', page_num=Non
     )
 
 
-def get_as_outage_feature(country, start_time, end_time, conn=conn_11):
+def _get_outage_feature(kind, country, asn, start_time, end_time, conn, prefixes=None, version=None):
     start_time_dt, end_time_dt, error = _parse_datetime_range(start_time, end_time)
     if error:
         return error
+    if start_time_dt >= end_time_dt:
+        return {'status': False, 'msg': '开始时间必须早于结束时间'}, 400
+    if end_time_dt - start_time_dt > datetime.timedelta(days=1):
+        return {'status': False, 'msg': '中断时序单次最多查询 24 小时'}, 400
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') != 'true':
+        return {'status': False, 'msg': '中断时序缺少可核对的检测语义与处理覆盖范围'}, 503
+    zone = ZoneInfo(delivery_read.PROFILE['timezone'])
+    start, end = start_time_dt.replace(tzinfo=zone), end_time_dt.replace(tzinfo=zone)
+    field = 'asn' if kind == 'as_outage' else 'prefix'
+    try:
+        meta = getattr(g, 'result_delivery', None) if has_request_context() else None
+        if meta is None:
+            meta = delivery_read.status(conn)
+        if meta['state'] != 'available':
+            raise InputError('没有可读取的完成文件覆盖范围')
+        if version is not None and version != meta['version']:
+            return {'status': False, 'msg': '交付版本已变化，请按同一版本重新查询'}, 409
+        coverage = delivery_read._covered_intervals(meta, start, end)
+        # 采样需要未裁剪的覆盖段，才能核对窗口前发生的事件是否跨越处理缺口。
+        all_coverage = delivery_read._covered_intervals(
+            meta, datetime.datetime.fromisoformat(meta['start']),
+            datetime.datetime.fromisoformat(meta['end_exclusive']),
+        )
+        rows = []
+        if coverage:
+            rows = delivery_read.read_outage_intervals(kind, coverage[0][0], coverage[-1][1],
+                                                       country=country, asn=asn, conn=conn)
+            if field == 'prefix' and prefixes is None:
+                data_loader.ensure_core_data_loaded()
+                prefixes = prefix_info.keys()
+                if not prefixes:
+                    raise InputError('粗路由筛选数据不可用')
+        points = deal_outage(pd.DataFrame(rows, columns=[field, 's_time', 'e_time']),
+                             type=field, start_time=start, end_time=end, prefixes=prefixes or [],
+                             coverage=all_coverage, interval_minutes=3)
+        return {
+            'query': {'start': start.isoformat(), 'end_exclusive': end.isoformat(),
+                      'timezone': delivery_read.PROFILE['timezone'], 'window_boundary': '[start,end)',
+                      'country': country, 'asn': asn},
+            'metadata': {
+                'version': meta['version'], 'interpretation_version': 'outage-series/v2',
+                'collector_id': meta['binding']['collector'],
+                'data_start': meta['start'], 'data_end_exclusive': meta['end_exclusive'],
+                'coverage': {'state': 'complete' if coverage == [(start, end)] else 'partial' if coverage else 'none',
+                             'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a, b in coverage]},
+                'metric': 'concurrent_outage_objects', 'unit': field, 'sample_seconds': 180,
+                'population': 'detected_asns' if field == 'asn' else 'coarse_routing_prefixes',
+            },
+            'data': points,
+        }
+    except (psycopg2.Error, InputError, ValueError, KeyError, TypeError, OSError):
+        return {'status': False, 'msg': '中断时序数据或覆盖范围不可读取，不能解释为零'}, 503
 
-    result = get_as_outage_by_interval(
-        conn=conn,
-        source=SOURCE,
-        country=country,
-        start_time=start_time_dt,
-        end_time=end_time_dt,
-    )
-    return deal_outage(
-        result,
-        type='asn',
-        start_time=start_time_dt,
-        end_time=end_time_dt,
-        prefixes=[],
-        interval_minutes=3,
-    )
+
+def get_as_outage_feature(country, start_time, end_time, conn=conn_11, version=None):
+    return _get_outage_feature('as_outage', country, None, start_time, end_time, conn, version=version)
 
 
-def get_prefix_outage_feature(country, asn, start_time, end_time, conn=conn_11, prefixes=None):
-    start_time_dt, end_time_dt, error = _parse_datetime_range(start_time, end_time)
-    if error:
-        return error
-
-    if prefixes is None:
-        data_loader.ensure_core_data_loaded()
-    effective_prefixes = prefix_info.keys() if prefixes is None else prefixes
-    result = get_prefix_outage_by_interval(
-        conn=conn,
-        source=SOURCE,
-        country=country,
-        asn=asn,
-        start_time=start_time_dt,
-        end_time=end_time_dt,
-    )
-    return deal_outage(
-        result,
-        type='prefix',
-        start_time=start_time_dt,
-        end_time=end_time_dt,
-        prefixes=effective_prefixes,
-        interval_minutes=3,
-    )
+def get_prefix_outage_feature(country, asn, start_time, end_time, conn=conn_11, prefixes=None, version=None):
+    return _get_outage_feature('prefix_outage', country, asn, start_time, end_time, conn, prefixes, version)

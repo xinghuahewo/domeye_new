@@ -2,7 +2,7 @@ import { apiGetWithResultMetadata } from './client'
 import type { CountryOutageRecord } from './countryOutageRecord'
 import type { FeatureRange } from './features'
 import { businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
-import { normalizeCountryOverview, normalizeOutagePoints } from '@/utils/normalize'
+import { isRecord, normalizeCountryOverview, normalizeOutagePoints } from '@/utils/normalize'
 import dataProfile from '../../../config/data-profile.json'
 
 export type CountryChartKind = 'features' | 'as' | 'prefix'
@@ -70,8 +70,17 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
       series[key] = pad(points, (i) => points[i]?.[key] ?? null, 5)
     }
   } else {
+    if (!isRecord(data) || !isRecord(data.metadata) || !isRecord(data.query)) {
+      throw new Error('中断统计缺少查询与覆盖元数据，请使用匹配的 API')
+    }
+    if (data.metadata.version !== result.version || data.query.country !== country
+      || Date.parse(String(data.query.start)) !== start || Date.parse(String(data.query.end_exclusive)) !== end
+      || data.metadata.unit !== (kind === 'as' ? 'asn' : 'prefix')) {
+      throw new Error('中断统计的版本、对象、窗口或单位与请求不一致')
+    }
     const points = normalizeOutagePoints(data)
-    series.count = pad(points, (i) => points[i]?.count ?? null, 3)
+    // 后端已按实际覆盖采样；保留 null 与缺口边界，不再在页面推算中断状态。
+    series.count = points.map((point) => [new Date(point.time).toISOString(), point.count])
   }
   return { series, version: result.version || '' }
 }

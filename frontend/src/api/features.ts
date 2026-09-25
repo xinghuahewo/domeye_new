@@ -1,4 +1,5 @@
 import { apiGet } from './client'
+import type { components } from '@/types/openapi.generated'
 import {
   normalizeAsOverview,
   normalizeCountryOverview,
@@ -6,6 +7,8 @@ import {
   normalizeFeaturePoints,
   normalizeOutagePoints,
 } from '@/utils/normalize'
+
+type OutageSeriesPayload = components['schemas']['OutageSeriesPayload']
 
 export interface FeatureRange {
   start_time: string
@@ -64,27 +67,27 @@ export async function getAsRecentEvents(
 }
 
 export async function getGlobalASOutages(range: FeatureRange) {
-  return normalizeOutagePoints(await apiGet<unknown>('features/outages/global-as', { params: range }))
+  return normalizeOutagePoints(await apiGet<OutageSeriesPayload>('features/outages/global-as', { params: range }))
 }
 
 export async function getGlobalPrefixOutages(range: FeatureRange) {
-  return normalizeOutagePoints(await apiGet<unknown>('features/outages/global-prefix', { params: range }))
+  return normalizeOutagePoints(await apiGet<OutageSeriesPayload>('features/outages/global-prefix', { params: range }))
 }
 
 export async function getCountryASOutages(country: string, range: FeatureRange) {
-  return normalizeOutagePoints(await apiGet<unknown>('features/outages/country-as', {
+  return normalizeOutagePoints(await apiGet<OutageSeriesPayload>('features/outages/country-as', {
     params: { country, ...range },
   }))
 }
 
 export async function getCountryPrefixOutages(country: string, range: FeatureRange) {
-  return normalizeOutagePoints(await apiGet<unknown>('features/outages/country-prefix', {
+  return normalizeOutagePoints(await apiGet<OutageSeriesPayload>('features/outages/country-prefix', {
     params: { country, ...range },
   }))
 }
 
 export async function getASPrefixOutages(asn: string, range: FeatureRange) {
-  return normalizeOutagePoints(await apiGet<unknown>('features/outages/as-prefix', {
+  return normalizeOutagePoints(await apiGet<OutageSeriesPayload>('features/outages/as-prefix', {
     params: { asn, ...range },
   }))
 }

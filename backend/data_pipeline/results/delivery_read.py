@@ -198,6 +198,34 @@ def read_rib_statistics(start, end):
         return [row[0] for row in cur.fetchall()]
 
 
+def read_outage_intervals(kind, start, end, *, country=None, asn=None, conn=conn_11):
+    """按实际重叠读取当前检测事实；不受开始月份视图限制，不将读取失败转为空。"""
+    if kind not in ('as_outage', 'prefix_outage'):
+        raise ValueError('不支持的中断类型')
+    field = 'asn' if kind == 'as_outage' else 'prefix'
+    zone = ZoneInfo(PROFILE['timezone'])
+    # 来源字段沿用检测器的业务本地时间，与兼容视图的 timestamp 类型一致。
+    local_start, local_end = (value.astimezone(zone).replace(tzinfo=None) for value in (start, end))
+    where = ["kind=%s", "data->>'source'=%s", "(data->>'s_time')::timestamp < %s",
+             "((data->>'e_time')::timestamp > %s OR data->>'e_time' IS NULL)"]
+    values = [field, kind, 'r', local_end, local_start]
+    for name, value in [('country', country), ('asn', asn)]:
+        if value is not None:
+            where.append(f"data->>'{name}'=%s")
+            values.append(value)
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT data->>%s, (data->>'s_time')::timestamp, "
+                    "(data->>'e_time')::timestamp, data ? 'e_time' "
+                    "FROM result_delivery.events WHERE " + ' AND '.join(where), values)
+        rows = cur.fetchall()
+    result = []
+    for identifier, started, ended, has_end in rows:
+        if not identifier or started is None or not has_end or (ended is not None and ended < started):
+            raise InputError('中断记录的对象或起止时间不完整')
+        result.append((identifier, started.replace(tzinfo=zone), ended.replace(tzinfo=zone) if ended else None))
+    return result
+
+
 def normalized_record(ref, data, context, incident_id):
     scope = context['scope']
     table = ('leak_event' if ref.startswith('leak/') else ref.split('/')[0])+'_'+ref.split('/')[1][:7].replace('-','')

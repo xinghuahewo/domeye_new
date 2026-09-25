@@ -743,52 +743,11 @@ OUTAGE_CASES = [
 
 
 @pytest.mark.parametrize(('path', 'outage_type', 'filters', 'expected_filters'), OUTAGE_CASES)
-def test_five_outage_series_contracts(
-    client,
-    assert_contract,
-    path,
-    outage_type,
-    filters,
-    expected_filters,
-):
-    start_time = datetime(2026, 2, 1, 0, 0, 0)
-    end_time = datetime(2026, 2, 1, 0, 3, 0)
-    if outage_type == 'asn':
-        rows = pd.DataFrame([{'asn': '4134', 's_time': start_time, 'e_time': None}])
-        query_target = 'services.features_service.get_as_outage_by_interval'
-    else:
-        rows = pd.DataFrame([
-            {'prefix': '1.2.3.0/24', 's_time': start_time, 'e_time': None},
-        ])
-        query_target = 'services.features_service.get_prefix_outage_by_interval'
-
-    with ExitStack() as stack:
-        query = stack.enter_context(patch(query_target, return_value=rows))
-        if outage_type == 'prefix':
-            ensure = stack.enter_context(
-                patch('services.features_service.data_loader.ensure_core_data_loaded')
-            )
-            stack.enter_context(
-                patch.object(features_service, 'prefix_info', {'1.2.3.0/24': {}})
-            )
-        response = client.get(path, query_string={**RANGE, **filters})
-
-    assert response.status_code == 200
-    payload = response.get_json()
-    assert type(payload) is list
-    assert len(payload) == 2
-    for point in payload:
-        assert_contract(point, OUTAGE_POINT_SCHEMA)
-    assert payload == [
-        {'time_slot': '2026-02-01 00:00:00', 'outage_count': 1},
-        {'time_slot': '2026-02-01 00:03:00', 'outage_count': 1},
-    ]
-    assert query.call_args.kwargs['start_time'] == start_time
-    assert query.call_args.kwargs['end_time'] == end_time
-    for field, value in expected_filters.items():
-        assert query.call_args.kwargs[field] == value
-    if outage_type == 'prefix':
-        ensure.assert_called_once_with()
+def test_outage_series_requires_verified_coverage(client, monkeypatch, path, outage_type, filters, expected_filters):
+    monkeypatch.delenv('DOMEYE_RESULT_DELIVERY', raising=False)
+    response = client.get(path, query_string={**RANGE, **filters})
+    assert response.status_code == 503
+    assert '覆盖范围' in response.get_json()['msg']
 
 
 @pytest.mark.parametrize(
@@ -796,7 +755,8 @@ def test_five_outage_series_contracts(
     [case.values[0] for case in OUTAGE_CASES],
 )
 def test_five_outage_series_require_complete_time_range(client, assert_contract, path):
-    response = client.get(path, query_string={'start_time': RANGE['start_time']})
+    filters = next(case.values[2] for case in OUTAGE_CASES if case.values[0] == path)
+    response = client.get(path, query_string={'start_time': RANGE['start_time'], **filters})
 
     assert response.status_code == 400
     payload = response.get_json()

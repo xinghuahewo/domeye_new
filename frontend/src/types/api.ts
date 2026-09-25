@@ -1056,7 +1056,7 @@ export interface FeaturePoint {
 
 export interface OutagePoint {
   time: string
-  count: number
+  count: number | null
 }
 
 export interface CountrySparkPoint {

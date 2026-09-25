@@ -118,74 +118,52 @@ class ASRecentEventsResource(Resource):
         )
 
 
-class CountryASOutageFeatureResource(Resource):
-    """
-    获取某个国家的AS中断事件时序特征
-    Endpoint: /api/v1/features/outages/country-as
-    """
+class _OutageFeatureResource(Resource):
+    kind = 'as'
+    selector = None
 
     def get(self):
-        return get_as_outage_feature(
-            country=request.args.get('country'),
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-        )
+        allowed = {'start_time', 'end_time', 'version'} | ({self.selector} if self.selector else set())
+        if set(request.args) - allowed or any(len(request.args.getlist(key)) != 1 for key in request.args):
+            return {'status': False, 'msg': '中断时序参数重复或不受支持'}, 400
+        selected = request.args.get(self.selector, '').strip() if self.selector else None
+        if self.selector and not selected:
+            return {'status': False, 'msg': f'必须指定 {self.selector}'}, 400
+        if self.selector == 'asn':
+            selected = selected.removeprefix('AS').removeprefix('as')
+            if not selected.isascii() or not selected.isdigit() or not 0 < int(selected) <= 4294967295:
+                return {'status': False, 'msg': 'ASN 必须是有效的 AS 编号'}, 400
+            selected = str(int(selected))
+        version = request.args.get('version')
+        if version is not None and not version.strip():
+            return {'status': False, 'msg': '版本不能为空'}, 400
+        options = {
+            'country': selected if self.selector == 'country' else None,
+            'start_time': request.args.get('start_time'),
+            'end_time': request.args.get('end_time'), 'version': version,
+        }
+        if self.kind == 'as':
+            return get_as_outage_feature(**options)
+        return get_prefix_outage_feature(**options, asn=selected if self.selector == 'asn' else None)
 
 
-class CountryPrefixOutageFeatureResource(Resource):
-    """
-    获取某个国家的前缀中断时序特征
-    Endpoint: /api/v1/features/outages/country-prefix
-    """
-
-    def get(self):
-        return get_prefix_outage_feature(
-            country=request.args.get('country'),
-            asn=None,
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-        )
+class CountryASOutageFeatureResource(_OutageFeatureResource):
+    selector = 'country'
 
 
-class ASPrefixOutageFeatureResource(Resource):
-    """
-    获取某个AS的前缀中断时序特征
-    Endpoint: /api/v1/features/outages/as-prefix
-    """
-
-    def get(self):
-        return get_prefix_outage_feature(
-            country=None,
-            asn=request.args.get('asn'),
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-        )
+class CountryPrefixOutageFeatureResource(_OutageFeatureResource):
+    kind = 'prefix'
+    selector = 'country'
 
 
-class GlobalASOutageFeatureResource(Resource):
-    """
-    获取全局 AS 中断时序特征
-    Endpoint: /api/v1/features/outages/global-as
-    """
-
-    def get(self):
-        return get_as_outage_feature(
-            country=None,
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-        )
+class ASPrefixOutageFeatureResource(_OutageFeatureResource):
+    kind = 'prefix'
+    selector = 'asn'
 
 
-class GlobalPrefixOutageFeatureResource(Resource):
-    """
-    获取全局前缀中断时序特征
-    Endpoint: /api/v1/features/outages/global-prefix
-    """
+class GlobalASOutageFeatureResource(_OutageFeatureResource):
+    pass
 
-    def get(self):
-        return get_prefix_outage_feature(
-            country=None,
-            asn=None,
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-        )
+
+class GlobalPrefixOutageFeatureResource(_OutageFeatureResource):
+    kind = 'prefix'

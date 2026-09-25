@@ -446,10 +446,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @deprecated
-         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
-         */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
         get: operations["getCountryAsOutages"];
         put?: never;
         post?: never;
@@ -466,10 +463,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @deprecated
-         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
-         */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
         get: operations["getCountryPrefixOutages"];
         put?: never;
         post?: never;
@@ -486,10 +480,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @deprecated
-         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
-         */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
         get: operations["getAsPrefixOutages"];
         put?: never;
         post?: never;
@@ -506,10 +497,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @deprecated
-         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
-         */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
         get: operations["getGlobalAsOutages"];
         put?: never;
         post?: never;
@@ -526,10 +514,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @deprecated
-         * @description 现有国家与 ASN 页面兼容读取的三分钟并发采样。当前完成文件检测中 AS/前缀 e_time=NULL 表示未触发结束；未知来源的历史记录不能套用。本接口仍未按实际处理覆盖截断，且旧补零行为不能区分缺失，不单独证明查询时点的确定状态。当前没有语义等价的统一替代入口。
-         */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 */
         get: operations["getGlobalPrefixOutages"];
         put?: never;
         post?: never;
@@ -2264,9 +2249,51 @@ export interface components {
             page_size: number;
             data: components["schemas"]["AsFeatureItem"][];
         };
+        /** @description 采样瞬间的去重中断对象数；不是该三分钟内的事件开始次数。 */
         OutagePoint: {
+            /** Format: date-time */
             time_slot: string;
-            outage_count: number;
+            outage_count: number | null;
+            /** @enum {unknown} */
+            observation_state: "observed" | "not_observed" | "unknown";
+        } & unknown;
+        OutageSeriesPayload: {
+            query: {
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end_exclusive: string;
+                /** @constant */
+                timezone: "Asia/Shanghai";
+                /** @constant */
+                window_boundary: "[start,end)";
+                country: string | null;
+                asn: string | null;
+            };
+            metadata: {
+                version: string;
+                /** @constant */
+                interpretation_version: "outage-series/v2";
+                collector_id: string;
+                /** Format: date-time */
+                data_start: string;
+                /** Format: date-time */
+                data_end_exclusive: string;
+                coverage: {
+                    /** @enum {unknown} */
+                    state: "complete" | "partial" | "none";
+                    intervals: components["schemas"]["ResultDeliveryInterval"][];
+                };
+                /** @constant */
+                metric: "concurrent_outage_objects";
+                /** @enum {unknown} */
+                unit: "asn" | "prefix";
+                /** @constant */
+                sample_seconds: 180;
+                /** @enum {unknown} */
+                population: "detected_asns" | "coarse_routing_prefixes";
+            };
+            data: components["schemas"]["OutagePoint"][];
         };
         FeatureQueryError: {
             /** @constant */
@@ -2419,7 +2446,7 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["OutagePoint"][];
+                "application/json": components["schemas"]["OutageSeriesPayload"];
             };
         };
     };
@@ -3494,6 +3521,8 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
+                /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3504,6 +3533,24 @@ export interface operations {
             200: components["responses"]["OutageSeries"];
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 交付版本已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 检测语义、覆盖范围、粗路由筛选或事件数据不可用；不返回零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3521,6 +3568,8 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
+                /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3531,6 +3580,24 @@ export interface operations {
             200: components["responses"]["OutageSeries"];
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 交付版本已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 检测语义、覆盖范围、粗路由筛选或事件数据不可用；不返回零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3548,6 +3615,8 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
+                /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3558,6 +3627,24 @@ export interface operations {
             200: components["responses"]["OutageSeries"];
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 交付版本已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 检测语义、覆盖范围、粗路由筛选或事件数据不可用；不返回零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3574,6 +3661,8 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
+                /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3591,6 +3680,24 @@ export interface operations {
                     "application/json": components["schemas"]["FeatureQueryError"];
                 };
             };
+            /** @description 交付版本已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 检测语义、覆盖范围、粗路由筛选或事件数据不可用；不返回零 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
         };
     };
     getGlobalPrefixOutages: {
@@ -3600,6 +3707,8 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
+                /** @description 可选交付版本；不匹配返回 409，不混用新旧数据。 */
+                version?: string;
             };
             header?: never;
             path?: never;
@@ -3610,6 +3719,24 @@ export interface operations {
             200: components["responses"]["OutageSeries"];
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 交付版本已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 检测语义、覆盖范围、粗路由筛选或事件数据不可用；不返回零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

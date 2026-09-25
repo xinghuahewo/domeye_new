@@ -2448,7 +2448,7 @@ def get_prefix_outage_by_interval(conn, source, start_time, end_time, country, a
     result = select_prefix_outage_by_interval(conn, source, start_time, end_time, country, asn, tables)
     return pd.DataFrame(result, columns=['prefix', 's_time', 'e_time'])
 
-def deal_outage(df, type, start_time, end_time, prefixes, interval_minutes=3):
+def deal_outage(df, type, start_time, end_time, prefixes, *, coverage, interval_minutes=3):
     """
     根据中断事件的 DataFrame，高效计算每个时间间隔内的并发中断前缀数量。
     事件驱动的扫描线算法
@@ -2464,34 +2464,33 @@ def deal_outage(df, type, start_time, end_time, prefixes, interval_minutes=3):
     Returns:
         list: 包含 {'time_slot': str, 'outage_count': int} 的字典列表。
     """
-    # 1. 预过滤和去重逻辑，严格按照原始方法
+    import heapq
+
+    # 保留既有粗路由筛选与同对象、同起点的结束记录优先规则。
     if type == 'prefix':
         # 去除细路由，只保留粗路由
         df = df[df['prefix'].isin(prefixes)]
         df = df.sort_values(by='e_time', na_position='last')
         df = df.drop_duplicates(subset=['prefix', 's_time'], keep="first").copy()
     
-    time_slots = pd.date_range(start=start_time, end=end_time, freq=f'{interval_minutes}min')
-    
-    # 如果过滤后df为空，直接返回补0的结果
-    if df.empty:
-        return [{'time_slot': str(slot), 'outage_count': 0} for slot in time_slots]
+    time_slots = pd.date_range(start=start_time, end=end_time, freq=f'{interval_minutes}min', inclusive='left')
 
     # 2. 准备中断数据，严格按照原始方法的逻辑
     df['s_time'] = pd.to_datetime(df['s_time'])
     df['e_time'] = pd.to_datetime(df['e_time'])
-    df = df.drop_duplicates(subset=[type, 's_time', 'e_time']).copy()
+    df = df.drop_duplicates(subset=[type, 's_time', 'e_time']).reset_index(drop=True)
+    df['record_id'] = df.index
+    df['started_at'] = df['s_time']
 
     # 3. 创建事件流
     # 将每个中断区间 [s_time, e_time) 拆分为两个事件：
     # +1 代表一个中断开始
     # -1 代表一个中断结束
-    starts = df[[type, 's_time']].rename(columns={'s_time': 'time'})
+    starts = df[[type, 's_time', 'record_id', 'started_at']].rename(columns={'s_time': 'time'})
     starts['change'] = 1
 
-    # 处理结束事件：对于 e_time 为 NaT/None 的情况，视为永久持续的中断
-    # 这些中断只有开始事件，没有结束事件
-    ends = df[[type, 'e_time']].dropna().rename(columns={'e_time': 'time'})
+    # 空结束时间表示检测尚未触发结束；采样仍严格受实际处理覆盖约束。
+    ends = df[[type, 'e_time', 'record_id', 'started_at']].dropna().rename(columns={'e_time': 'time'})
     ends['change'] = -1
 
     # 合并、排序，创建按时间发生的事件流
@@ -2509,6 +2508,9 @@ def deal_outage(df, type, start_time, end_time, prefixes, interval_minutes=3):
     active_event_counts = defaultdict(int)
     # active_unique_identifiers 跟踪当前时间点活跃的唯一 identifier 集合
     active_unique_identifiers = set()
+    active_records = set()
+    active_starts = []
+    coverage_index = 0
 
     for slot in time_slots:
         # 处理所有在当前时间点 (slot) 之前或恰好在此时发生的事件
@@ -2519,18 +2521,30 @@ def deal_outage(df, type, start_time, end_time, prefixes, interval_minutes=3):
             if event['change'] == 1:  # 中断开始
                 active_event_counts[identifier] += 1
                 active_unique_identifiers.add(identifier)
+                active_records.add(event['record_id'])
+                heapq.heappush(active_starts, (event['started_at'], event['record_id']))
             else:  # 中断结束
                 active_event_counts[identifier] -= 1
+                active_records.discard(event['record_id'])
                 if active_event_counts[identifier] == 0:
                     # 仅当一个 identifier 的所有并行中断都结束后，才将其从活跃集合中移除
                     active_unique_identifiers.discard(identifier)
             
             event_idx += 1
         
-        # 记录当前时间点的并发中断数
+        while coverage_index < len(coverage) and coverage[coverage_index][1] <= slot:
+            coverage_index += 1
+        while active_starts and active_starts[0][1] not in active_records:
+            heapq.heappop(active_starts)
+        covered = coverage_index < len(coverage) and coverage[coverage_index][0] <= slot
+        state = 'not_observed'
+        if covered:
+            # 缺口前开始的事件不能无条件继承到缺口之后；不能只丢掉该事件后返回较小计数。
+            state = 'unknown' if active_starts and active_starts[0][0] < coverage[coverage_index][0] else 'observed'
         results.append({
-            'time_slot': str(slot),
-            'outage_count': len(active_unique_identifiers)
+            'time_slot': slot.isoformat(),
+            'outage_count': len(active_unique_identifiers) if state == 'observed' else None,
+            'observation_state': state,
         })
         
     return results

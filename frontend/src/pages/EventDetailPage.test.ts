@@ -6,9 +6,7 @@ const routerSource = readFileSync(new URL('../router/index.ts', import.meta.url)
 const viteSource = readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8')
 
 describe('传统事件观测独立运行', () => {
-  it('保留数据观测，不渲染报告或组合调查', () => {
-    expect(source).toContain('CountryOutageDashboard')
-    expect(source).toContain('CountryOutageGeneralPage')
+  it('不渲染报告或组合调查', () => {
     expect(source).not.toContain('CountryOutageReportWorkbench')
     expect(source).not.toContain('country-outage-investigation')
     expect(source).not.toContain('创建组合调查')

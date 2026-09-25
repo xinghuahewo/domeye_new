@@ -65,17 +65,19 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 不同国家响应家族对 `asns` 筛选与能力的支持不完全相同。先按返回能力选择，再按该家族校验参数；不把所有可见参数视为每个事件都支持。历史 ASN 窗口名单不当作某个时点的成员集合。
 
-## 兼容中断曲线（deprecated）
+## 中断曲线（候选已迭代，尚未部署）
 
-以下五个入口仍被现有页面或兼容调用使用，均已在 OpenAPI 标记 deprecated。使用时保留历史口径和实际数据状态；新增问数不以旧曲线证明确定的中断状态。
+以下五个入口在候选实现中共用已交付事件与覆盖查询，OpenAPI 已同步移除 deprecated。现网旧实现与新响应不能混用；统计定义和逐点状态以[中断时序覆盖合同](../metrics/events.md#中断时序的覆盖合同候选实现尚未部署)为准。
 
-| GET 路径 | 用途 | 限制 |
+| GET 路径 | 统计对象 | 必需参数 |
 | --- | --- | --- |
-| `/api/v1/features/outages/country-as` | 历史国家 AS 中断采样 | `country` 与起止时间；继承旧生命周期与补零行为 |
-| `/api/v1/features/outages/country-prefix` | 历史国家前缀中断采样 | 同上，按前缀口径 |
-| `/api/v1/features/outages/as-prefix` | 历史 ASN 前缀中断采样 | `asn` 与起止时间 |
-| `/api/v1/features/outages/global-as` | 历史采集范围 AS 中断采样 | 起止时间；global 不表示全互联网 |
-| `/api/v1/features/outages/global-prefix` | 历史采集范围前缀中断采样 | 起止时间；不能用于确定当前真实中断规模 |
+| `/api/v1/features/outages/country-as` | 国家检测记录中的去重 AS | `country` 与起止时间 |
+| `/api/v1/features/outages/country-prefix` | 国家粗路由集合中的去重前缀 | `country` 与起止时间 |
+| `/api/v1/features/outages/as-prefix` | 单 ASN 粗路由集合中的去重前缀 | `asn` 与起止时间 |
+| `/api/v1/features/outages/global-as` | 当前采集范围的去重 AS | 起止时间；global 不表示全互联网 |
+| `/api/v1/features/outages/global-prefix` | 当前采集范围粗路由集合的去重前缀 | 起止时间 |
+
+五个入口统一返回 `query / metadata / data`，不再返回无覆盖元数据的裸数组；前端类型及适配随合同更新。可选 `version` 用于拒绝不同交付版本，400 表示参数错误、409 表示版本已变化、503 表示无法可靠读取。GET 仅查询现有表，不生成额外制品。
 
 ## 调用结束时检查什么
 

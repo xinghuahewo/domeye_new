@@ -696,13 +696,29 @@ export const normalizeFeaturePoints = (payload: unknown): FeaturePoint[] =>
     }]
   })
 
-export const normalizeOutagePoints = (payload: unknown): OutagePoint[] =>
-  extractArray(payload, '中断时序').flatMap((value) => {
+export const normalizeOutagePoints = (payload: unknown): OutagePoint[] => {
+  const points = extractArray(payload, '中断时序').flatMap((value) => {
     if (!isRecord(value)) return []
     const time = normalizeTime(value.time_slot ?? value.time)
     const count = finiteNumber(value.outage_count ?? value.count)
-    return time && count !== null ? [{ time, count }] : []
+    return time ? [{ time, count }] : []
   })
+  // 保留未处理点，并给不足一个采样间隔的缺口添加断线边界。
+  if (isRecord(payload) && isRecord(payload.metadata) && isRecord(payload.query)) {
+    const coverage = payload.metadata.coverage
+    const end = Date.parse(String(payload.query.end_exclusive))
+    if (isRecord(coverage) && Array.isArray(coverage.intervals)) {
+      for (const interval of coverage.intervals) {
+        if (!isRecord(interval)) continue
+        const time = normalizeTime(interval.end_exclusive)
+        if (time && Date.parse(time) < end && !points.some((point) => Date.parse(point.time) === Date.parse(time))) {
+          points.push({ time, count: null })
+        }
+      }
+    }
+  }
+  return points.sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
+}
 
 const normalizeCountrySparkPoint = (value: unknown): CountrySparkPoint | null => {
   if (!isRecord(value)) return null
