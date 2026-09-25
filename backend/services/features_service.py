@@ -13,7 +13,7 @@ from database.feature_country import select_country_feature_db
 from data_pipeline.overview.input import InputError
 from data_pipeline.results import delivery_read
 from utils import data_loader
-from utils.data_loader import as_info, prefix_info
+from utils.data_loader import as_info
 from utils.get_as_info import get_as_country
 from utils.get_event import (
     deal_features,
@@ -189,8 +189,7 @@ def _get_outage_feature(kind, country, asn, start_time, end_time, conn, prefixes
             rows = delivery_read.read_outage_intervals(kind, coverage[0][0], coverage[-1][1],
                                                        country=country, asn=asn, conn=conn)
             if field == 'prefix' and prefixes is None:
-                data_loader.ensure_core_data_loaded()
-                prefixes = prefix_info.keys()
+                prefixes = data_loader.coarse_routing_prefixes()
                 if not prefixes:
                     raise InputError('粗路由筛选数据不可用')
         points = deal_outage(pd.DataFrame(rows, columns=[field, 's_time', 'e_time']),

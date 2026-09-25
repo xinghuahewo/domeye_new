@@ -10,6 +10,7 @@ Description:
 import os
 import sys
 import traceback
+from functools import lru_cache
 
 import pandas as pd
 
@@ -35,6 +36,17 @@ ases_1000 = []
 
 _core_data_loaded = False
 _domain_data_loaded = False
+
+
+@lru_cache(maxsize=1)
+def _prefix_membership(path):
+    """与静态资料相同的进程内寿命；仅解析筛选需要的前缀列。"""
+    return frozenset(pd.read_csv(path, keep_default_na=False, usecols=['prefix'])['prefix'])
+
+
+def coarse_routing_prefixes():
+    """取得既有粗路由成员，不为成员判断加载 AS、地理与域名详情。"""
+    return prefix_info.keys() if _core_data_loaded else _prefix_membership(PREFIX_INFO_FILE)
 
 
 def _load_core_data():

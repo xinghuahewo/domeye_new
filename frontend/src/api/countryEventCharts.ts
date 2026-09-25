@@ -1,8 +1,9 @@
 import { apiGetWithResultMetadata } from './client'
 import type { CountryOutageRecord } from './countryOutageRecord'
 import type { FeatureRange } from './features'
+import type { components } from '@/types/openapi.generated'
 import { businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
-import { isRecord, normalizeCountryOverview, normalizeOutagePoints } from '@/utils/normalize'
+import { isRecord, normalizeOutagePoints } from '@/utils/normalize'
 
 export type CountryChartKind = 'features' | 'as' | 'prefix'
 export type ChartPoints = Array<[string, number | null]>
@@ -39,50 +40,58 @@ export function validateCountryEventRange(range: FeatureRange, record: CountryOu
 }
 
 export async function getCountryEventSeries(kind: CountryChartKind, country: string, range: FeatureRange, eventVersion: string): Promise<CountryChartData> {
-  const endpoint = kind === 'features' ? 'features/countries/overview' : `features/outages/country-${kind}`
-  const { data, result } = await apiGetWithResultMetadata<unknown>(endpoint, { params: { country, ...range,
-    ...(kind === 'features' ? {} : { version: eventVersion }),
-  } })
+  const endpoint = kind === 'features' ? 'features/countries/series' : `features/outages/country-${kind}`
+  const { data, result } = await apiGetWithResultMetadata<unknown>(endpoint, { params: { country, ...range, version: eventVersion } })
   if (!eventVersion || result.version !== eventVersion) throw new Error('统计与事件版本不一致，请刷新事件后重试')
-  // 使用每次查询自己的覆盖范围，避免接口补槽的零延伸到尚未处理的时间。
-  if (Object.keys(result).length && (result.state !== 'available' || !result.version
-    || !Number.isFinite(Date.parse(result.start || '')) || !Number.isFinite(Date.parse(result['end-exclusive'] || ''))
-    || Date.parse(result.start!) >= Date.parse(result['end-exclusive']!))) throw new Error('统计数据的版本或覆盖时间不完整')
+  if (result.state !== 'available' || !Number.isFinite(Date.parse(result.start || ''))
+    || !Number.isFinite(Date.parse(result['end-exclusive'] || ''))
+    || Date.parse(result.start!) >= Date.parse(result['end-exclusive']!)) throw new Error('统计数据的版本或覆盖时间不完整')
   const start = rangeTime(range.start_time)
   const end = rangeTime(range.end_time)
-  const coveredStart = result.start ? Date.parse(result.start) : start
-  const coveredEnd = result['end-exclusive'] ? Date.parse(result['end-exclusive']) : end
-  const pad = (rows: Array<{ time: string }>, value: (row: number) => number | null, minutes: number): ChartPoints => {
-    const values = new Map(rows.map((row, i) => [rangeTime(row.time), value(i)]))
-    const interval = minutes * 60_000
-    // 特征是整五分钟桶；中断接口从请求起点按三分钟采样。
-    const first = kind === 'features' ? Math.ceil(start / interval) * interval : start
-    const points: ChartPoints = []
-    for (let time = first; time < end; time += interval) {
-      points.push([new Date(time).toISOString(), time >= coveredStart && time < coveredEnd ? values.get(time) ?? null : null])
-    }
-    return points
+  if (!isRecord(data) || !isRecord(data.metadata) || !isRecord(data.query)) {
+    throw new Error('统计缺少查询与覆盖元数据，请使用匹配的 API')
+  }
+  if (data.metadata.version !== result.version || data.query.country !== country
+    || Date.parse(String(data.query.start)) !== start || Date.parse(String(data.query.end_exclusive)) !== end) {
+    throw new Error('统计的版本、对象或窗口与请求不一致')
   }
   const series: Record<string, ChartPoints> = {}
   if (kind === 'features') {
-    const profile = normalizeCountryOverview(data).selectedCountry
-    if (profile && profile.country !== country) throw new Error('统计响应与请求国家不一致')
-    const points = profile?.series ?? []
-    for (const key of ['announce', 'withdraw', 'ipv4Addresses', 'ipv4Prefixes', 'ipv6Prefixes'] as const) {
-      series[key] = pad(points, (i) => points[i]?.[key] ?? null, 5)
+    const payload = data as unknown as components['schemas']['CountryFeatureSeriesPayload']
+    const { metadata } = payload
+    if (metadata.interpretation_version !== 'country-feature-series/v1' || metadata.sample_seconds !== 300
+      || !Array.isArray(payload.data) || !Array.isArray(metadata.coverage?.intervals)) throw new Error('国家时序响应结构不完整')
+    const fields = [
+      ['announce', 'announce', 'message'], ['withdraw', 'withdraw', 'message'],
+      ['ipv4Addresses', 'ipv4_addresses', 'ipv4_address'],
+      ['ipv4Prefixes', 'ipv4_prefixes', 'ipv4_24_equivalent'],
+      ['ipv6Prefixes', 'ipv6_prefixes', 'ipv6_48_equivalent'],
+    ] as const
+    const intervals = metadata.coverage.intervals.map((part) => [Date.parse(part.start), Date.parse(part.end_exclusive)] as const)
+    if (intervals.some(([left, right]) => !Number.isFinite(left) || !Number.isFinite(right) || left >= right || left < start || right > end)) {
+      throw new Error('国家时序覆盖范围无效')
+    }
+    const times = payload.data.map((point) => Date.parse(point.time))
+    if (new Set(times).size !== times.length || times.some((time) => !intervals.some(([left, right]) => left <= time && time < right))) {
+      throw new Error('国家时序时点重复或位于处理覆盖之外')
+    }
+    for (const [chartKey, field, unit] of fields) {
+      if (metadata.units?.[field] !== unit) throw new Error('国家时序单位与图表不一致')
+      const values = new Map<number, number | null>()
+      for (let time = Math.ceil(start / 300_000) * 300_000; time < end; time += 300_000) values.set(time, null)
+      payload.data.forEach((point, i) => {
+        const value = point[field]
+        if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('国家时序存在无效数值')
+        values.set(times[i]!, value)
+      })
+      // 小于五分钟的处理缺口也须断线；覆盖终点不能画成恢复或零。
+      for (const [, right] of intervals) if (right < end) values.set(right, null)
+      series[chartKey] = [...values].sort((a, b) => a[0] - b[0]).map(([time, value]) => [new Date(time).toISOString(), value])
     }
   } else {
-    if (!isRecord(data) || !isRecord(data.metadata) || !isRecord(data.query)) {
-      throw new Error('中断统计缺少查询与覆盖元数据，请使用匹配的 API')
-    }
-    if (data.metadata.version !== result.version || data.query.country !== country
-      || Date.parse(String(data.query.start)) !== start || Date.parse(String(data.query.end_exclusive)) !== end
-      || data.metadata.unit !== (kind === 'as' ? 'asn' : 'prefix')) {
-      throw new Error('中断统计的版本、对象、窗口或单位与请求不一致')
-    }
+    if (data.metadata.unit !== (kind === 'as' ? 'asn' : 'prefix')) throw new Error('中断统计单位与请求不一致')
     const points = normalizeOutagePoints(data)
-    // 后端已按实际覆盖采样；保留 null 与缺口边界，不再在页面推算中断状态。
     series.count = points.map((point) => [new Date(point.time).toISOString(), point.count])
   }
-  return { series, version: result.version || '' }
+  return { series, version: result.version }
 }

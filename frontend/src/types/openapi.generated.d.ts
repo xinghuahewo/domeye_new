@@ -372,6 +372,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/features/countries/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 只读单个国家和最多 24 小时的半开窗口，复用现有五分钟 Feature 查询，不计算全国家排名或前窗聚合。要求完成文件来源以核对版本与处理覆盖；不重新计算、写库或生成制品。country 沿用数据库国家名称，collect 不属于此入口。数据错误返回 503，缺样本保留空数组与覆盖信息。 */
+        get: operations["getCountryFeatureSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/features/countries/overview": {
         parameters: {
             query?: never;
@@ -2069,6 +2086,50 @@ export interface components {
             announce: number;
             withdraw: number;
         };
+        /** @description 指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和报文量分别保留单位；空值表示字段未知，缺样本不等于零。 */
+        CountryFeatureSeriesPayload: {
+            query: {
+                country: string;
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end_exclusive: string;
+                /** @constant */
+                timezone: "Asia/Shanghai";
+                /** @constant */
+                window_boundary: "[start,end)";
+            };
+            metadata: {
+                version: string;
+                collector_id: string;
+                /** @constant */
+                interpretation_version: "country-feature-series/v1";
+                /** @constant */
+                sample_seconds: 300;
+                /** Format: date-time */
+                data_start: string;
+                /** Format: date-time */
+                data_end_exclusive: string;
+                units: {
+                    /** @constant */
+                    announce: "message";
+                    /** @constant */
+                    withdraw: "message";
+                    /** @constant */
+                    ipv4_prefixes: "ipv4_24_equivalent";
+                    /** @constant */
+                    ipv6_prefixes: "ipv6_48_equivalent";
+                    /** @constant */
+                    ipv4_addresses: "ipv4_address";
+                };
+                coverage: {
+                    /** @enum {unknown} */
+                    state: "complete" | "partial" | "none";
+                    intervals: components["schemas"]["ResultDeliveryInterval"][];
+                };
+            };
+            data: components["schemas"]["CountrySeriesPoint"][];
+        };
         CountrySeriesPoint: {
             time: string;
             announce: number | null;
@@ -3347,6 +3408,61 @@ export interface operations {
             };
             /** @description 请求参数缺失、格式不正确或超出该入口范围 */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+        };
+    };
+    getCountryFeatureSeries: {
+        parameters: {
+            query: {
+                country: components["parameters"]["Country"];
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                start_time: components["parameters"]["StartTime"];
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                end_time: components["parameters"]["EndTime"];
+                /** @description 可选；不匹配当前交付版本时返回 409。 */
+                version?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 同版本单国曲线 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountryFeatureSeriesPayload"];
+                };
+            };
+            /** @description 查询参数无效、重复或不受支持 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 请求版本与当前交付不一致 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 数据或覆盖不可读，不能解释为零 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

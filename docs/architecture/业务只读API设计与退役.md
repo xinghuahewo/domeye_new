@@ -39,6 +39,10 @@
 
 ## 本次完善的查询语义
 
+### 单国时序读取候选
+
+候选新增 `/features/countries/series`，复用已有 `get_country_feature_series` SQL 和字段转换；页面读取单国曲线时不再触发总览的全国家聚合、前窗比较和排名。入口与中断时序共用查询参数边界；响应保留实际处理覆盖、版本和分项单位，详见[查询导航](../usage/api/read-api.md#单国报文与资源曲线候选已实现尚未部署)。前缀筛选仅读取现有静态前缀集合，不加载无关详情。这些源码变化尚未部署，也不证明全业务性能验收。
+
 ### 国家／ASN 档案采用半开窗口
 
 `/features/countries/overview`、`/features/ases/overview` 及 `/features/ases/events` 统一使用 Asia/Shanghai 的 `[start_time,end_time)`。国家与 ASN 档案的 Feature、关联事件、时序和小图按相应窗口排除结束时刻，避免相邻窗口重复计入边界记录。两个档案响应增加 `window_boundary`。

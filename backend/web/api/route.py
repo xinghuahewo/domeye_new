@@ -21,6 +21,7 @@ from .features.api import (
     ASPrefixOutageFeatureResource,
     CountryASOutageFeatureResource,
     CountryFeatureListResource,
+    CountryFeatureSeriesResource,
     CountryPrefixOutageFeatureResource,
     CountryWorkbenchResource,
     GlobalASOutageFeatureResource,
@@ -63,6 +64,7 @@ api.add_resource(
 api.add_resource(TopFeatureResource, '/features/top')
 api.add_resource(CountryFeatureListResource, '/features/countries')
 api.add_resource(CountryWorkbenchResource, '/features/countries/overview')
+api.add_resource(CountryFeatureSeriesResource, '/features/countries/series')
 api.add_resource(ASFeatureListResource, '/features/ases')
 api.add_resource(ASWorkbenchResource, '/features/ases/overview')
 api.add_resource(ASRecentEventsResource, '/features/ases/events')

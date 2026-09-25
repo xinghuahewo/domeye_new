@@ -76,3 +76,30 @@ describe('中断响应到详情图表', () => {
     }
   })
 })
+
+it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口', async () => {
+  const response = reply()
+  const data = {
+    query: response.data.query,
+    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v1', sample_seconds: 300,
+      units: { announce: 'message', withdraw: 'message', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_equivalent', ipv6_prefixes: 'ipv6_48_equivalent' },
+      coverage: { state: 'partial', intervals: [
+        { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
+        { start: '2026-03-01T19:17:00+08:00', end_exclusive: '2026-03-01T19:20:00+08:00' },
+      ] },
+    },
+    data: [{ time: '2026-03-01T19:15:00+08:00', announce: 0, withdraw: null, ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2 }],
+  }
+  vi.mocked(apiGetWithResultMetadata).mockResolvedValue({ result: response.result, data })
+  const result = await getCountryEventSeries('features', '测试地区', range, 'delivery_test')
+  expect(apiGetWithResultMetadata).toHaveBeenCalledWith('features/countries/series', { params: { country: '测试地区', ...range, version: 'delivery_test' } })
+  expect(result.series.announce).toEqual([
+    ['2026-03-01T11:15:00.000Z', 0], ['2026-03-01T11:16:00.000Z', null],
+    ['2026-03-01T11:20:00.000Z', null], ['2026-03-01T11:25:00.000Z', null],
+  ])
+  expect(result.series.withdraw?.[0]?.[1]).toBeNull()
+  expect(result.series.ipv4Addresses?.[0]?.[1]).toBe(2048)
+  expect(result.series.ipv4Prefixes?.[0]?.[1]).toBe(8)
+  data.metadata.units.ipv4_prefixes = 'prefix'
+  await expect(getCountryEventSeries('features', '测试地区', range, 'delivery_test')).rejects.toThrow('单位')
+})

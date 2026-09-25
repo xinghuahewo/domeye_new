@@ -70,8 +70,8 @@ def outage_rows(monkeypatch):
         cursor = Cursor
 
     monkeypatch.setattr(LazyConnection, 'get_connection', lambda self: Connection())
-    monkeypatch.setattr(features_service.data_loader, 'ensure_core_data_loaded', lambda: None)
-    monkeypatch.setattr(features_service, 'prefix_info', {'192.0.2.0/24': {}, '198.51.100.0/24': {}})
+    monkeypatch.setattr(features_service.data_loader, '_core_data_loaded', True)
+    monkeypatch.setattr(features_service.data_loader, 'prefix_info', {'192.0.2.0/24': {}, '198.51.100.0/24': {}})
     return state
 
 
@@ -164,7 +164,7 @@ def test_missing_end_field_does_not_mean_ongoing(completed_outages, outage_rows,
 
 
 def test_prefix_filter_unavailable_does_not_mean_zero(completed_outages, outage_rows, client, monkeypatch):
-    monkeypatch.setattr(features_service, 'prefix_info', {})
+    monkeypatch.setattr(features_service.data_loader, 'prefix_info', {})
     assert get_curve(client, 'country-prefix').status_code == 503
 
 
@@ -206,3 +206,21 @@ def test_invalid_selectors_cannot_fall_through_to_global(completed_outages, clie
         ('start_time', '2026-03-01 19:00:00'), ('end_time', '2026-03-01 19:15:00'),
     ])
     assert response.status_code == 400
+
+
+def test_prefix_http_reads_membership_without_loading_unrelated_assets(completed_outages, outage_rows, client, monkeypatch, tmp_path):
+    from utils import data_loader
+    path = tmp_path / 'prefixes.csv'
+    path.write_text('prefix,name\n192.0.2.0/24,示例\n192.0.2.0/24,重复\n198.51.100.0/24,另一前缀\n')
+    monkeypatch.setattr(data_loader, 'PREFIX_INFO_FILE', str(path))
+    monkeypatch.setattr(data_loader, '_core_data_loaded', False)
+    def unrelated():
+        raise AssertionError('前缀成员查询不需要 AS、域名或国家资料')
+    monkeypatch.setattr(data_loader, 'ensure_core_data_loaded', unrelated)
+    outage_rows['rows'] = [
+        {'kind': 'prefix_outage', 'prefix': prefix, 's_time': '2026-03-01 19:00:00', 'e_time': None}
+        for prefix in ['192.0.2.0/24', '192.0.2.0/25']
+    ]
+    response = get_curve(client, 'country-prefix')
+    assert response.status_code == 200
+    assert [p['outage_count'] for p in response.get_json()['data']] == [1, 1, None, None]

@@ -4,11 +4,18 @@ from ast import literal_eval
 from collections import Counter, defaultdict
 from copy import deepcopy
 import datetime
+import os
 import threading
 import time
+from zoneinfo import ZoneInfo
+
+import psycopg2
+from flask import g, has_request_context
 
 from config.database import conn_11
 from services.feature_statistics import activity_summary
+from data_pipeline.overview.input import InputError
+from data_pipeline.results import delivery_read
 from database.country_workbench import (
     get_country_event_counts,
     get_country_feature_aggregates,
@@ -21,6 +28,59 @@ _COUNTRY_CACHE = {}
 _COUNTRY_CACHE_LOCK = threading.Lock()
 _COUNTRY_CACHE_TTL_SECONDS = 30
 _COUNTRY_CACHE_MAX_ENTRIES = 32
+
+COUNTRY_SERIES_UNITS = {
+    'announce': 'message', 'withdraw': 'message',
+    'ipv4_prefixes': 'ipv4_24_equivalent', 'ipv6_prefixes': 'ipv6_48_equivalent',
+    'ipv4_addresses': 'ipv4_address',
+}
+
+
+def get_country_series(country, start_time, end_time, version=None, conn=conn_11):
+    """单国图表直接复用已有五分钟查询；不做排名、前窗比较或异常聚合。"""
+    start, end, error = _parse_range(start_time, end_time)
+    if error:
+        return error
+    if not country or country == 'collect' or len(country) > 80 or any(ord(c) < 32 for c in country):
+        return {'status': False, 'msg': '必须指定有效的国家名称'}, 400
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') != 'true':
+        return {'status': False, 'msg': '单国时序缺少可核对的数据版本与覆盖'}, 503
+    zone = ZoneInfo(delivery_read.PROFILE['timezone'])
+    start, end = start.replace(tzinfo=zone), end.replace(tzinfo=zone)
+    try:
+        meta = getattr(g, 'result_delivery', None) if has_request_context() else None
+        if meta is None:
+            meta = delivery_read.status(conn)
+        if meta['state'] != 'available':
+            raise InputError('没有可读取的完成文件覆盖范围')
+        if version is not None and version != meta['version']:
+            return {'status': False, 'msg': '交付版本已变化，请按同一版本重新查询'}, 409
+        coverage = delivery_read._covered_intervals(meta, start, end)
+        rows = get_country_feature_series(conn, country, coverage[0][0].replace(tzinfo=None),
+                                          coverage[-1][1].replace(tzinfo=None)) if coverage else []
+        points, times = [], set()
+        for row in rows:
+            at = row['time'].replace(tzinfo=zone)
+            if not any(left <= at < right for left, right in coverage):
+                continue
+            if at in times or any(row[key] is not None and (type(row[key]) is not int or row[key] < 0)
+                                  for key in COUNTRY_SERIES_UNITS):
+                raise InputError('国家时序含重复时点或无效数值')
+            times.add(at)
+            points.append({**_feature_point(row), 'time': at.isoformat()})
+        return {
+            'query': {'country': country, 'start': start.isoformat(), 'end_exclusive': end.isoformat(),
+                      'timezone': str(zone), 'window_boundary': '[start,end)'},
+            'metadata': {'version': meta['version'], 'collector_id': meta['binding']['collector'],
+                         'interpretation_version': 'country-feature-series/v1', 'sample_seconds': 300,
+                         'data_start': meta['start'], 'data_end_exclusive': meta['end_exclusive'],
+                         'units': COUNTRY_SERIES_UNITS,
+                         'coverage': {'state': 'complete' if coverage == [(start, end)] else 'partial' if coverage else 'none',
+                                      'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a,b in coverage]}},
+            'data': points,
+        }
+    except (psycopg2.Error, InputError, ValueError, KeyError, TypeError, AttributeError):
+        return {'status': False, 'msg': '国家时序数据或覆盖范围不可读取，不能解释为零'}, 503
 
 
 def _cached_country_result(key):

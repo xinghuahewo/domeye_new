@@ -78,8 +78,9 @@ def enforce_request_data_window():
         end = _timestamp(request.args.get("end_time"))
         if start is None or end is None:
             return _error(window_start, window_end, "特征接口必须提供秒级起止时间")
-        half_open = path in {
+        half_open = path.startswith('/api/v1/features/outages/') or path in {
             "/api/v1/features/countries/overview",
+            "/api/v1/features/countries/series",
             "/api/v1/features/ases/overview",
             "/api/v1/features/ases/events",
         }

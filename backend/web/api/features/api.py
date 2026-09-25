@@ -1,7 +1,7 @@
 from flask import request
 from flask_restful import Resource
 from services.asn_service import get_asn_recent_events, get_asn_workbench
-from services.country_service import get_country_workbench
+from services.country_service import get_country_series, get_country_workbench
 
 from services.features_service import (
     get_as_feature_series,
@@ -118,14 +118,14 @@ class ASRecentEventsResource(Resource):
         )
 
 
-class _OutageFeatureResource(Resource):
+class _FeatureSeriesResource(Resource):
     kind = 'as'
     selector = None
 
     def get(self):
         allowed = {'start_time', 'end_time', 'version'} | ({self.selector} if self.selector else set())
         if set(request.args) - allowed or any(len(request.args.getlist(key)) != 1 for key in request.args):
-            return {'status': False, 'msg': '中断时序参数重复或不受支持'}, 400
+            return {'status': False, 'msg': '时序参数重复或不受支持'}, 400
         selected = request.args.get(self.selector, '').strip() if self.selector else None
         if self.selector and not selected:
             return {'status': False, 'msg': f'必须指定 {self.selector}'}, 400
@@ -142,28 +142,35 @@ class _OutageFeatureResource(Resource):
             'start_time': request.args.get('start_time'),
             'end_time': request.args.get('end_time'), 'version': version,
         }
+        if self.kind == 'country_features':
+            return get_country_series(**options)
         if self.kind == 'as':
             return get_as_outage_feature(**options)
         return get_prefix_outage_feature(**options, asn=selected if self.selector == 'asn' else None)
 
 
-class CountryASOutageFeatureResource(_OutageFeatureResource):
+class CountryASOutageFeatureResource(_FeatureSeriesResource):
     selector = 'country'
 
 
-class CountryPrefixOutageFeatureResource(_OutageFeatureResource):
+class CountryPrefixOutageFeatureResource(_FeatureSeriesResource):
     kind = 'prefix'
     selector = 'country'
 
 
-class ASPrefixOutageFeatureResource(_OutageFeatureResource):
+class ASPrefixOutageFeatureResource(_FeatureSeriesResource):
     kind = 'prefix'
     selector = 'asn'
 
 
-class GlobalASOutageFeatureResource(_OutageFeatureResource):
+class GlobalASOutageFeatureResource(_FeatureSeriesResource):
     pass
 
 
-class GlobalPrefixOutageFeatureResource(_OutageFeatureResource):
+class GlobalPrefixOutageFeatureResource(_FeatureSeriesResource):
     kind = 'prefix'
+
+
+class CountryFeatureSeriesResource(_FeatureSeriesResource):
+    kind = 'country_features'
+    selector = 'country'
