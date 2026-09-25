@@ -17,7 +17,7 @@ test('Cloudflare 字符边界：短文本原样，超长正文前缀后明确提
   assert.equal(truncateResponse(value), JSON.stringify(value, null, 2));
 });
 
-test('实际 search 超长结构给模型截断提示，原始结构留档，收窄后可取得原子树', async () => {
+test('实际 search 先保留能容纳的完整结构，仍过大的内容明确截断，原始结构留档', async () => {
   const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, {
     namedExports: { createDocs: async () => async () => ({ matches: [] }) }
   });
@@ -33,6 +33,7 @@ test('实际 search 超长结构给模型截断提示，原始结构留档，收
     const wide = await search.execute('wide', { code: `async () => ${schema}` });
     const raw = JSON.stringify(wide.details, null, 2);
     assert.ok(raw.length > 24000, '固定版本的真实 ASN schema 确实越过上游边界');
+    assert.ok(JSON.stringify(wide.details).length > 24000, '固定合同的紧凑表示仍然过大');
     assert.equal(wide.content[0].text.slice(0, 24000), raw.slice(0, 24000));
     assert.match(wide.content[0].text.slice(24000), /TRUNCATED/);
     assert.deepEqual(evidence.find(item => item.value.id === 'wide').value.value, wide.details);
@@ -55,4 +56,44 @@ test('实际 search 超长结构给模型截断提示，原始结构留档，收
     await registered?.close();
     docsMock.restore();
   }
+});
+
+test('实际 execute 的完整嵌套时序不因缩进丢失时间与空值，正文和留档一致', async () => {
+  const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, {
+    namedExports: { createDocs: async () => async () => ({ results: [] }) }
+  });
+  let registered;
+  const records = [];
+  try {
+    const { createTools } = await import('./tools.mjs?lossless-structure');
+    registered = await createTools({ apiBaseUrl: 'http://127.0.0.1:1',
+      onEvidence: (type,value) => records.push({type,value}) });
+    const execute = registered.tools.find(tool => tool.name === 'execute');
+    const result = await execute.execute('observations', {code: `async () => ({
+      scope: {version:'synthetic-v1', unit:'synthetic-unit', note:'原文  保留\\n换行'},
+      data: Array.from({length:72}, (_,i) => ({
+        label: new Date(i*300000).toISOString(), value:i % 2 ? 0 : null,
+        resource_state_at:new Date((i+1)*300000).toISOString(),
+        source_window:{source_id:'synthetic-'+i,start:new Date(i*300000).toISOString(),
+          end_exclusive:new Date((i+1)*300000).toISOString()},
+        evidence:{applicable:false, reference:null}
+      }))
+    })`});
+    assert.ok(JSON.stringify(result.details,null,2).length > 24000);
+    assert.ok(JSON.stringify(result.details).length <= 24000);
+    assert.deepEqual(JSON.parse(result.content[0].text),result.details);
+    assert.deepEqual(records.find(r=>r.value.id==='observations').value.value,result.details);
+    assert.deepEqual(JSON.parse(result.content[1].text).requestControl.responses,[]);
+  } finally {
+    await registered?.close(); docsMock.restore();
+  }
+});
+
+test('紧凑 JSON 的边界不放宽原额度，字符串内部空白不被删改', () => {
+  const value={point:{value:null,at:'2000-01-01T00:00:00Z',note:'字段内  空格\n换行'},padding:''};
+  value.padding='x'.repeat(24000-JSON.stringify(value).length);
+  assert.equal(JSON.stringify(value).length,24000);
+  assert.deepEqual(JSON.parse(truncateResponse(value)),value);
+  value.padding+='x';
+  assert.match(truncateResponse(value),/TRUNCATED/);
 });

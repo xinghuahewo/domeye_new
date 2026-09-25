@@ -73,7 +73,7 @@ Core 的完整交付绑定已确认时，与完成文件的版本化查询入口
 
 目录发现和健康发现恢复同一来源的版本状态，之前已读的查询仍须整题重取。首次识别共享绑定时若发现版本、source_run 或 collector 不同，保留冲突正文，不将两份读数同时确认为可用。仅从时序开始且尚未取得完整来源绑定时，不能凭同值版本从健康入口恢复；须先保留冲突并重新建立可核对的读取。响应头只保留服务端交付上下文；自动版本策略仍核对正文中合同指定位置的版本，不把通用头升级为所有正文结果的同版保证，也不以头部首末范围替代对象样本窗口。
 
-工具发现和收窄遵循 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果超过 24000 个 JavaScript 字符时附 TRUNCATED 并提示收窄；原始结果继续保存。宿主注入和执行边界先对照 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
+工具发现和收窄遵循 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果限制为 24000 个 JavaScript 字符。JSON 排版超过额度时先尝试不改变内容的紧凑表示，能够完整容纳则保留全部字段、数值和时点；字符串原文不压缩。紧凑表示仍超限时保留原有 TRUNCATED 提示并要求收窄，原始结果继续保存。宿主注入和执行边界先对照 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
 
 Pi 0.87.0、DeepSeek `deepseek-v4-pro`、默认 high 推理、标准请求。Pro 已[正式支持 low](https://api-docs.deepseek.com/updates/)，但锁定 Pi 的模型目录会将 low 提升为 high；应用只在该模型的会话副本中修正映射，不修改依赖或全局目录。选择 low 仍启用思考，输出上限仍为 32768；这不是 Codex 的 Fast mode。会话记录实际选择的档位，效果和回答质量须单独比较，不能由配置生效推定。
 

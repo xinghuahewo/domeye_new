@@ -7,6 +7,11 @@ const MAX_CHARS = MAX_TOKENS * CHARS_PER_TOKEN;
 export function truncateResponse(content) {
   const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
   if (text.length <= MAX_CHARS) return text;
+  if (typeof content !== 'string') {
+    // 先尝试完整的紧凑 JSON；不改字段、值、字符串内部空白或字符额度。
+    const compact = JSON.stringify(content);
+    if (compact.length <= MAX_CHARS) return compact;
+  }
   const estimatedTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
   return `${text.slice(0, MAX_CHARS)}\n\n--- TRUNCATED ---\n响应约 ${estimatedTokens.toLocaleString()} tokens（估算上限：${MAX_TOKENS.toLocaleString()}）。请使用更具体的查询减少返回内容。`;
 }
