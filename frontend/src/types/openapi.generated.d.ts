@@ -2534,6 +2534,8 @@ export interface components {
         EndTime: string;
         Target: string;
         Country: string;
+        /** @description 当前结果源的国家或地区名称，须精确使用 /api/v1/core-overview 响应 metadata.countries 中的值。未列入目录的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。 */
+        DeliveredCountry: string;
         PageNum: number;
         FeaturePageSize: 5 | 10 | 20 | 50;
     };
@@ -3441,7 +3443,8 @@ export interface operations {
     getCountryFeatureSeries: {
         parameters: {
             query: {
-                country: components["parameters"]["Country"];
+                /** @description 当前结果源的国家或地区名称，须精确使用 /api/v1/core-overview 响应 metadata.countries 中的值。未列入目录的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。 */
+                country: components["parameters"]["DeliveredCountry"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
@@ -3668,7 +3671,8 @@ export interface operations {
     getCountryAsOutages: {
         parameters: {
             query: {
-                country: components["parameters"]["Country"];
+                /** @description 当前结果源的国家或地区名称，须精确使用 /api/v1/core-overview 响应 metadata.countries 中的值。未列入目录的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。 */
+                country: components["parameters"]["DeliveredCountry"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
@@ -3715,7 +3719,8 @@ export interface operations {
     getCountryPrefixOutages: {
         parameters: {
             query: {
-                country: components["parameters"]["Country"];
+                /** @description 当前结果源的国家或地区名称，须精确使用 /api/v1/core-overview 响应 metadata.countries 中的值。未列入目录的代码、别名或拼写返回 400，不能解释为零或无数据；collect 不作为国家。国家目录读取失败返回 503。 */
+                country: components["parameters"]["DeliveredCountry"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */

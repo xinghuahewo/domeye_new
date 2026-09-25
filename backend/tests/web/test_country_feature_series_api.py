@@ -21,6 +21,7 @@ def source(monkeypatch):
     state = {'meta': meta, 'queries': [], 'rows': [], 'fail': False}
     monkeypatch.setenv('DOMEYE_RESULT_DELIVERY', 'true')
     monkeypatch.setattr(delivery_read, 'status', lambda *a, **k: deepcopy(meta))
+    monkeypatch.setattr(delivery_read, 'available_countries', lambda *a, **k: ['测试地区'])
     from config.database import LazyConnection
     class Cursor:
         def execute(self, query, params):
@@ -84,6 +85,23 @@ def test_read_failure_and_duplicate_samples_fail_explicitly(source, client):
     ({'end_time':'2026-03-03 19:00:00'},400), ({'end_time':'2026-03-01 19:00:00'},400)])
 def test_query_boundaries_fail_before_series_read(source, client, change, code):
     assert client.get(URL,query_string={**QUERY,**change}).status_code==code
+    assert not source['queries']
+
+
+@pytest.mark.parametrize('country', ['XX', 'Example', '测试地'])
+def test_unknown_country_does_not_become_an_empty_feature_series(source, client, country):
+    response = client.get(URL, query_string={**QUERY, 'country': country})
+    assert response.status_code == 400
+    assert 'data' not in response.get_json()
+    assert 'metadata.countries' in response.get_json()['msg']
+    assert not source['queries']
+
+
+def test_country_catalog_failure_is_not_empty_data(source, client, monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise psycopg2.OperationalError('合成国家目录读取失败')
+    monkeypatch.setattr(delivery_read, 'available_countries', unavailable)
+    assert client.get(URL, query_string=QUERY).status_code == 503
     assert not source['queries']
 
 

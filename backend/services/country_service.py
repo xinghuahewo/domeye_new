@@ -55,6 +55,8 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
             raise InputError('没有可读取的完成文件覆盖范围')
         if version is not None and version != meta['version']:
             return {'status': False, 'msg': '交付版本已变化，请按同一版本重新查询'}, 409
+        if country not in delivery_read.available_countries(conn=conn):
+            return {'status': False, 'msg': '国家名称不在当前结果源中，请使用 /api/v1/core-overview 的 metadata.countries 名称'}, 400
         coverage = delivery_read._covered_intervals(meta, start, end)
         rows = get_country_feature_series(conn, country, coverage[0][0].replace(tzinfo=None),
                                           coverage[-1][1].replace(tzinfo=None)) if coverage else []

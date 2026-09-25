@@ -178,6 +178,8 @@ def _get_outage_feature(kind, country, asn, start_time, end_time, conn, prefixes
             raise InputError('没有可读取的完成文件覆盖范围')
         if version is not None and version != meta['version']:
             return {'status': False, 'msg': '交付版本已变化，请按同一版本重新查询'}, 409
+        if country is not None and (country == 'collect' or country not in delivery_read.available_countries(conn=conn)):
+            return {'status': False, 'msg': '国家名称不在当前结果源中，请使用 /api/v1/core-overview 的 metadata.countries 名称'}, 400
         coverage = delivery_read._covered_intervals(meta, start, end)
         # 采样需要未裁剪的覆盖段，才能核对窗口前发生的事件是否跨越处理缺口。
         all_coverage = delivery_read._covered_intervals(

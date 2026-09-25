@@ -19,6 +19,7 @@ def completed_outages(monkeypatch):
     }
     monkeypatch.setenv('DOMEYE_RESULT_DELIVERY', 'true')
     monkeypatch.setattr(delivery_read, 'status', lambda *args, **kwargs: deepcopy(meta))
+    monkeypatch.setattr(delivery_read, 'available_countries', lambda *args, **kwargs: ['测试地区'])
     return meta
 
 
@@ -212,6 +213,26 @@ def test_invalid_selectors_cannot_fall_through_to_global(completed_outages, clie
         ('start_time', '2026-03-01 19:00:00'), ('end_time', '2026-03-01 19:15:00'),
     ])
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize('path', ['country-as', 'country-prefix'])
+@pytest.mark.parametrize('country', ['XX', 'Example', '测试地', 'collect'])
+def test_unknown_country_is_not_a_covered_zero_series(completed_outages, outage_rows, client, path, country):
+    response = get_curve(client, path, country=country)
+    assert response.status_code == 400
+    assert 'data' not in response.get_json()
+    assert 'metadata.countries' in response.get_json()['msg']
+    assert not outage_rows['queries']
+
+
+@pytest.mark.parametrize('path', ['country-as', 'country-prefix'])
+def test_country_catalog_failure_cannot_produce_zero(completed_outages, outage_rows, client, monkeypatch, path):
+    import psycopg2
+    def unavailable(*args, **kwargs):
+        raise psycopg2.OperationalError('合成国家目录读取失败')
+    monkeypatch.setattr(delivery_read, 'available_countries', unavailable)
+    assert get_curve(client, path).status_code == 503
+    assert not outage_rows['queries']
 
 
 def test_prefix_http_reads_membership_without_loading_unrelated_assets(completed_outages, outage_rows, client, monkeypatch, tmp_path):

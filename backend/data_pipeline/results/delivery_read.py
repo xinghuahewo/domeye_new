@@ -68,8 +68,8 @@ def _countries(value):
     return {text}
 
 
-def available_countries():
-    with conn_11.cursor() as cur:
+def available_countries(conn=conn_11):
+    with conn.cursor() as cur:
         # 复用 (scope, subject, t) 索引，每个国家只取一个键；
         # DISTINCT 会遍历该国家的全部时序及其可见性记录，国家目录不需要这些样本。
         cur.execute("""WITH RECURSIVE subjects(subject) AS (
