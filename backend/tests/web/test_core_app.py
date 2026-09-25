@@ -7,6 +7,7 @@ import pytest
 
 EXPECTED_ROUTES = {
     '/api/v1/resources',
+    '/api/v1/result-rollups',
     '/api/v1/rib-snapshots',
     '/api/v1/rib-snapshots/<version>',
     '/api/v1/rib-snapshots/<version>/observations',

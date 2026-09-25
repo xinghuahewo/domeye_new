@@ -99,6 +99,10 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 五个入口统一返回 `query / metadata / data`，不再返回无覆盖元数据的裸数组；前端类型及适配随合同更新。可选 `version` 用于拒绝不同交付版本，400 表示参数错误、409 表示版本已变化、503 表示无法可靠读取。GET 仅查询现有表，不生成额外制品。
 
+## 已计算的小时与日汇总
+
+`GET /api/v1/result-rollups` 直接读取已有小时／日结果，使用 `start_time/end_time`、`grain=hour|day`、`scope=collect|country|asn` 与适用的 `subject`，单次最多 31 天。不在请求中计算或更新汇总。`not_calculated`、`retry_pending` 和读取失败保持明确状态，基础时序仍可独立读取；覆盖、单位与各桶版本以响应为准。
+
 ## 调用结束时检查什么
 
 上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计)。运行版本以实际部署与接口响应为准。

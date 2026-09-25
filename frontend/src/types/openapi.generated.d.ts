@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/result-rollups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取完成文件的小时／日汇总
+         * @description 最多31天；仅查询单个普通Feature对象。六类事件始终为采集范围、按开始时间去重；未知结束不推定持续。部分窗口保留实际覆盖。请求不得切入已汇总观测片段。周／月按日结果查询，未覆盖时段不填零。
+         */
+        get: {
+            parameters: {
+                query: {
+                    start_time: string;
+                    end_time: string;
+                    grain?: "hour" | "day";
+                    scope?: "collect" | "country" | "asn";
+                    subject?: string;
+                    family?: "all" | "ipv4" | "ipv6" | "unknown";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已观测汇总或明确未计算／待更新 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ResultRollupPayload"];
+                    };
+                };
+                /** @description 查询窗口或对象错误 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description 汇总读取失败，基础结果可独立查询 */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/rib-snapshots": {
         parameters: {
             query?: never;
@@ -592,6 +652,125 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RollupResource: {
+            last: number | null;
+            last_at: string;
+            peak: number | null;
+            peak_at: string | null;
+            unknown_samples: number;
+        };
+        RollupInterval: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
+        };
+        RollupQuality: {
+            projection_errors: number;
+            rejected: number;
+            unsupported: number;
+            /** @constant */
+            historical_applicability: "Unknown";
+        };
+        RollupCoverage: {
+            intervals: components["schemas"]["RollupInterval"][];
+            observed_seconds: number;
+            /** @enum {unknown} */
+            state: "complete" | "partial";
+        };
+        RollupEvents: {
+            prefix_outage: number | null;
+            as_outage: number | null;
+            country_outage: number | null;
+            leak: number | null;
+            hijack: number | null;
+            sub_hijack: number | null;
+        };
+        RollupPoint: {
+            start: string;
+            end_exclusive: string;
+            version: string;
+            coverage: components["schemas"]["RollupCoverage"];
+            quality: components["schemas"]["RollupQuality"];
+            sources: ({
+                ordinal: number;
+                receipt_sha256: string;
+            } | {
+                start: string;
+                version: string;
+            })[];
+            subject: string;
+            feature: components["schemas"]["RollupFeature"] | null;
+            event_starts: components["schemas"]["RollupEvents"];
+        };
+        RollupFeature: {
+            sample_count: number;
+            intervals: components["schemas"]["RollupInterval"][];
+            activity: {
+                announce: number | null;
+                withdraw: number | null;
+            };
+            resources: {
+                ipv4_blocks: components["schemas"]["RollupResource"];
+                ipv6_blocks: components["schemas"]["RollupResource"];
+                ipv4_addresses: components["schemas"]["RollupResource"];
+            };
+        };
+        ResultRollupPayload: {
+            /** @enum {unknown} */
+            state: "available" | "not_configured" | "not_calculated" | "retry_pending";
+            /** @constant */
+            rule: "completed-result-rollups/v1";
+            query: {
+                start: string;
+                end_exclusive: string;
+                /** @enum {unknown} */
+                grain: "hour" | "day";
+                /** @enum {unknown} */
+                scope: "collect" | "country" | "asn";
+                subject: string;
+                /** @enum {unknown} */
+                family: "all" | "ipv4" | "ipv6" | "unknown";
+                timezone: string;
+                /** @constant */
+                window_boundary: "[start,end)";
+            };
+            definitions: {
+                announce: {
+                    unit: string;
+                    aggregation: string;
+                };
+                withdraw: {
+                    unit: string;
+                    aggregation: string;
+                };
+                ipv4_blocks: {
+                    unit: string;
+                    aggregation: string;
+                };
+                ipv6_blocks: {
+                    unit: string;
+                    aggregation: string;
+                };
+                ipv4_addresses: {
+                    unit: string;
+                    aggregation: string;
+                };
+                event_starts: {
+                    unit: string;
+                    aggregation: string;
+                };
+            };
+            points: components["schemas"]["RollupPoint"][];
+            summary: {
+                feature: components["schemas"]["RollupFeature"] | null;
+                coverage: components["schemas"]["RollupCoverage"];
+                event_starts: components["schemas"]["RollupEvents"];
+            } | null;
+            limitations: string[];
+            source?: Record<string, never>;
+            message?: string;
+        };
         RibSnapshotAsn: {
             /** @constant */
             state: "available";
