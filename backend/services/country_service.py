@@ -74,23 +74,26 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
             if (not row['source_id'] or left is None or right is None
                     or left.tzinfo is None or right.tzinfo is None or not left <= at < right):
                 raise InputError('国家时序缺少有效来源文件或窗口')
-            points.append({**_feature_point(row), 'time': at.isoformat(),
-                           'source_window': {'source_id': row['source_id'], 'start': left.astimezone(zone).isoformat(),
-                                             'end_exclusive': right.astimezone(zone).isoformat()},
-                           'resource_state_at': right.astimezone(zone).isoformat()})
+            points.append({
+                'source': {'id': row['source_id'], 'label': at.isoformat()},
+                'activity': {'start': left.astimezone(zone).isoformat(),
+                             'end_exclusive': right.astimezone(zone).isoformat(),
+                             'announce': row['announce'], 'withdraw': row['withdraw']},
+                'resources': {'at': right.astimezone(zone).isoformat(),
+                              'ipv4_prefixes': row['ipv4_prefixes'], 'ipv6_prefixes': row['ipv6_prefixes'],
+                              'ipv4_addresses': row['ipv4_addresses']},
+            })
         return {
             'query': {'country': country, 'start': start.isoformat(), 'end_exclusive': end.isoformat(),
                       'timezone': str(zone), 'window_boundary': '[start,end)'},
             'metadata': {'version': meta['version'], 'collector_id': meta['binding']['collector'],
-                         'interpretation_version': 'country-feature-series/v2', 'sample_seconds': 300,
+                         'interpretation_version': 'country-feature-series/v3', 'sample_seconds': 300,
                          'data_start': meta['start'], 'data_end_exclusive': meta['end_exclusive'],
                          'units': COUNTRY_SERIES_UNITS,
                          'measurement': {name: FEATURE_MEASUREMENT[field] for name, field in (
                              ('announce', 'announ_num'), ('withdraw', 'withdraw_num'),
                              ('ipv4_prefixes', 'v4Prefix_num'), ('ipv6_prefixes', 'v6Prefix_num'),
                              ('ipv4_addresses', 'v4IP_num'))},
-                         'time_basis': {'time': 'source_file_label', 'activity': 'source_window',
-                                        'resource': 'resource_state_at'},
                          'coverage': {'state': 'complete' if coverage == [(start, end)] else 'partial' if coverage else 'none',
                                       'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a,b in coverage]}},
             'data': points,

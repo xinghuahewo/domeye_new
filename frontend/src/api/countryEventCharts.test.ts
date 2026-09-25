@@ -81,17 +81,16 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   const response = reply()
   const data = {
     query: response.data.query,
-    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v2', sample_seconds: 300,
-      time_basis: { time: 'source_file_label', activity: 'source_window', resource: 'resource_state_at' },
+    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v3', sample_seconds: 300,
       units: { announce: 'accepted_route_element', withdraw: 'accepted_route_element', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_covered_block', ipv6_prefixes: 'ipv6_48_covered_block' },
       coverage: { state: 'partial', intervals: [
         { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
         { start: '2026-03-01T19:17:00+08:00', end_exclusive: '2026-03-01T19:20:00+08:00' },
       ] },
     },
-    data: [{ time: '2026-03-01T19:15:00+08:00', announce: 0, withdraw: null, ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2,
-      source_window: { source_id: '测试文件', start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
-      resource_state_at: '2026-03-01T19:16:00+08:00' }],
+    data: [{ source: { id: '测试文件', label: '2026-03-01T19:15:00+08:00' },
+      activity: { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00', announce: 0, withdraw: null },
+      resources: { at: '2026-03-01T19:16:00+08:00', ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2 } }],
   }
   vi.mocked(apiGetWithResultMetadata).mockResolvedValue({ result: response.result, data })
   const result = await getCountryEventSeries('features', '测试地区', range, 'delivery_test')

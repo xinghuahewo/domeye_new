@@ -57,8 +57,8 @@ def test_single_country_series_reuses_bounded_read_and_preserves_null(source, cl
     payload = response.get_json()
     assert len(source['queries']) == 1
     assert source['queries'][0][1] == ('测试地区', datetime(2026,3,1,19), datetime(2026,3,1,19,20))
-    assert [p['time'] for p in payload['data']] == ['2026-03-01T19:00:00+08:00', '2026-03-01T19:05:00+08:00', '2026-03-01T19:15:00+08:00']
-    assert all(p['announce']==0 and p['withdraw'] is None for p in payload['data'])
+    assert [p['source']['label'] for p in payload['data']] == ['2026-03-01T19:00:00+08:00', '2026-03-01T19:05:00+08:00', '2026-03-01T19:15:00+08:00']
+    assert all(p['activity']['announce']==0 and p['activity']['withdraw'] is None for p in payload['data'])
     assert payload['metadata']['version'] == response.headers['X-Domeye-Result-Version']
     assert payload['metadata']['units']['announce'] == 'accepted_route_element'
     assert payload['metadata']['units']['withdraw'] == 'accepted_route_element'
@@ -70,19 +70,20 @@ def test_single_country_series_reuses_bounded_read_and_preserves_null(source, cl
 
 def test_metric_definition_and_file_time_are_delivered_with_values(source, client):
     # /25、IPv6 /64 都只覆盖一个对应大小的块，不是精确等价段或精确地址并集。
-    source['rows'] = [row(0, ipv4_prefixes=1, ipv6_prefixes=1, ipv4_addresses=256)]
+    source['rows'] = [row(0, ipv4_prefixes=1, ipv6_prefixes=1, ipv4_addresses=256,
+                          source_end=datetime.fromisoformat('2026-03-01T19:02:00+08:00'))]
     payload = client.get(URL, query_string=QUERY).get_json()
     meta, point = payload['metadata'], payload['data'][0]
-    assert meta['interpretation_version'] == 'country-feature-series/v2'
+    assert meta['interpretation_version'] == 'country-feature-series/v3'
     assert meta['units']['ipv6_prefixes'] == 'ipv6_48_covered_block'
     assert meta['measurement']['ipv4_addresses'] == 'ipv4_24_union_blocks_x256'
-    assert meta['time_basis'] == {'time': 'source_file_label', 'activity': 'source_window',
-                                  'resource': 'resource_state_at'}
-    assert point['time'] == '2026-03-01T19:00:00+08:00'
-    assert point['source_window'] == {'source_id': 'file-0', 'start': point['time'],
-                                     'end_exclusive': '2026-03-01T19:05:00+08:00'}
-    assert point['resource_state_at'] == point['source_window']['end_exclusive']
-    assert point['ipv4_addresses'] == 256
+    assert set(point) == {'source', 'activity', 'resources'}
+    assert point['source'] == {'id': 'file-0', 'label': '2026-03-01T19:00:00+08:00'}
+    assert point['activity'] == {'start': '2026-03-01T19:00:00+08:00',
+                                 'end_exclusive': '2026-03-01T19:02:00+08:00',
+                                 'announce': 0, 'withdraw': None}
+    assert point['resources'] == {'at': '2026-03-01T19:02:00+08:00',
+                                  'ipv4_addresses': 256, 'ipv4_prefixes': 1, 'ipv6_prefixes': 1}
 
 
 @pytest.mark.parametrize('change', [{'source_id': None}, {'source_end': None},

@@ -37,8 +37,8 @@ def _point_statistics(rows, metric, unit, time_field):
 
 
 def _window_statistics(rows, metric, unit, start, end, covered):
-    windows, overlap = _intervals([(datetime.fromisoformat(row['source_window']['start']),
-                                   datetime.fromisoformat(row['source_window']['end_exclusive'])) for row in rows])
+    windows, overlap = _intervals([(datetime.fromisoformat(row['start']),
+                                   datetime.fromisoformat(row['end_exclusive'])) for row in rows])
     values = [row[metric] for row in rows if row[metric] is not None]
     observed = sum(values) if values and not overlap else None
     complete = covered and windows == [(start, end)] and len(values) == len(rows) and not overlap
@@ -52,14 +52,17 @@ def summarize_series(payload, seconds):
     query, meta = payload['query'], payload['metadata']
     start, end = datetime.fromisoformat(query['start']), datetime.fromisoformat(query['end_exclusive'])
     outage = meta['interpretation_version'] == 'outage-series/v2'
-    label = 'time_slot' if outage else 'time'
+    label = 'time_slot' if outage else 'source.label'
     metrics = {'outage_count': meta['unit']} if outage else meta['units']
     coverage = [(datetime.fromisoformat(part['start']), datetime.fromisoformat(part['end_exclusive']))
                 for part in meta['coverage']['intervals']]
-    rows = sorted(payload['data'], key=lambda row: datetime.fromisoformat(row[label]))
+    def sample_time(row):
+        return datetime.fromisoformat(row['time_slot'] if outage else row['source']['label'])
+
+    rows = sorted(payload['data'], key=sample_time)
     selected = {}
     for row in rows:
-        at = datetime.fromisoformat(row[label])
+        at = sample_time(row)
         if start <= at < end:
             selected.setdefault(int((at - start).total_seconds() // seconds), []).append(row)
     buckets, left, index = [], start, 0
@@ -71,10 +74,11 @@ def summarize_series(payload, seconds):
         stats = {}
         for metric, unit in metrics.items():
             if not outage and metric in ('announce', 'withdraw'):
-                stats[metric] = _window_statistics(samples, metric, unit, left, right, covered)
+                stats[metric] = _window_statistics([row['activity'] for row in samples],
+                                                  metric, unit, left, right, covered)
             else:
-                stats[metric] = _point_statistics(samples, metric, unit,
-                                                  'time_slot' if outage else 'resource_state_at')
+                stats[metric] = _point_statistics(samples if outage else [row['resources'] for row in samples],
+                                                 metric, unit, 'time_slot' if outage else 'at')
         buckets.append({'start': left.isoformat(), 'end_exclusive': right.isoformat(),
                         'coverage': {'state': 'complete' if covered else 'partial' if parts else 'none',
                                      'intervals': _encode(parts)}, 'metrics': stats})

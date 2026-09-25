@@ -44,9 +44,9 @@
 
 ### 时序的分桶统计（候选已实现，尚未部署）
 
-单国 Feature 与五个中断时序入口可选 `summary_seconds`（60–86400 整数秒），在同次读取中增加 `summary`，原始 `data` 不变。分桶从查询起点开始，最后一桶在查询末端截短；按原时序标签 `time` 或 `time_slot` 选样本，不重采样或插值。完整调用参数见 [API 导航](../api/read-api.md)。
+单国 Feature 与五个中断时序入口可选 `summary_seconds`（60–86400 整数秒），在同次读取中增加 `summary`，原始 `data` 不变。分桶从查询起点开始，最后一桶在查询末端截短；按原时序标签 `source.label` 或 `time_slot` 选样本，不重采样或插值。完整调用参数见 [API 导航](../api/read-api.md)。
 
-每桶保留实际处理覆盖。点统计的 `first`、`last`、`known_sample_minimum`、`known_sample_maximum` 均同时包含 `value` 与 `at`：资源使用 `resource_state_at`，中断使用 `time_slot`。首末样本值未知时仍保留该时点与 null，不回退到另一条已知值。极值仅比较已知样本，并列取最早纳入样本；`known_sample_mean` 为已知样本算术平均，不是时间加权平均。`first_to_last` 保留两个点、差值及以首值为分母的百分比；缺少任一端点、只有一个样本或首末时点不递增时为 null，首值为零时百分比为 null。首个样本不自动成为正常或中断前基线，端点差也不是生命周期恢复。
+每桶保留实际处理覆盖。点统计的 `first`、`last`、`known_sample_minimum`、`known_sample_maximum` 均同时包含 `value` 与 `at`：资源使用 `resources.at`，中断使用 `time_slot`。首末样本值未知时仍保留该时点与 null，不回退到另一条已知值。极值仅比较已知样本，并列取最早纳入样本；`known_sample_mean` 为已知样本算术平均，不是时间加权平均。`first_to_last` 保留两个点、差值及以首值为分母的百分比；缺少任一端点、只有一个样本或首末时点不递增时为 null，首值为零时百分比为 null。首个样本不自动成为正常或中断前基线，端点差也不是生命周期恢复。
 
 活动统计的 `known_window_sum` 对应所列 `source_intervals` 中的已知文件计数。仅在文件窗口不重叠、恰好覆盖整个桶、交付覆盖完整且该指标无空值时，`total` 才表示该桶合计。非整点选择可能纳入跨桶边界的文件，不能按比例切分计数；无法确认整桶时返回 null。有重叠文件窗口时两种合计都为 null。资源量和并发中断数量不提供跨时点累加。
 

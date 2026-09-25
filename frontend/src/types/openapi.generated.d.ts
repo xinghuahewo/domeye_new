@@ -2102,7 +2102,7 @@ export interface components {
             /** Format: date-time */
             at: string;
         };
-        /** @description 首末项是纳入的实际样本，资源使用 resource_state_at，中断使用 time_slot。极值与均值仅针对已知采样，不代表时间加权平均或连续区间状态。首点没有正常基线资格；两端差不表示事件恢复。缺端点、只有一个样本或首末时点不递增时不算差；首值零时比例为 null。 */
+        /** @description 首末项是纳入的实际样本，资源使用 resources.at，中断使用 time_slot。极值与均值仅针对已知采样，不代表时间加权平均或连续区间状态。首点没有正常基线资格；两端差不表示事件恢复。缺端点、只有一个样本或首末时点不递增时不算差；首值零时比例为 null。 */
         SeriesPointStatistics: {
             /** @constant */
             kind: "point";
@@ -2139,7 +2139,7 @@ export interface components {
             schema_version: "series-statistics/v1";
             interval_seconds: number;
             /** @enum {unknown} */
-            selection_time: "time" | "time_slot";
+            selection_time: "source.label" | "time_slot";
             /** @constant */
             extrema_ties: "earliest_sample";
             buckets: {
@@ -2157,7 +2157,7 @@ export interface components {
                 };
             }[];
         };
-        /** @description 指定国家现有五分钟 Feature 样本及各自来源文件时间。按标签选择实际交付内已存样本，不补零；资源按文件末态使用，活动按实际文件窗口使用。非对齐查询的文件窗口可能超出标签请求范围，不能据此声称精确整窗统计。此入口不计算排名、正常基线或恢复状态。 */
+        /** @description 指定国家现有五分钟 Feature 样本，活动计数与资源状态各自携带时间。按 source.label 选择实际交付内的来源文件；activity 的次数属于其 start/end_exclusive 区间，resources 的数量属于其 at 时点。文件标签只用于选择和追溯，不能代替测量时间。不补零；非对齐查询可能选中跨越请求边界的文件，不能据此声称精确整窗统计。此入口不计算排名、正常基线或恢复状态。 */
         CountryFeatureSeriesPayload: {
             query: {
                 country: string;
@@ -2174,7 +2174,7 @@ export interface components {
                 version: string;
                 collector_id: string;
                 /** @constant */
-                interpretation_version: "country-feature-series/v2";
+                interpretation_version: "country-feature-series/v3";
                 /** @constant */
                 sample_seconds: 300;
                 /** Format: date-time */
@@ -2226,33 +2226,35 @@ export interface components {
                     /** @constant */
                     ipv4_addresses: "ipv4_24_union_blocks_x256";
                 };
-                /** @description 查询按样本文件标签 time 选择；活动属于来源文件窗口，资源对应文件处理完成后的末态。标签不是资源时点，查询首点没有正常或断前基线资格。 */
-                time_basis: {
-                    /** @constant */
-                    time: "source_file_label";
-                    /** @constant */
-                    activity: "source_window";
-                    /** @constant */
-                    resource: "resource_state_at";
-                };
             };
             data: components["schemas"]["DeliveredCountrySeriesPoint"][];
             summary?: components["schemas"]["SeriesStatistics"];
         };
-        DeliveredCountrySeriesPoint: components["schemas"]["CountrySeriesPoint"] & {
-            /** @description 与本行特征同 ordinal 的已交付文件身份和声明的输入区间，不以样本标签加五分钟猜测。 */
-            source_window: {
-                source_id: string;
+        /** @description 同一来源的活动与资源分别绑定统计区间和状态时点；没有共用的测量时间字段。 */
+        DeliveredCountrySeriesPoint: {
+            /** @description 同 ordinal 的已交付文件身份与标签；label 仅用于样本选择和追溯，不是资源时点。 */
+            source: {
+                id: string;
+                /** Format: date-time */
+                label: string;
+            };
+            /** @description 实际来源文件的半开输入区间及其中通过 Feature 过滤的活动元素次数；不是消息条数或路由状态变化次数。按本区间解释，不能用文件标签或资源时点替代。 */
+            activity: {
                 /** Format: date-time */
                 start: string;
                 /** Format: date-time */
                 end_exclusive: string;
+                announce: number | null;
+                withdraw: number | null;
             };
-            /**
-             * Format: date-time
-             * @description 完整来源文件处理后的资源末态，定位到该文件窗口末边界；不表示实际网络在点间连续不变。
-             */
-            resource_state_at: string;
+            /** @description 完整文件处理后的资源状态，at 取实际文件窗口末边界，不从标签加五分钟猜测；数量沿用 metadata.units 和 measurement。不是区间累计，不代表点间连续不变。 */
+            resources: {
+                /** Format: date-time */
+                at: string;
+                ipv4_prefixes: number | null;
+                ipv6_prefixes: number | null;
+                ipv4_addresses: number | null;
+            };
         };
         CountrySeriesPoint: {
             time: string;
