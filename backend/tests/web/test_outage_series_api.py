@@ -119,12 +119,18 @@ def test_five_series_share_coverage_distinct_counts_and_previous_month_events(
     assert len(outage_rows['queries']) == 1
 
 
-def test_recorded_end_is_exclusive_and_covered_empty_is_zero(completed_outages, outage_rows, client):
-    outage_rows['rows'] = [{'asn': '64501', 's_time': '2026-02-28 10:00:00', 'e_time': '2026-03-01 19:18:00'}]
-    body = get_curve(client).get_json()
+@pytest.mark.parametrize('path,kind,field,identifier', [
+    ('country-as', 'as_outage', 'asn', '64501'),
+    ('country-prefix', 'prefix_outage', 'prefix', '192.0.2.0/24'),
+])
+def test_recorded_end_is_exclusive_and_covered_empty_is_zero(
+    completed_outages, outage_rows, client, path, kind, field, identifier,
+):
+    outage_rows['rows'] = [{'kind': kind, field: identifier, 's_time': '2026-02-28 10:00:00', 'e_time': '2026-03-01 19:18:00'}]
+    body = get_curve(client, path).get_json()
     assert [point['outage_count'] for point in body['data']] == [1, 0, None, None]
     outage_rows['rows'] = []
-    body = get_curve(client).get_json()
+    body = get_curve(client, path).get_json()
     assert [point['outage_count'] for point in body['data']] == [0, 0, None, None]
 
 
@@ -224,3 +230,30 @@ def test_prefix_http_reads_membership_without_loading_unrelated_assets(completed
     response = get_curve(client, 'country-prefix')
     assert response.status_code == 200
     assert [p['outage_count'] for p in response.get_json()['data']] == [1, 1, None, None]
+
+
+def test_prefix_queries_reuse_membership_without_rescanning_the_country_independent_catalog(
+    completed_outages, outage_rows, client, monkeypatch,
+):
+    from collections.abc import Set
+
+    class Membership(Set):
+        scans = 0
+        values = frozenset(['192.0.2.0/24', '198.51.100.0/24'])
+        def __contains__(self, value): return value in self.values
+        def __len__(self): return len(self.values)
+        def __iter__(self):
+            self.scans += 1
+            return iter(self.values)
+
+    members = Membership()
+    monkeypatch.setattr(features_service.data_loader, 'coarse_routing_prefixes', lambda: members)
+    outage_rows['rows'] = [
+        {'kind': 'prefix_outage', 'prefix': prefix, 's_time': '2026-03-01 19:00:00', 'e_time': None}
+        for prefix in ['192.0.2.0/24', '192.0.2.0/25']
+    ]
+    for _ in range(2):
+        response = get_curve(client, 'country-prefix')
+        assert response.status_code == 200
+        assert [p['outage_count'] for p in response.get_json()['data']] == [1, 1, None, None]
+    assert members.scans == 0

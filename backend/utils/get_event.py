@@ -9,6 +9,7 @@ import traceback
 from dateutil.relativedelta import relativedelta
 from psycopg2 import extras, extensions
 from collections import defaultdict
+from collections.abc import Set
 import pandas as pd
 
 
@@ -2469,7 +2470,9 @@ def deal_outage(df, type, start_time, end_time, prefixes, *, coverage, interval_
     # 保留既有粗路由筛选与同对象、同起点的结束记录优先规则。
     if type == 'prefix':
         # 去除细路由，只保留粗路由
-        df = df[df['prefix'].isin(prefixes)]
+        # 大目录已是成员集合；按本次事件查成员，避免每个请求重建全目录哈希表。
+        members = prefixes if isinstance(prefixes, Set) else frozenset(prefixes)
+        df = df[df['prefix'].map(members.__contains__).astype(bool)]
         df = df.sort_values(by='e_time', na_position='last')
         df = df.drop_duplicates(subset=['prefix', 's_time'], keep="first").copy()
     
