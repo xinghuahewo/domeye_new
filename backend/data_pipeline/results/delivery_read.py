@@ -70,7 +70,16 @@ def _countries(value):
 
 def available_countries():
     with conn_11.cursor() as cur:
-        cur.execute("SELECT DISTINCT subject FROM result_delivery.features WHERE scope='country'")
+        # 复用 (scope, subject, t) 索引，每个国家只取一个键；
+        # DISTINCT 会遍历该国家的全部时序及其可见性记录，国家目录不需要这些样本。
+        cur.execute("""WITH RECURSIVE subjects(subject) AS (
+            (SELECT subject FROM result_delivery.features
+             WHERE scope='country' AND subject IS NOT NULL ORDER BY subject LIMIT 1)
+            UNION ALL
+            SELECT (SELECT subject FROM result_delivery.features
+                    WHERE scope='country' AND subject > subjects.subject ORDER BY subject LIMIT 1)
+            FROM subjects WHERE subject IS NOT NULL
+        ) SELECT subject FROM subjects WHERE subject IS NOT NULL""")
         countries = {row[0] for row in cur.fetchall() if row[0]}
         cur.execute("SELECT DISTINCT data->'attacked_country' FROM result_delivery.event_list")
         for row in cur.fetchall():
