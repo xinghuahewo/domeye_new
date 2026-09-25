@@ -59,13 +59,14 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
   if (kind === 'features') {
     const payload = data as unknown as components['schemas']['CountryFeatureSeriesPayload']
     const { metadata } = payload
-    if (metadata.interpretation_version !== 'country-feature-series/v1' || metadata.sample_seconds !== 300
+    if (metadata.interpretation_version !== 'country-feature-series/v2' || metadata.sample_seconds !== 300
+      || metadata.time_basis?.time !== 'source_file_label' || metadata.time_basis?.resource !== 'resource_state_at'
       || !Array.isArray(payload.data) || !Array.isArray(metadata.coverage?.intervals)) throw new Error('国家时序响应结构不完整')
     const fields = [
       ['announce', 'announce', 'accepted_route_element'], ['withdraw', 'withdraw', 'accepted_route_element'],
       ['ipv4Addresses', 'ipv4_addresses', 'ipv4_address'],
-      ['ipv4Prefixes', 'ipv4_prefixes', 'ipv4_24_equivalent'],
-      ['ipv6Prefixes', 'ipv6_prefixes', 'ipv6_48_equivalent'],
+      ['ipv4Prefixes', 'ipv4_prefixes', 'ipv4_24_covered_block'],
+      ['ipv6Prefixes', 'ipv6_prefixes', 'ipv6_48_covered_block'],
     ] as const
     const intervals = metadata.coverage.intervals.map((part) => [Date.parse(part.start), Date.parse(part.end_exclusive)] as const)
     if (intervals.some(([left, right]) => !Number.isFinite(left) || !Number.isFinite(right) || left >= right || left < start || right > end)) {
@@ -75,17 +76,28 @@ export async function getCountryEventSeries(kind: CountryChartKind, country: str
     if (new Set(times).size !== times.length || times.some((time) => !intervals.some(([left, right]) => left <= time && time < right))) {
       throw new Error('国家时序时点重复或位于处理覆盖之外')
     }
+    const resourceTimes = payload.data.map((point, i) => {
+      const left = Date.parse(point.source_window?.start)
+      const right = Date.parse(point.source_window?.end_exclusive)
+      const stateAt = Date.parse(point.resource_state_at)
+      if (!point.source_window?.source_id || !Number.isFinite(stateAt) || stateAt !== right
+        || !(left <= times[i]! && times[i]! < right)) throw new Error('国家时序来源窗口或资源时点无效')
+      return stateAt
+    })
     for (const [chartKey, field, unit] of fields) {
       if (metadata.units?.[field] !== unit) throw new Error('国家时序单位与图表不一致')
+      const resource = field !== 'announce' && field !== 'withdraw'
       const values = new Map<number, number | null>()
-      for (let time = Math.ceil(start / 300_000) * 300_000; time < end; time += 300_000) values.set(time, null)
+      for (let time = Math.ceil(start / 300_000) * 300_000; time < end; time += 300_000) values.set(time + (resource ? 300_000 : 0), null)
       payload.data.forEach((point, i) => {
         const value = point[field]
         if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('国家时序存在无效数值')
-        values.set(times[i]!, value)
+        values.set((resource ? resourceTimes : times)[i]!, value)
       })
       // 小于五分钟的处理缺口也须断线；覆盖终点不能画成恢复或零。
-      for (const [, right] of intervals) if (right < end) values.set(right, null)
+      intervals.forEach(([, right], i) => {
+        if (right < end) values.set(resource ? (right + (intervals[i + 1]?.[0] ?? end)) / 2 : right, null)
+      })
       series[chartKey] = [...values].sort((a, b) => a[0] - b[0]).map(([time, value]) => [new Date(time).toISOString(), value])
     }
   } else {

@@ -25,9 +25,9 @@ const state = reactive<Record<CountryChartKind, ChartState>>({
 })
 const panels = [
   { id: 'messages', kind: 'features' as const, title: 'BGP 路由活动', unit: '次', note: '每 5 分钟通过过滤的通告与撤销路由元素次数，一条消息可包含多个元素', lines: [{ key: 'announce', name: '通告', color: '#167c80' }, { key: 'withdraw', name: '撤销', color: '#ce683c' }] },
-  { id: 'ipv4', kind: 'features' as const, title: 'IPv4 地址数量变化', unit: '个地址', note: '每 5 分钟的路由可见 IPv4 地址量', lines: [{ key: 'ipv4Addresses', name: 'IPv4 地址', color: '#167c80' }] },
-  { id: 'v4-prefix', kind: 'features' as const, title: 'IPv4 /24 等价量变化', unit: '/24', note: '地址资源折算值，不是实际前缀条数', lines: [{ key: 'ipv4Prefixes', name: 'IPv4 /24 等价量', color: '#4879b0' }] },
-  { id: 'v6-prefix', kind: 'features' as const, title: 'IPv6 /48 等价量变化', unit: '/48', note: '地址资源折算值，与 IPv4 分开计量', lines: [{ key: 'ipv6Prefixes', name: 'IPv6 /48 等价量', color: '#8662ad' }] },
+  { id: 'ipv4', kind: 'features' as const, title: 'IPv4 地址数量变化', unit: '个地址', note: '文件末态的 /24 覆盖块数×256，按覆盖折算的地址量', lines: [{ key: 'ipv4Addresses', name: 'IPv4 地址', color: '#167c80' }] },
+  { id: 'v4-prefix', kind: 'features' as const, title: 'IPv4 /24 覆盖块数变化', unit: '/24', note: '文件末态的去重 /24 覆盖块数，不是 CIDR 条数', lines: [{ key: 'ipv4Prefixes', name: 'IPv4 /24 覆盖块数', color: '#4879b0' }] },
+  { id: 'v6-prefix', kind: 'features' as const, title: 'IPv6 /48 覆盖块数变化', unit: '/48', note: '文件末态的去重 /48 覆盖块数，小于 /48 的前缀也占一个块', lines: [{ key: 'ipv6Prefixes', name: 'IPv6 /48 覆盖块数', color: '#8662ad' }] },
   { id: 'as', kind: 'as' as const, title: 'AS 中断时序', unit: '个 AS', note: '每 3 分钟处于中断区间的去重 AS 数', lines: [{ key: 'count', name: '中断 AS', color: '#ce683c' }] },
   { id: 'prefix', kind: 'prefix' as const, title: '前缀中断时序', unit: '个前缀', note: '每 3 分钟处于中断区间的去重前缀数，沿用既有粗路由筛选', lines: [{ key: 'count', name: '中断前缀', color: '#a16b35' }] },
 ]

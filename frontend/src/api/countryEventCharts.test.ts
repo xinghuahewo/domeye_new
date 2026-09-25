@@ -81,14 +81,17 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   const response = reply()
   const data = {
     query: response.data.query,
-    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v1', sample_seconds: 300,
-      units: { announce: 'accepted_route_element', withdraw: 'accepted_route_element', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_equivalent', ipv6_prefixes: 'ipv6_48_equivalent' },
+    metadata: { ...response.data.metadata, interpretation_version: 'country-feature-series/v2', sample_seconds: 300,
+      time_basis: { time: 'source_file_label', activity: 'source_window', resource: 'resource_state_at' },
+      units: { announce: 'accepted_route_element', withdraw: 'accepted_route_element', ipv4_addresses: 'ipv4_address', ipv4_prefixes: 'ipv4_24_covered_block', ipv6_prefixes: 'ipv6_48_covered_block' },
       coverage: { state: 'partial', intervals: [
         { start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
         { start: '2026-03-01T19:17:00+08:00', end_exclusive: '2026-03-01T19:20:00+08:00' },
       ] },
     },
-    data: [{ time: '2026-03-01T19:15:00+08:00', announce: 0, withdraw: null, ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2 }],
+    data: [{ time: '2026-03-01T19:15:00+08:00', announce: 0, withdraw: null, ipv4_addresses: 2048, ipv4_prefixes: 8, ipv6_prefixes: 2,
+      source_window: { source_id: '测试文件', start: '2026-03-01T19:15:00+08:00', end_exclusive: '2026-03-01T19:16:00+08:00' },
+      resource_state_at: '2026-03-01T19:16:00+08:00' }],
   }
   vi.mocked(apiGetWithResultMetadata).mockResolvedValue({ result: response.result, data })
   const result = await getCountryEventSeries('features', '测试地区', range, 'delivery_test')
@@ -99,6 +102,8 @@ it('单国 Feature 曲线直读时序，保留零、未知字段与处理缺口'
   ])
   expect(result.series.withdraw?.[0]?.[1]).toBeNull()
   expect(result.series.ipv4Addresses?.[0]?.[1]).toBe(2048)
+  expect(result.series.ipv4Addresses?.[0]?.[0]).toBe('2026-03-01T11:16:00.000Z')
+  expect(result.series.ipv4Addresses?.[1]).toEqual(['2026-03-01T11:16:30.000Z', null])
   expect(result.series.ipv4Prefixes?.[0]?.[1]).toBe(8)
   data.metadata.units.announce = 'message'
   await expect(getCountryEventSeries('features', '测试地区', range, 'delivery_test')).rejects.toThrow('单位')

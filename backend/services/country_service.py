@@ -16,6 +16,7 @@ from config.database import conn_11
 from services.feature_statistics import activity_summary
 from data_pipeline.overview.input import InputError
 from data_pipeline.results import delivery_read
+from data_pipeline.analysis.features.calculation import UNITS as FEATURE_MEASUREMENT
 from database.country_workbench import (
     get_country_event_counts,
     get_country_feature_aggregates,
@@ -31,13 +32,13 @@ _COUNTRY_CACHE_MAX_ENTRIES = 32
 
 COUNTRY_SERIES_UNITS = {
     'announce': 'accepted_route_element', 'withdraw': 'accepted_route_element',
-    'ipv4_prefixes': 'ipv4_24_equivalent', 'ipv6_prefixes': 'ipv6_48_equivalent',
+    'ipv4_prefixes': 'ipv4_24_covered_block', 'ipv6_prefixes': 'ipv6_48_covered_block',
     'ipv4_addresses': 'ipv4_address',
 }
 
 
 def get_country_series(country, start_time, end_time, version=None, conn=conn_11):
-    """单国图表直接复用已有五分钟查询；不做排名、前窗比较或异常聚合。"""
+    """单国图表读取已有特征与文件时间；不做排名、前窗比较或异常聚合。"""
     start, end, error = _parse_range(start_time, end_time)
     if error:
         return error
@@ -58,8 +59,8 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
         if country not in delivery_read.available_countries(conn=conn):
             return {'status': False, 'msg': '国家名称不在当前结果源中，请按 start_time/end_time 查询 /api/v1/core-overview，并使用 metadata.countries 名称'}, 400
         coverage = delivery_read._covered_intervals(meta, start, end)
-        rows = get_country_feature_series(conn, country, coverage[0][0].replace(tzinfo=None),
-                                          coverage[-1][1].replace(tzinfo=None)) if coverage else []
+        rows = delivery_read.read_country_feature_series(country, coverage[0][0].replace(tzinfo=None),
+                                                         coverage[-1][1].replace(tzinfo=None), conn) if coverage else []
         points, times = [], set()
         for row in rows:
             at = row['time'].replace(tzinfo=zone)
@@ -69,14 +70,27 @@ def get_country_series(country, start_time, end_time, version=None, conn=conn_11
                                   for key in COUNTRY_SERIES_UNITS):
                 raise InputError('国家时序含重复时点或无效数值')
             times.add(at)
-            points.append({**_feature_point(row), 'time': at.isoformat()})
+            left, right = row['source_start'], row['source_end']
+            if (not row['source_id'] or left is None or right is None
+                    or left.tzinfo is None or right.tzinfo is None or not left <= at < right):
+                raise InputError('国家时序缺少有效来源文件或窗口')
+            points.append({**_feature_point(row), 'time': at.isoformat(),
+                           'source_window': {'source_id': row['source_id'], 'start': left.astimezone(zone).isoformat(),
+                                             'end_exclusive': right.astimezone(zone).isoformat()},
+                           'resource_state_at': right.astimezone(zone).isoformat()})
         return {
             'query': {'country': country, 'start': start.isoformat(), 'end_exclusive': end.isoformat(),
                       'timezone': str(zone), 'window_boundary': '[start,end)'},
             'metadata': {'version': meta['version'], 'collector_id': meta['binding']['collector'],
-                         'interpretation_version': 'country-feature-series/v1', 'sample_seconds': 300,
+                         'interpretation_version': 'country-feature-series/v2', 'sample_seconds': 300,
                          'data_start': meta['start'], 'data_end_exclusive': meta['end_exclusive'],
                          'units': COUNTRY_SERIES_UNITS,
+                         'measurement': {name: FEATURE_MEASUREMENT[field] for name, field in (
+                             ('announce', 'announ_num'), ('withdraw', 'withdraw_num'),
+                             ('ipv4_prefixes', 'v4Prefix_num'), ('ipv6_prefixes', 'v6Prefix_num'),
+                             ('ipv4_addresses', 'v4IP_num'))},
+                         'time_basis': {'time': 'source_file_label', 'activity': 'source_window',
+                                        'resource': 'resource_state_at'},
                          'coverage': {'state': 'complete' if coverage == [(start, end)] else 'partial' if coverage else 'none',
                                       'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a,b in coverage]}},
             'data': points,

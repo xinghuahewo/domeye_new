@@ -2090,7 +2090,7 @@ export interface components {
             announce: number;
             withdraw: number;
         };
-        /** @description 指定国家现有五分钟 Feature 样本；仅返回实际处理覆盖内已存样本，不补零，不提供排名或前窗比较。地址量、等价块量和已接受路由元素次数分别保留单位；一条 BGP 消息可包含多个元素，活动计数不是消息条数。空值表示字段未知，缺样本不等于零。 */
+        /** @description 指定国家现有五分钟 Feature 样本及各自来源文件时间。按标签选择实际交付内已存样本，不补零；资源按文件末态使用，活动按实际文件窗口使用。非对齐查询的文件窗口可能超出标签请求范围，不能据此声称精确整窗统计。此入口不计算排名、正常基线或恢复状态。 */
         CountryFeatureSeriesPayload: {
             query: {
                 country: string;
@@ -2107,7 +2107,7 @@ export interface components {
                 version: string;
                 collector_id: string;
                 /** @constant */
-                interpretation_version: "country-feature-series/v1";
+                interpretation_version: "country-feature-series/v2";
                 /** @constant */
                 sample_seconds: 300;
                 /** Format: date-time */
@@ -2125,11 +2125,20 @@ export interface components {
                      * @constant
                      */
                     withdraw: "accepted_route_element";
-                    /** @constant */
-                    ipv4_prefixes: "ipv4_24_equivalent";
-                    /** @constant */
-                    ipv6_prefixes: "ipv6_48_equivalent";
-                    /** @constant */
+                    /**
+                     * @description 去重 IPv4 /24 覆盖块数；/25 也计一个块，不是精确等价量或 CIDR 条数。
+                     * @constant
+                     */
+                    ipv4_prefixes: "ipv4_24_covered_block";
+                    /**
+                     * @description 去重 IPv6 /48 覆盖块数；/64 也计一个块，不是精确分数等价量。
+                     * @constant
+                     */
+                    ipv6_prefixes: "ipv6_48_covered_block";
+                    /**
+                     * @description IPv4 /24 覆盖块数×256；不总是精确地址并集。
+                     * @constant
+                     */
                     ipv4_addresses: "ipv4_address";
                 };
                 coverage: {
@@ -2137,8 +2146,45 @@ export interface components {
                     state: "complete" | "partial" | "none";
                     intervals: components["schemas"]["ResultDeliveryInterval"][];
                 };
+                /** @description 沿用普通 Feature 的实际计算口径。活动元素可能重复，不表示路由状态变化；资源是文件处理后的状态量，跨时间不能相加。 */
+                measurement: {
+                    /** @constant */
+                    announce: "accepted_announce_elements";
+                    /** @constant */
+                    withdraw: "accepted_withdraw_elements";
+                    /** @constant */
+                    ipv4_prefixes: "ipv4_24_union_blocks";
+                    /** @constant */
+                    ipv6_prefixes: "ipv6_48_union_blocks";
+                    /** @constant */
+                    ipv4_addresses: "ipv4_24_union_blocks_x256";
+                };
+                /** @description 查询按样本文件标签 time 选择；活动属于来源文件窗口，资源对应文件处理完成后的末态。标签不是资源时点，查询首点没有正常或断前基线资格。 */
+                time_basis: {
+                    /** @constant */
+                    time: "source_file_label";
+                    /** @constant */
+                    activity: "source_window";
+                    /** @constant */
+                    resource: "resource_state_at";
+                };
             };
-            data: components["schemas"]["CountrySeriesPoint"][];
+            data: components["schemas"]["DeliveredCountrySeriesPoint"][];
+        };
+        DeliveredCountrySeriesPoint: components["schemas"]["CountrySeriesPoint"] & {
+            /** @description 与本行特征同 ordinal 的已交付文件身份和声明的输入区间，不以样本标签加五分钟猜测。 */
+            source_window: {
+                source_id: string;
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end_exclusive: string;
+            };
+            /**
+             * Format: date-time
+             * @description 完整来源文件处理后的资源末态，定位到该文件窗口末边界；不表示实际网络在点间连续不变。
+             */
+            resource_state_at: string;
         };
         CountrySeriesPoint: {
             time: string;

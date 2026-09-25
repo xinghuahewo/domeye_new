@@ -68,6 +68,29 @@ def test_leak_uses_event_id_and_preserves_unknown_end():
     assert canonical_detail(row) is None
 
 
+def test_country_feature_series_binds_each_sample_to_its_own_file(db, tmp_path):
+    from data_pipeline.results.delivery_read import read_country_feature_series
+    t = datetime(2026, 2, 24, tzinfo=timezone.utc)
+    for ordinal in range(2):
+        rows = [feature('测试地区', ordinal + 1), feature('其他地区', 9)]
+        for item in rows:
+            item['source_id'] = f'source{ordinal}'
+            item['window']['file_time'] = {'$datetime': (t + timedelta(minutes=5*ordinal)).isoformat()}
+        f = receipt(tmp_path, [('feature_result', item) for item in rows], ordinal)
+        import_file(db, f, {'source_id': f'source{ordinal}', 'sha256': 'input-sha'},
+                    window_start=t+timedelta(minutes=5*ordinal), window_end=t+timedelta(minutes=5*(ordinal+1)))
+    # 不建立兼容视图；窗口由已有文件关联取得，不以查询窗口或首末样本代填。
+    rows = read_country_feature_series('测试地区', datetime(2026,2,24,8), datetime(2026,2,24,8,5), db)
+    assert len(rows) == 1
+    assert rows[0]['announce'] == 1 and rows[0]['withdraw'] == 0 and rows[0]['ipv6_prefixes'] is None
+    assert rows[0]['source_id'] == 'source0'
+    assert rows[0]['source_start'] == t and rows[0]['source_end'] == t+timedelta(minutes=5)
+    with db, db.cursor() as cur:
+        cur.execute('DELETE FROM result_delivery.files WHERE ordinal=0')
+    rows = read_country_feature_series('测试地区', datetime(2026,2,24,8), datetime(2026,2,24,8,5), db)
+    assert len(rows) == 1 and rows[0]['source_id'] is None
+
+
 def revision(number=1,end=None):
     return {'kind':'business_revision','event_kind':'prefix_outage','incident_id':'det_fixture','revision':number,
        'object':'192.0.2.0/24','legacy_ref':{'source':'r','id':1},

@@ -197,6 +197,21 @@ def status(conn=conn_11):
             'limitations':['仅覆盖已交付文件；窗口外未知','历史参考适用性 Unknown','原批次未完成；不代表整窗验收','完整 Observation 归档由用户暂停']}
 
 
+def read_country_feature_series(country, start, end, conn=conn_11):
+    """读取已有特征及同文件的时间定位；缺失文件保留给调用方报错。"""
+    from psycopg2.extras import RealDictCursor
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""SELECT x.t AS time, x.announ_num AS announce, x.withdraw_num AS withdraw,
+                              x.v4prefix_num AS ipv4_prefixes, x.v6prefix_num AS ipv6_prefixes,
+                              x.v4ip_num AS ipv4_addresses, f.source_id,
+                              f.window_start AS source_start, f.window_end AS source_end
+                       FROM result_delivery.features x
+                       LEFT JOIN result_delivery.files f USING (ordinal)
+                       WHERE x.scope = 'country' AND x.subject = %s AND x.t >= %s AND x.t < %s
+                       ORDER BY x.t""", (country, start, end))
+        return cur.fetchall()
+
+
 def read_rib_statistics(start, end):
     """只读离线生成的小型时点投影；旧库缺表不尝试初始化或补算。"""
     with conn_11.cursor() as cur:
