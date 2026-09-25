@@ -47,7 +47,7 @@ def outage_rows(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *args): pass
         def execute(self, query, params):
-            assert query.startswith('SELECT DISTINCT data->>')
+            assert 'SELECT DISTINCT data->>' in query
             assert 'FROM result_delivery.events' in query
             assert '2026' not in query and 'event_list' not in query
             if state['fail']:
@@ -55,7 +55,7 @@ def outage_rows(monkeypatch):
             state['queries'].append((query, params))
             self.query, self.params = query, params
         def fetchall(self):
-            field, kind, source, end, start, *selectors = self.params
+            kind, _, _, field, source, end, start, *selectors = self.params
             rows = []
             for row in state['rows']:
                 if row.get('kind', 'as_outage') != kind: continue

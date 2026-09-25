@@ -116,6 +116,98 @@ def test_country_numeric_members_preserve_identity_and_unknown():
     assert row['legacy']['outage_ases']==[132462,'{64500,64501}']
 
 
+def insert_outage_fixture(db, ident, kind='as_outage', *, projected=True, **changes):
+    """只在临时库放入人工事件；小型起止投影与原始正文使用相同时间。"""
+    from psycopg2.extras import Json
+    data = {'asn': '64500', 'prefix': '192.0.2.0/24', 'source': 'r', 'country': '测试地区',
+            's_time': '2026-02-28 17:00:00', 'e_time': None, **changes}
+    zone = timezone(timedelta(hours=8))
+    def utc(value):
+        return datetime.fromisoformat(value).replace(tzinfo=zone).astimezone(timezone.utc).isoformat()
+    core = {'start_time': utc(data['s_time']), 'end_time': {
+        'state': 'recorded' if data['e_time'] else 'unknown',
+        'value': utc(data['e_time']) if data['e_time'] else None,
+    }} if projected else None
+    with db.cursor() as cur:
+        cur.execute('INSERT INTO result_delivery.events '
+                    '(incident_id,revision,ordinal,row_number,kind,reference,data,context,core_item) '
+                    'VALUES (%s,1,0,0,%s,%s,%s,%s,%s)',
+                    (ident, kind, 'fixture/' + ident, Json(data), Json({}), Json(core) if core else None))
+
+
+@pytest.mark.parametrize('kind,filters', [
+    ('as_outage', {}), ('as_outage', {'country': '测试地区'}),
+    ('prefix_outage', {}), ('prefix_outage', {'country': '测试地区'}),
+    ('prefix_outage', {'asn': '64500'}),
+])
+def test_outage_sql_retains_overlap_null_end_unprojected_and_selectors(db, kind, filters):
+    from data_pipeline.results.delivery_read import read_outage_intervals
+    zone = timezone(timedelta(hours=8))
+    start, end = [datetime(2026, 2, 28, hour, tzinfo=zone) for hour in [18, 19]]
+    insert_outage_fixture(db, 'open', kind, s_time='2026-02-27 17:00:00')
+    insert_outage_fixture(db, 'duplicate', kind, s_time='2026-02-27 17:00:00')
+    insert_outage_fixture(db, 'ended_at_start', kind, e_time='2026-02-28 18:00:00')
+    insert_outage_fixture(db, 'starts_at_end', kind, s_time='2026-02-28 19:00:00')
+    insert_outage_fixture(db, 'crosses_end', kind, s_time='2026-02-28 18:59:00', e_time='2026-02-28 19:10:00')
+    insert_outage_fixture(db, 'unprojected', kind, projected=False, s_time='2026-02-28 18:10:00', e_time='2026-02-28 18:20:00')
+    insert_outage_fixture(db, 'other_country', kind, asn='64501', prefix='198.51.100.0/24', country='另一地区')
+    insert_outage_fixture(db, 'other_source', kind, source='other')
+    rows = read_outage_intervals(kind, start, end, conn=db, **filters)
+    identifier = '64500' if kind == 'as_outage' else '192.0.2.0/24'
+    expected = {
+        (identifier, datetime(2026, 2, 27, 17, tzinfo=zone), None),
+        (identifier, datetime(2026, 2, 28, 18, 59, tzinfo=zone), datetime(2026, 2, 28, 19, 10, tzinfo=zone)),
+        (identifier, datetime(2026, 2, 28, 18, 10, tzinfo=zone), datetime(2026, 2, 28, 18, 20, tzinfo=zone)),
+    }
+    if not filters:
+        expected.add(('64501' if kind == 'as_outage' else '198.51.100.0/24',
+                      datetime(2026, 2, 28, 17, tzinfo=zone), None))
+    assert set(rows) == expected and len(rows) == len(expected)
+
+
+def test_outage_sql_does_not_read_large_evidence_for_outside_window_events(db):
+    """用实际缓冲页访问量发现无关正文扫描；不以机器快慢作为断言。"""
+    from data_pipeline.results.delivery_read import read_outage_intervals
+    captured = []
+    class Cursor(psycopg2.extensions.cursor):
+        def execute(self, query, values=None):
+            captured.append((query, values))
+            return super().execute(query, values)
+    class Connection:
+        def cursor(self):
+            return db.cursor(cursor_factory=Cursor)
+    evidence = ''.join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(512))
+    for i in range(128):
+        insert_outage_fixture(db, 'past' + str(i), e_time='2026-02-28 17:10:00', evidence=evidence)
+    insert_outage_fixture(db, 'current')
+    zone = timezone(timedelta(hours=8))
+    rows = read_outage_intervals('as_outage', datetime(2026, 2, 28, 18, tzinfo=zone),
+                                datetime(2026, 2, 28, 19, tzinfo=zone),
+                                country='测试地区', conn=Connection())
+    assert len(rows) == 1
+    query, values = captured[-1]
+    with db.cursor() as cur:
+        cur.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + query, values)
+        plan = cur.fetchone()[0][0]['Plan']
+    accesses = plan['Shared Hit Blocks'] + plan['Shared Read Blocks']
+    assert accesses < 128, f'读取一条中断仍访问了 {accesses} 个缓冲页，扫描了窗口外的大正文'
+
+
+def test_outage_sql_incomplete_projection_still_checks_original_end(db):
+    from data_pipeline.overview.input import InputError
+    from data_pipeline.results.delivery_read import read_outage_intervals
+    zone = timezone(timedelta(hours=8))
+    start, end = [datetime(2026, 2, 28, hour, tzinfo=zone) for hour in [18, 19]]
+    insert_outage_fixture(db, 'incomplete')
+    with db.cursor() as cur:
+        cur.execute("UPDATE result_delivery.events SET core_item='{}'::jsonb")
+    assert len(read_outage_intervals('as_outage', start, end, conn=db)) == 1
+    with db.cursor() as cur:
+        cur.execute("UPDATE result_delivery.events SET data=data-'e_time'")
+    with pytest.raises(InputError, match='不完整'):
+        read_outage_intervals('as_outage', start, end, conn=db)
+
+
 def test_rib_statistics_cli_transaction_retry_and_conflict(db,tmp_path,monkeypatch,capsys):
     from pathlib import Path
     import runpy

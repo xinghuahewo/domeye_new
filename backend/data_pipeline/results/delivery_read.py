@@ -215,17 +215,24 @@ def read_outage_intervals(kind, start, end, *, country=None, asn=None, conn=conn
     zone = ZoneInfo(PROFILE['timezone'])
     # 来源字段沿用检测器的业务本地时间，与兼容视图的 timestamp 类型一致。
     local_start, local_end = (value.astimezone(zone).replace(tzinfo=None) for value in (start, end))
-    where = ["kind=%s", "data->>'source'=%s", "(data->>'s_time')::timestamp < %s",
+    where = ["data->>'source'=%s", "(data->>'s_time')::timestamp < %s",
              "((data->>'e_time')::timestamp > %s OR data->>'e_time' IS NULL)"]
-    values = [field, kind, 'r', local_end, local_start]
+    values = [kind, end, start, field, 'r', local_end, local_start]
     for name, value in [('country', country), ('asn', asn)]:
         if value is not None:
             where.append(f"data->>'{name}'=%s")
             values.append(value)
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT data->>%s, (data->>'s_time')::timestamp, "
+        # 起止投影与原始记录在同一交付事务生成。先用小字段排除窗口外事件，
+        # 避免为它们反复展开含路径证据的大正文；投影不完整时仍核对原字段。
+        cur.execute("""WITH candidates AS MATERIALIZED (
+                        SELECT data FROM result_delivery.events WHERE kind=%s AND COALESCE(
+                            (core_item->>'start_time')::timestamptz < %s AND (
+                                core_item->'end_time'->>'state' IS DISTINCT FROM 'recorded' OR
+                                (core_item->'end_time'->>'value')::timestamptz > %s), true))
+                    SELECT DISTINCT data->>%s, (data->>'s_time')::timestamp, """
                     "(data->>'e_time')::timestamp, data ? 'e_time' "
-                    "FROM result_delivery.events WHERE " + ' AND '.join(where), values)
+                    "FROM candidates WHERE " + ' AND '.join(where), values)
         rows = cur.fetchall()
     result = []
     for identifier, started, ended, has_end in rows:
