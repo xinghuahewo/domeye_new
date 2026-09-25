@@ -173,7 +173,7 @@ ${SEARCH_PROJECTION_EXAMPLE}`,
 单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），domeye.request 和 domeye.readResult 合计最多 ${EXECUTION_LIMITS.maxRequests} 次宿主调用；被拦截的调用也计数。
 可用类型：
 ${EXECUTE_TYPES}
-完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算。返回超过 24000 字符会附 TRUNCATED 提示；不能把片段当完整结果。后续筛选或计算用 await domeye.readResult(resultReference.toolCallId) 读取本题此前 execute 的完整返回，再 return 所需内容，无需重复 HTTP；形状保持该次代码的返回值。复用不更新版本、不证明覆盖完整或业务可比，原请求范围仍以该次回执为准；版本失效、读取故障或进入新问题后不能复用。
+完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换；query 中的键和值传原值，由宿主统一进行 URL 编码，不要预编码查询参数。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算。返回超过 24000 字符会附 TRUNCATED 提示；不能把片段当完整结果。后续筛选或计算用 await domeye.readResult(resultReference.toolCallId) 读取本题此前 execute 的完整返回，再 return 所需内容，无需重复 HTTP；形状保持该次代码的返回值。复用不更新版本、不证明覆盖完整或业务可比，原请求范围仍以该次回执为准；版本失效、读取故障或进入新问题后不能复用。
 可选 headers 使用小写键，仅保留本次 HTTP 中前缀 x-domeye-result- 下的 state、version、start、end-exclusive、coverage 五项，缺失不补齐。它们描述服务端交付上下文，是否适用于正文结果须按接口来源核对，首末范围不是每条样本的实际窗口。
 从参与数据的定义、单位、版本和实际窗口确认能否比较，再计算并 return 要引用的新增合计、比例、差值和选择结果。每个最多／最少都在本题要求的候选范围内计算；不同分组维度分别比较，局部排名不代表总体排名。已有原始值可直接引用；返回结果保留对象、请求窗、覆盖及可比范围，依据不足的项目保持未知。环境没有 Node、fetch 或外部模块。
 工具另附每次 HTTP 的请求/范围回执 responses。按各回执的 request、source 和 scope 分别解释各来源；某来源没有覆盖或未确认版本时，不向它借用其他来源的 coverage 或版本。它们不是代码返回字段的自动血缘，组合结果时由代码保留各自归属。requestControl.recoveryStopped 列出的结果族本轮已无法再恢复，按附带说明结束这些目标的取证并答复。

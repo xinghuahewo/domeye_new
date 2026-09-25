@@ -65,6 +65,8 @@ node cli.mjs --dataset three-day --prompt '这批数据完整了吗？'
 
 同一道问题内，`docs` 对来源标识和原文均完全相同的段落返回 `textReference`，指向此前工具调用中的原文；其他段落、不同来源以及下一道问题仍返回全文。原始检索结果照常保存在证据和工具详情中，只有模型上下文去除重复文本。
 
+请求路径中的参数由调用方逐段编码；`query` 的键和值传原值，宿主使用 URLSearchParams 统一编码一次。提前对查询参数调用 encodeURIComponent 会把编码文本当原值再次编码，改变事件引用等参数的含义。
+
 `domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`，并在实际返回时保留可选 `headers`：`x-domeye-result-state`、`x-domeye-result-version`、`x-domeye-result-start`、`x-domeye-result-end-exclusive`、`x-domeye-result-coverage`。键使用小写，缺失不补齐；Cookie及其他响应头不进入沙箱或记录。这些交付头也独立保存在同次HTTP的范围回执中，模型聚合或省略正文时仍可核对。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次宿主调用（`domeye.request` 与 `domeye.readResult` 合计）、4 MiB 结果；被拦截的调用也占次数，每个问题最多 20 次工具调用。时间与调用次数由执行器的同一份默认额度写入模型可见的工具说明，未提高限额。
 
 版本冲突后须发现并按新版本整题重取。Core 已明确声明完成文件来源时，可用 `/api/v1/healthz` 中同一 source_run、collector 和交付格式的 `result_delivery` 重新确认一次；健康响应本身仍无整体交付版本。未知绑定、独立留存或来源不符不能借此恢复，旧版本也不会被静默替换。该恢复只涉及只读请求策略，不触发数据生产或服务重启。
