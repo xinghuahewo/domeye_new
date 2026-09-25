@@ -61,13 +61,6 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", '&#039;')
 }
 
-function compactNumber(value: number) {
-  const magnitude = Math.abs(value)
-  if (magnitude >= 10_000_000) return `${(value / 10_000_000).toFixed(1)}千万`
-  if (magnitude >= 10_000) return `${(value / 10_000).toFixed(magnitude >= 100_000 ? 0 : 1)}万`
-  return value.toLocaleString('zh-CN')
-}
-
 function displayValue(value: number | null | undefined, signed = false) {
   if (typeof value !== 'number') return '—（缺失）'
   const sign = signed && value > 0 ? '+' : ''
@@ -180,7 +173,8 @@ function renderChart() {
         fontSize: 9,
         formatter: (value: number) => props.valueKind === 'percent'
           ? `${value}%`
-          : compactNumber(value),
+          // 窄幅变化也保留不同刻度；单位由轴标题给出，不能缩写后抹平差值。
+          : value.toLocaleString('zh-CN'),
       },
       splitLine: { lineStyle: { color: '#e2e8ed', type: 'dashed' } },
     },
