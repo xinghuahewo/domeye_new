@@ -1,6 +1,6 @@
 import { ToolFailure } from './executor.mjs';
 import { createPathMatcher } from './paths.mjs';
-import { DELIVERY_SERIES, responseSource } from './response-source.mjs';
+import { DELIVERY_STATISTICS, responseSource } from './response-source.mjs';
 
 // 93f8d58 的 load_delivery 共享版本；Core 的旧留存模式另有版本，不能凭同名字段合并。
 const DELIVERY = new Set(['/api/v1/data-availability', '/api/v1/events/statistics', '/api/v1/features/summary', '/api/v1/resources']);
@@ -36,7 +36,7 @@ export function createRequestPolicy({ spec, request, onEvidence = () => {} }) {
   if (typeof request !== 'function') throw new TypeError('须提供实际宿主 request。');
   const routes = new Map(Object.entries(spec.paths).filter(([, item]) => item.get).map(([path, item]) => {
     const versioned = [...(item.parameters ?? []), ...(item.get.parameters ?? [])].some(parameter => parameter.in === 'query' && parameter.name === 'version');
-    const family = DELIVERY.has(path) || (versioned && DELIVERY_SERIES.has(path)) ? 'delivery' : CORE.has(path) ? 'core' : path === '/api/v1/healthz' ? 'health' : path === '/api/v1/rib-snapshots' ? 'rib-discovery' : path === '/api/v2/events/resolve' ? 'country-publication' : versioned ? path : 'compatibility';
+    const family = DELIVERY.has(path) || (versioned && DELIVERY_STATISTICS.has(path)) ? 'delivery' : CORE.has(path) ? 'core' : path === '/api/v1/healthz' ? 'health' : path === '/api/v1/rib-snapshots' ? 'rib-discovery' : path === '/api/v2/events/resolve' ? 'country-publication' : versioned ? path : 'compatibility';
     return [path, { family, versioned, discovery: DISCOVERY.has(path) }];
   }));
   const matchPath = createPathMatcher([...routes.keys()]);
@@ -181,7 +181,7 @@ export function createRequestPolicy({ spec, request, onEvidence = () => {} }) {
           }
         }
       }
-      if (route.family === 'delivery' && DELIVERY_SERIES.has(input.path) && hasVersion(returned)) {
+      if (route.family === 'delivery' && DELIVERY_STATISTICS.has(input.path) && hasVersion(returned)) {
         const collector = response.body.metadata.collector_id;
         bindingMismatch = Boolean(state.collectorId && state.collectorId !== collector);
         if (!bindingMismatch) state.collectorId = collector;

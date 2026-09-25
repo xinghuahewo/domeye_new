@@ -7,7 +7,8 @@ import { makeSourceReceipt } from './source-receipt.mjs';
 const core = '/api/v1/core-overview', series = '/api/v1/features/outages/country-as';
 const features = '/api/v1/features/countries/series', resolve = '/api/v2/events/resolve';
 const health = '/api/v1/healthz';
-const spec = { paths: Object.fromEntries([core, series, features, resolve, health].map(path =>
+const comparison = '/api/v1/features/countries/comparison';
+const spec = { paths: Object.fromEntries([core, series, features, comparison, resolve, health].map(path =>
   [path, { get: { parameters: path === health ? [] : [{ in: 'query', name: 'version' }] } }])) };
 const delivered = version => ({ state: 'available', version, binding: {
   schema_version: 'completed-file-delivery/v1', source_run: 'synthetic-run', collector: 'synthetic-collector',
@@ -96,6 +97,25 @@ test('Core v2、两种时序和完成文件详情共享版本；独立原文不�
     }
   }
   assert.equal(h.snapshot().families['country-publication'].binding, 'delivery');
+});
+
+test('两窗比较与事件详情共享版本，保留不可比指标与范围', async () => {
+  const body = {query: {country: '人工国家', reference: {start: '2026-02-28T09:00:00Z'}, current: {start: '2026-02-28T10:00:00Z'}},
+    metadata: {interpretation_version: 'country-window-comparison/v1', version: 'synthetic-v1',
+      collector_id: 'synthetic-collector', scope: 'country_statistics', recovery_assessment: 'not_assessed'},
+    metrics: {withdraw: {comparison: {state: 'not_comparable', reasons: ['reference_total_unknown'], delta: null}}}};
+  const h = harness(request => request.path === core ? detail('synthetic-v1') : body);
+  await h.request(input(core));
+  await assert.rejects(h.request(input(comparison)), error => error.kind === 'policy');
+  const response = await h.request(input(comparison, 'synthetic-v1'));
+  assert.equal(h.events.at(-1).versionAssurance, 'matched');
+  assert.deepEqual(response.body, body);
+  const receipt = makeSourceReceipt({toolCallId: 'comparison', event: h.events.at(-1), response});
+  assert.deepEqual(receipt.scope.query, body.query);
+  assert.deepEqual(receipt.scope.metadata, body.metadata);
+  body.metadata.version = 'synthetic-v2';
+  await h.request(input(comparison, 'synthetic-v1'));
+  assert.equal(h.events.at(-1).versionAssurance, 'mismatch');
 });
 
 test('嵌套返回版本不匹配保留原文并使共享读取失效，同源健康发现后须重取', async () => {

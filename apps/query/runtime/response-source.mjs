@@ -1,5 +1,6 @@
 // 只按已知业务合同定位来源，不递归寻找同名 version，也不借通用响应头推断正文版本。
-export const DELIVERY_SERIES = new Map([
+export const DELIVERY_STATISTICS = new Map([
+  ['/api/v1/features/countries/comparison', ['country-window-comparison/v1']],
   ['/api/v1/features/countries/series', ['country-feature-series/v1', 'country-feature-series/v2', 'country-feature-series/v3', 'country-feature-series/v4']],
   ...['country-as', 'country-prefix', 'as-prefix', 'global-as', 'global-prefix']
     .map(kind => [`/api/v1/features/outages/${kind}`, ['outage-series/v2']]),
@@ -9,7 +10,7 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 export function responseSource(path, body) {
   const resolved = path === '/api/v2/events/resolve' && body?.schema_version === 'country-outage-delivery/v1';
   const record = resolved ? body.event : body;
-  const interpretation = DELIVERY_SERIES.get(path);
+  const interpretation = DELIVERY_STATISTICS.get(path);
   const versionPath = interpretation
     ? (interpretation.includes(body?.metadata?.interpretation_version) && typeof body.metadata.collector_id === 'string'
       && body.metadata.collector_id.trim() ? ['metadata', 'version'] : null)
@@ -23,8 +24,8 @@ export function responseSource(path, body) {
 export function sourceMetadata(path, body) {
   const entries = [];
   const core = ['/api/v1/core-overview', '/api/v1/core-overview/record'].includes(path);
-  const series = DELIVERY_SERIES.get(path)?.includes(body?.metadata?.interpretation_version);
-  if ((core || series) && object(body) && Object.hasOwn(body, 'metadata')) entries.push(['metadata', body.metadata]);
+  const statistics = DELIVERY_STATISTICS.get(path)?.includes(body?.metadata?.interpretation_version);
+  if ((core || statistics) && object(body) && Object.hasOwn(body, 'metadata')) entries.push(['metadata', body.metadata]);
   if (core && object(body?.item) && Object.hasOwn(body.item, 'lifecycle')) entries.push(['item.lifecycle', body.item.lifecycle]);
   if (path === '/api/v2/events/resolve' && body?.schema_version === 'country-outage-delivery/v1') {
     if (object(body.event) && Object.hasOwn(body.event, 'metadata')) entries.push(['event.metadata', body.event.metadata]);
