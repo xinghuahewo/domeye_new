@@ -79,7 +79,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 同一留存内容版本上的 C 首页查询。零仅表示选定留存记录无匹配，不证明原始观察完整。列表局部筛选不改变概况或趋势。完成文件结果源支持 start_time/end_time 半开区间及 country；旧按日源保留 date 查询。 */
+        /**
+         * 按国家与时间查询事件、生命周期和统计
+         * @description 按事件开始时间查询同一留存版本的事件列表，并返回概况与时序。kind 可选择 AS 中断（as_outage）、前缀中断（prefix_outage）、国家中断（country_outage）、路由泄漏（leak）、劫持（hijack、sub_hijack）；当前可查询类型以 metadata.kinds 为准。完整自然日使用 date，由服务端确定北京时间当天零点至次日零点；两种结果源均支持。完成文件源另支持 country 和 start_time/end_time 半开区间，列表 item.lifecycle 提供已结束、未结束或未知等状态及数据截止依据；单条原记录通过 item.reference 和 version 读取 /api/v1/core-overview/record。列表局部筛选不改变概况或趋势；零仅表示选定留存记录无匹配，不证明原始观察完整。
+         */
         get: operations["getCoreOverview"];
         put?: never;
         post?: never;
@@ -96,7 +99,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 按列表版本和旧事件引用复读原记录，保留完整源键和原编码字段；不访问旧数据库详情接口。 */
+        /**
+         * 读取单条事件原记录、结束时间与生命周期
+         * @description 按事件列表的 item.reference 和 version 复读 AS 中断（as_outage）、前缀中断（prefix_outage）、国家中断（country_outage）等事件原记录，保留完整源键和原编码字段。完成文件源的 item.lifecycle 表达事件状态与数据截止依据；原始结束时间 e_time 与归一化 end_time 分别保留，不能仅凭归一化空值推断未结束。用于核对单条事件事实，不访问旧数据库详情接口。
+         */
         get: operations["getCoreOverviewRecord"];
         put?: never;
         post?: never;
@@ -2863,7 +2869,7 @@ export interface operations {
     getCoreOverview: {
         parameters: {
             query?: {
-                /** @description Asia/Shanghai 日窗；默认取项目快照日 */
+                /** @description 完整自然日（YYYY-MM-DD）；服务端按 Asia/Shanghai 解析为当天零点至次日零点，客户端无需计算次日。完成文件源与旧按日源均支持；完成文件源可同时筛选 country。与 start_time/end_time 互斥，省略时间参数时默认取项目快照日。 */
                 date?: string;
                 /** @description 与 end_time 成对，秒级时间；无时区按 Asia/Shanghai。不能与 date/hour 混用，仅完成文件结果源支持。 */
                 start_time?: string;
