@@ -1,6 +1,6 @@
 # 只读业务 API 导航
 
-本页把业务问题对应到已经实现的读取入口。现有 32 个入口均为 GET，其中 6 个标记 deprecated；路径存在不保证已经绑定可读数据。精确响应结构与正式参数见 [OpenAPI](../../../contracts/openapi.json)。
+本页把业务问题对应到只读 GET 接口。可用对象、时间范围和结果状态由响应给出；精确参数、响应结构与兼容标记见 [OpenAPI](../../../contracts/openapi.json)。
 
 以下路径均从站点根开始。`/api/v1` 与 `/api/v2` 分别是两组实际前缀，不要将 `/api/v1` 再加到完整 v2 路径前。花括号为需替换并正确 URL 编码的参数。
 
@@ -9,7 +9,7 @@
 | GET 路径 | 用途 | 主要参数与注意点 |
 | --- | --- | --- |
 | `/api/v1/healthz` | 服务健康 | 不能由服务健康推断业务数据完整 |
-| `/api/v1/core-overview` | 日期目录、所选日概况、筛选列表与小时趋势 | `date`、`family`、`kind`、`level`、`hour`、`q`、`sort`、`page`、`page_size`、`version`；以响应实际筛选范围解释总数 |
+| `/api/v1/core-overview` | 日期目录、概况、筛选列表与小时趋势；完成文件来源支持国家和时间段查询 | `date` 或 `start_time/end_time`，以及 `country`、`family`、`kind`、`level`、`hour`、`q`、`sort`、`page`、`page_size`、`version`；以响应实际筛选范围解释总数 |
 | `/api/v1/core-overview/record` | 留存异常详情 | 必须使用列表取得的 `ref` 和 `version` |
 | `/api/v1/resources` | 窗口内独立 RIB 的总体资源统计点 | 必须提供 `start_time`、`end_time`；半开窗口最多 24 小时，固定八项 global 指标，不支持任意指标或 ASN 筛选 |
 | `/api/v1/rib-snapshots` | 发现已登记共享快照 | `date` 或 `latest`；未配置时明确返回相应状态 |
@@ -87,7 +87,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 ## 中断曲线
 
-以下五个入口共用已交付事件与覆盖查询，OpenAPI 已同步移除 deprecated。旧响应与新响应不能混用；统计定义和逐点状态以[中断时序覆盖合同](../metrics/events.md#中断时序的覆盖合同)为准。
+以下五个入口共用已交付事件与覆盖查询。统计定义和逐点状态以[中断时序覆盖合同](../metrics/events.md#中断时序的覆盖合同)为准。
 
 | GET 路径 | 统计对象 | 必需参数 |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 | `/api/v1/features/outages/global-as` | 当前采集范围的去重 AS | 起止时间；global 不表示全互联网 |
 | `/api/v1/features/outages/global-prefix` | 当前采集范围粗路由集合的去重前缀 | 起止时间 |
 
-五个入口统一返回 `query / metadata / data`，不再返回无覆盖元数据的裸数组；前端类型及适配随合同更新。可选 `version` 用于拒绝不同交付版本，400 表示参数错误、409 表示版本已变化、503 表示无法可靠读取。GET 仅查询现有表，不生成额外制品。
+五个入口统一返回 `query / metadata / data`，包含请求范围、交付版本、实际覆盖和逐点观测状态。可选 `version` 用于拒绝不同交付版本，400 表示参数错误、409 表示版本已变化、503 表示无法可靠读取。GET 仅查询现有表，不生成额外制品。
 
 ## 已计算的小时与日汇总
 
@@ -105,7 +105,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 ## 调用结束时检查什么
 
-上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计)。运行版本以实际部署与接口响应为准。
+上述单国 Feature 与五个中断时序入口均可选 `summary_seconds`，从原样本得到首末量、极值、均值、端点差和适用的活动合计。读取 `summary` 时一并保留 `query` 与 `metadata`；时间和缺口规则见[分桶统计](../rules/time-and-aggregation.md#时序的分桶统计)。
 
 同时检查 HTTP 状态和响应正文；部分兼容接口以 `status:false` 表示业务失败。状态正常后，再判断数值是否适用、是否还有分页、是否包含当前问题所需的对象与时间。详见[查询步骤](../guides/query-data.md)与[结果状态](../rules/result-states.md)。
 

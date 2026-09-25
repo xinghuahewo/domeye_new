@@ -2,13 +2,20 @@
 
 Domeye 的路由观测工作台：Vue 前端、Flask 只读 API，以及独立的数据计算、结果交付与核验工具。首页 C 面向整体控制面态势，不围绕单个 ASN 展开；单观察点的数据不能当作全网或实际用户影响。
 
-## 当前交付
+## 功能入口
 
-2026-09-22 已将 44 份完成结果及独立 RIB 统计接入[常驻系统](http://10.99.8.16:28471/)，独立交付服务按顺序等待新完成回执；API 只读共享查询库。当前为部分时段，原多日计算和归档仍暂停，不代表在线采集或整日完整数据。当前版本、范围与验证见[接入台账](docs/data-assets-and-admission.md#同日自动交付与常驻系统接线)，操作与回滚见[运行手册](docs/runbooks/运行与维护.md#自动交付与系统切换)。
+在[路由观测工作台](http://10.99.8.16:28471/)查看态势、事件和国家／ASN 特征，在[问数页面](http://10.99.8.16:28684/)选择数据批次并提问。
 
-此前 2026-09-12 接受的“55 天可用、4 天明确隔离”及路径对照交付保留为[历史发布记录](docs/data-assets-and-admission.md#51-用户确认交付边界与本轮收口)，旧源码和数据库未覆盖。当前运行使用独立源码发布目录，不以服务器主检出的 Git HEAD 推定线上版本；28473 后端仍仅本机可达，独立 A 问答服务未切换。
+| 功能 | 可以查看什么 | 使用说明 |
+| --- | --- | --- |
+| 核心态势与异常检索 | 所选日期或时间段的事件、筛选数量和小时趋势 | [选择数据与完成查询](docs/usage/guides/query-data.md) |
+| 国家中断详情 | 检测时间、事件状态、最后观测时刻、峰值及峰值 AS 名单 | [查询与解释事件](docs/usage/guides/event-analysis.md) |
+| 国家同期统计 | BGP 路由活动、IPv4 地址及 /24 块数、IPv6 /48 块数、AS 与前缀中断六张图 | [详情页的六张图](docs/usage/guides/event-analysis.md#详情页的六张图) |
+| 国家与 ASN 特征 | 指定窗口的活动、资源状态、关联事件和按既定范围的排名 | [指标目录](docs/usage/metrics/README.md) |
+| 国家两窗比较 | 通告与撤回合计、资源末态、并发中断末样本及适用的变化量 | [两窗比较](docs/usage/api/read-api.md#同一国家两窗比较) |
+| 快照与资源 | 已登记 RIB 的规模、明确起源 ASN 资源及可用路径对照 | [快照指标](docs/usage/metrics/snapshots.md) |
 
-统一数据生产与消费底座按[规格 #18](https://github.com/xinghuahewo/domeye_new/issues/18)分阶段实施。[首条 RIB 到 C 首页共享快照链 #19](https://github.com/xinghuahewo/domeye_new/issues/19)、[同版 ASN 查询 #20](https://github.com/xinghuahewo/domeye_new/issues/20)与[跨月批次复用及失败隔离 #21](https://github.com/xinghuahewo/domeye_new/issues/21)已完成人工输入与隔离接口／页面验收，实现和边界见[系统结构](docs/architecture/系统结构与数据流.md#固定候选批次21fixture-实现)。[真实两批试点 #22](https://github.com/xinghuahewo/domeye_new/issues/22)已冻结36个候选摘要；固定首源已完成 prepare 和内置完整验证，单候选结论为 GO。按用户要求停止额外全量重放审计；#24 无时限批次修订已完成，真实第一批6候选在监控扫描超时后已停止，尚未完成登记，12天覆盖仍为 Unknown，执行状态见[数据台账](docs/data-assets-and-admission.md#58-issue-22-无时限第一批启动)。需求、验收和依赖以规格及其子任务为准；这些批次未完成的完整发布与本次完成文件接入分别记录。
+查询只读消费已经生成的数据。可用对象、日期、实际覆盖与数据版本由响应给出；缺失和未知保留为空值，不能解释为零。指标单位与结果解释见[系统使用文档](docs/usage/README.md)。
 
 ## 快速开始
 

@@ -2,7 +2,9 @@
 
 已有国家事件接口可返回固定窗口的观测曲线、ASN 窗口名单和路径关联。读取时以该结果自带的指标说明和可用能力为准，不能把新计算的同名字段自动套到历史结果。
 
-适用范围：通过事件解析取得的已发布国家观测。当前存在不同响应家族：有的返回 `track_definitions` 与 `tracks`，有的返回 `metric_definitions` 与 `series`。结果家族由程序识别，业务用户通常只需看到具体指标及其限制。
+适用范围：事件解析返回 `publication_id` 及能力信息的国家观测。存在不同响应家族：有的返回 `track_definitions` 与 `tracks`，有的返回 `metric_definitions` 与 `series`。结果家族由程序识别，业务用户通常只需看到具体指标及其限制。
+
+完成文件来源的国家详情返回 `country-outage-delivery/v1`，其基础记录、峰值名单和六张同期统计图按[事件查询指南](../guides/event-analysis.md)读取。那些统计直接使用已有事件和 Feature 数据，不使用本页的固定窗口轨道定义。
 
 ## 读取曲线
 
