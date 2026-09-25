@@ -38,6 +38,19 @@ export async function apiGet<T>(url: string, config?: AxiosRequestConfig): Promi
   return response.data
 }
 
+export async function apiGetWithResultMetadata<T>(url: string, config?: AxiosRequestConfig): Promise<{
+  data: T
+  result: Record<string, string>
+}> {
+  const response = await api.get<T>(url, config)
+  const result: Record<string, string> = {}
+  for (const key of ['state', 'version', 'start', 'end-exclusive', 'coverage']) {
+    const value = response.headers[`x-domeye-result-${key}`]
+    if (typeof value === 'string') result[key] = value
+  }
+  return { data: response.data, result }
+}
+
 export async function apiV2Get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
   const response = await apiV2.get<T>(url, config)
   return response.data

@@ -1,30 +1,14 @@
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { getCountryOutageRecord, type CountryOutageRecord as CountryOutageRecordModel } from '@/api/countryOutageRecord'
+import CountryOutageRecord from '@/components/CountryOutageRecord.vue'
 
-import {
-  getCountryOutageGeneralPage,
-  getEventEvidenceBundle,
-  getEventObservation,
-  isEventObservationNotConfigured,
-} from '@/api/events'
-import CountryOutageDashboard from '@/components/CountryOutageDashboard.vue'
-import CountryOutageGeneralPage from '@/components/CountryOutageGeneralPage.vue'
+import { getEventEvidenceBundle } from '@/api/events'
+import CountryEventCharts from '@/components/CountryEventCharts.vue'
 import PageState from '@/components/PageState.vue'
-import type {
-  EvidenceBundle,
-  EvidenceItem,
-  EvidencePhase,
-  EvidencePhaseCoverage,
-  CountryOutageGeneralPageModel,
-  EventObservation,
-  ParsedDetailRef,
-} from '@/types/api'
-import {
-  CountryOutageObservationRequestGate,
-  decideCountryOutageObservationRefresh,
-  validateCountryOutagePageObservationIdentity,
-} from '@/utils/countryOutageRuntime'
+import type { EvidenceBundle, EvidenceItem, EvidencePhase, EvidencePhaseCoverage } from '@/types/api'
 import { cleanText, errorMessage, isRecord, parseDetailUrl } from '@/utils/normalize'
 
 interface FactItem {
@@ -44,13 +28,9 @@ interface PhaseView {
 const route = useRoute()
 const loading = ref(false)
 const error = ref('')
-const parsed = ref<ParsedDetailRef | null>(null)
 const bundle = ref<EvidenceBundle | null>(null)
-const observation = ref<EventObservation | null>(null)
-const generalPage = ref<CountryOutageGeneralPageModel | null>(null)
-const observationRefreshNotice = ref('')
-let observationRefreshTimer: ReturnType<typeof setInterval> | undefined
-const observationRequests = new CountryOutageObservationRequestGate()
+const countryRecord = ref<CountryOutageRecordModel | null>(null)
+let requestGeneration = 0
 
 const reference = computed(() => typeof route.query.ref === 'string' ? route.query.ref : '')
 const isCountryOutage = computed(() => parseDetailUrl(reference.value)?.kind === 'country_outage')
@@ -150,96 +130,28 @@ function pathPreview(item: EvidenceItem) {
   return item.paths.slice(0, 4)
 }
 
-function stopObservationRefresh() {
-  if (!observationRefreshTimer) return
-  clearInterval(observationRefreshTimer)
-  observationRefreshTimer = undefined
-}
-
-async function refreshObservation() {
-  const token = observationRequests.beginRefresh()
-  if (!token) return
-  try {
-    const refreshed = await getEventObservation(token.reference)
-    if (!observationRequests.isCurrent(token) || !observation.value) return
-    const decision = decideCountryOutageObservationRefresh(
-      observation.value,
-      refreshed.observation,
-      token.reference,
-    )
-    if (!decision.accepted) {
-      observationRefreshNotice.value = decision.message
-      return
-    }
-    observation.value = refreshed.observation
-    observationRefreshNotice.value = ''
-    if (refreshed.observation.is_final) stopObservationRefresh()
-  } catch {
-    // 保留最近一次合法已发布修订，下一轮继续尝试。
-  } finally {
-    observationRequests.finish(token)
-  }
-}
-
-function startObservationRefresh() {
-  stopObservationRefresh()
-  observationRefreshTimer = setInterval(() => {
-    void refreshObservation()
-  }, 45_000)
-}
-
-async function load() {
-  stopObservationRefresh()
+const load = useAutoRefresh(readLoad, { args: () => [true] as [boolean] })
+async function readLoad(background = false) {
+  const token = ++requestGeneration
   const targetReference = reference.value
-  observationRequests.setReference(targetReference)
-  const token = observationRequests.beginInitial()
-  loading.value = true
+  loading.value = !background
   error.value = ''
-  parsed.value = null
-  bundle.value = null
-  observation.value = null
-  generalPage.value = null
-  observationRefreshNotice.value = ''
+  if (!background) { bundle.value = null; countryRecord.value = null }
   try {
-    try {
-      const response = await getCountryOutageGeneralPage(targetReference)
-      if (!observationRequests.isCurrent(token)) return
-      parsed.value = response.parsed
-      generalPage.value = response.page
-      return
-    } catch (generalCause) {
-      if (!observationRequests.isCurrent(token)) return
-      if (!isEventObservationNotConfigured(generalCause)) {
-        throw new Error(`事件观测数据暂不可用：${errorMessage(generalCause)}`)
-      }
+    if (isCountryOutage.value) {
+      const record = await getCountryOutageRecord(targetReference)
+      if (token === requestGeneration) countryRecord.value = record
+    } else {
+      const response = await getEventEvidenceBundle(targetReference)
+      if (token === requestGeneration) bundle.value = response.bundle
     }
-    try {
-      const response = await getEventObservation(targetReference)
-      if (!observationRequests.isCurrent(token)) return
-      const identity = validateCountryOutagePageObservationIdentity(
-        response.observation,
-        targetReference,
-      )
-      if (!identity.accepted) throw new Error(identity.message)
-      parsed.value = response.parsed
-      observation.value = response.observation
-      if (!response.observation.is_final) startObservationRefresh()
-      return
-    } catch (observationCause) {
-      if (!observationRequests.isCurrent(token)) return
-      if (!isEventObservationNotConfigured(observationCause)) {
-        throw new Error(`事件观测数据暂不可用：${errorMessage(observationCause)}`)
-      }
-    }
-    const legacyResponse = await getEventEvidenceBundle(targetReference)
-    if (!observationRequests.isCurrent(token)) return
-    parsed.value = legacyResponse.parsed
-    bundle.value = legacyResponse.bundle
   } catch (cause) {
-    if (!observationRequests.isCurrent(token)) return
+    if (token !== requestGeneration) return
     error.value = errorMessage(cause)
+    bundle.value = null
+    countryRecord.value = null
   } finally {
-    if (observationRequests.isCurrent(token)) loading.value = false
+    if (token === requestGeneration) loading.value = false
   }
 }
 
@@ -247,41 +159,25 @@ watch(reference, () => {
   void load()
 }, { immediate: true })
 onBeforeUnmount(() => {
-  observationRequests.invalidate()
-  stopObservationRefresh()
+  requestGeneration++
 })
 </script>
 
 <template>
   <article class="page evidence-page">
-    <CountryOutageGeneralPage
-      v-if="isCountryOutage"
-      :key="reference"
-      :page="generalPage"
-      :reference="reference"
-      :detected-at="bundle?.event.eventTimeUtc"
-      :loading="loading"
-      :error="error"
-      @retry="load"
-    >
-      <template #source>
-        <details v-if="bundle" class="country-source">
-          <summary>已有事件记录与来源</summary>
-          <p>{{ bundle.event.summary }}</p>
-          <dl class="fact-list"><div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl>
-          <p>以上保留检测记录中的原始描述和字段，不作为固定集合时序、峰值或恢复结论。</p>
-          <details><summary>查看原始事实与证据定位</summary><pre>{{ JSON.stringify(bundle, null, 2) }}</pre></details>
-        </details>
-        <details v-if="observation" class="country-source">
-          <summary>查看已有增强观测与来源口径</summary>
-          <p>此来源的观测范围和指标口径单独保留，不换算为上方尚未接入的固定集合指标。</p>
-          <p v-if="observationRefreshNotice" role="alert">{{ observationRefreshNotice }}</p>
-          <CountryOutageDashboard :observation="observation" />
-        </details>
-      </template>
-    </CountryOutageGeneralPage>
+    <template v-if="isCountryOutage">
+      <header class="incident-header">
+        <div class="incident-title">
+          <RouterLink class="back-link" to="/events">← 返回异常事件</RouterLink>
+          <p class="eyebrow">事件详情</p>
+          <h1>国家中断 · {{ countryRecord?.bundle.event.object || parseDetailUrl(reference)?.problem }}</h1>
+        </div>
+      </header>
+      <CountryOutageRecord :record="countryRecord" :loading="loading" :error="error" @retry="load" />
+      <CountryEventCharts v-if="countryRecord" :key="reference" :record="countryRecord" />
+    </template>
     <template v-else>
-    <header v-if="!observation && !generalPage" class="incident-header">
+    <header class="incident-header">
       <div class="incident-title">
         <RouterLink class="back-link" to="/events">← 返回异常事件</RouterLink>
         <p class="eyebrow">事件观测</p>
