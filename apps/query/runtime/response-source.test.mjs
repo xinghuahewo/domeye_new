@@ -62,6 +62,22 @@ test('嵌套版本和范围进入同一次 HTTP 回执，缺省的后续版本�
   assert.equal(h.events.at(-1).versionAssurance, 'matched');
 });
 
+test('单国时序 v3 保留活动区间和资源时点，继续与 Core 核对共享版本', async () => {
+  const body = samples('synthetic-v1', true);
+  body.metadata.interpretation_version = 'country-feature-series/v3';
+  body.data = [{ source: { id: 'synthetic-file', label: '2026-02-28T10:00:00Z' },
+    activity: { start: '2026-02-28T10:00:00Z', end_exclusive: '2026-02-28T10:02:00Z', announce: 2, withdraw: null },
+    resources: { at: '2026-02-28T10:02:00Z', ipv4_addresses: 256, ipv4_prefixes: 1, ipv6_prefixes: null } }];
+  const h = harness(request => request.path === core ? detail('synthetic-v1') : body);
+  await h.request(input(core));
+  const response = await h.request(input(features, 'synthetic-v1'));
+  assert.equal(h.events.at(-1).versionAssurance, 'matched');
+  assert.deepEqual(response.body, body);
+  body.metadata.version = 'synthetic-v2';
+  await h.request(input(features, 'synthetic-v1'));
+  assert.equal(h.events.at(-1).versionAssurance, 'mismatch');
+});
+
 test('Core v2、两种时序和完成文件详情共享版本；独立原文不被改写', async () => {
   const h = harness(request => request.path === core ? detail('synthetic-v1') : request.path === resolve
     ? { schema_version: 'country-outage-delivery/v1', event: detail('synthetic-v1') }
