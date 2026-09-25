@@ -4,7 +4,7 @@ const CHARS_PER_TOKEN = 4;
 const MAX_TOKENS = 6000;
 const MAX_CHARS = MAX_TOKENS * CHARS_PER_TOKEN;
 
-export function truncateResponse(content) {
+export function truncateResponse(content, {toolCallId} = {}) {
   const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
   if (text.length <= MAX_CHARS) return text;
   if (typeof content !== 'string') {
@@ -13,5 +13,8 @@ export function truncateResponse(content) {
     if (compact.length <= MAX_CHARS) return compact;
   }
   const estimatedTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
-  return `${text.slice(0, MAX_CHARS)}\n\n--- TRUNCATED ---\n响应约 ${estimatedTokens.toLocaleString()} tokens（估算上限：${MAX_TOKENS.toLocaleString()}）。请使用更具体的查询减少返回内容。`;
+  const guidance = toolCallId
+    ? `完整返回已保留。本题下一次 execute 用 await domeye.readResult(${JSON.stringify(toolCallId)}) 读取后筛选或计算，无需重复 HTTP。`
+    : '请使用更具体的查询减少返回内容。';
+  return `${text.slice(0, MAX_CHARS)}\n\n--- TRUNCATED ---\n响应约 ${estimatedTokens.toLocaleString()} tokens（估算上限：${MAX_TOKENS.toLocaleString()}）。${guidance}`;
 }

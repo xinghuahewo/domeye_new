@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { newQuickJSWASMModule } from 'quickjs-emscripten';
 
-const { code, spec, hasRequest, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes } = workerData;
+const { code, spec, hasRequest, hasReadResult, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes } = workerData;
 const QuickJS = await newQuickJSWASMModule();
 const runtime = QuickJS.newRuntime();
 runtime.setMemoryLimit(memoryBytes);
@@ -37,20 +37,23 @@ function pump() {
 }
 try {
   if (spec !== undefined) vm.newString(JSON.stringify(spec)).consume(handle => vm.setProp(vm.global, '__specJSON', handle));
-  if (hasRequest) vm.newFunction('__hostRequest', handle => {
-    const id = ++nextId;
-    const text = vm.getString(handle);
-    if (id > maxRequests || Buffer.byteLength(text) > maxRequestBytes) {
-      const error = vm.newError('本次执行超过请求次数或参数大小上限。');
-      vm.newString('input').consume(kind => vm.setProp(error, 'kind', kind));
-      return { error };
-    }
-    const value = JSON.parse(text);
-    const deferred = vm.newPromise();
-    pending.set(id, deferred);
-    parentPort.postMessage({ type: 'request', id, value });
-    return deferred.handle;
-  }).consume(handle => vm.setProp(vm.global, '__hostRequest', handle));
+  for (const [name, type, enabled] of [['__hostRequest', 'request', hasRequest], ['__hostReadResult', 'readResult', hasReadResult]]) {
+    if (!enabled) continue;
+    vm.newFunction(name, handle => {
+      const id = ++nextId;
+      const text = vm.getString(handle);
+      if (id > maxRequests || Buffer.byteLength(text) > maxRequestBytes) {
+        const error = vm.newError('本次执行超过宿主调用次数或参数大小上限。');
+        vm.newString('input').consume(kind => vm.setProp(error, 'kind', kind));
+        return { error };
+      }
+      const value = JSON.parse(text);
+      const deferred = vm.newPromise();
+      pending.set(id, deferred);
+      parentPort.postMessage({ type, id, value });
+      return deferred.handle;
+    }).consume(handle => vm.setProp(vm.global, name, handle));
+  }
 
   parentPort.on('message', message => {
     const deferred = pending.get(message.id);
@@ -69,9 +72,14 @@ try {
   const source = `(() => {
     const parse = JSON.parse, stringify = JSON.stringify;
     const rawRequest = globalThis.__hostRequest;
-    if (rawRequest) globalThis.domeye = Object.freeze({request: async value => parse(await rawRequest(stringify(value)))});
+    const rawReadResult = globalThis.__hostReadResult;
+    if (rawRequest) globalThis.domeye = Object.freeze({
+      request: async value => parse(await rawRequest(stringify(value))),
+      ...(rawReadResult ? {readResult: async id => parse(await rawReadResult(stringify(id)))} : {})
+    });
     if (typeof globalThis.__specJSON === 'string') globalThis.spec = parse(globalThis.__specJSON);
     delete globalThis.__hostRequest;
+    delete globalThis.__hostReadResult;
     delete globalThis.__specJSON;
     const isArray = Array.isArray, getPrototypeOf = Object.getPrototypeOf, values = Object.values;
     const plain = Object.prototype, finite = Number.isFinite;

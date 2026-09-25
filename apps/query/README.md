@@ -65,7 +65,7 @@ node cli.mjs --dataset three-day --prompt '这批数据完整了吗？'
 
 同一道问题内，`docs` 对来源标识和原文均完全相同的段落返回 `textReference`，指向此前工具调用中的原文；其他段落、不同来源以及下一道问题仍返回全文。原始检索结果照常保存在证据和工具详情中，只有模型上下文去除重复文本。
 
-`domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`，并在实际返回时保留可选 `headers`：`x-domeye-result-state`、`x-domeye-result-version`、`x-domeye-result-start`、`x-domeye-result-end-exclusive`、`x-domeye-result-coverage`。键使用小写，缺失不补齐；Cookie及其他响应头不进入沙箱或记录。这些交付头也独立保存在同次HTTP的范围回执中，模型聚合或省略正文时仍可核对。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次 `domeye.request` 调用、4 MiB 结果；被请求策略拦截的调用也占次数，每个问题最多 20 次工具调用。时间与请求次数由执行器的同一份默认额度写入模型可见的工具说明，未提高限额。
+`domeye.request({method:"GET",path,query})` 保留原始 `{status,body}`，并在实际返回时保留可选 `headers`：`x-domeye-result-state`、`x-domeye-result-version`、`x-domeye-result-start`、`x-domeye-result-end-exclusive`、`x-domeye-result-coverage`。键使用小写，缺失不补齐；Cookie及其他响应头不进入沙箱或记录。这些交付头也独立保存在同次HTTP的范围回执中，模型聚合或省略正文时仍可核对。宿主只允许当前合同的 GET 路径，禁止更换主机、重定向、路径穿越、文件访问及外部模块。模型凭据不进入沙箱。单次代码限制 15 秒、64 MiB 虚拟机内存、16 次宿主调用（`domeye.request` 与 `domeye.readResult` 合计）、4 MiB 结果；被拦截的调用也占次数，每个问题最多 20 次工具调用。时间与调用次数由执行器的同一份默认额度写入模型可见的工具说明，未提高限额。
 
 版本冲突后须发现并按新版本整题重取。Core 已明确声明完成文件来源时，可用 `/api/v1/healthz` 中同一 source_run、collector 和交付格式的 `result_delivery` 重新确认一次；健康响应本身仍无整体交付版本。未知绑定、独立留存或来源不符不能借此恢复，旧版本也不会被静默替换。该恢复只涉及只读请求策略，不触发数据生产或服务重启。
 
@@ -73,7 +73,7 @@ Core 的完整交付绑定已确认时，与完成文件的版本化查询入口
 
 目录发现和健康发现恢复同一来源的版本状态，之前已读的查询仍须整题重取。首次识别共享绑定时若发现版本、source_run 或 collector 不同，保留冲突正文，不将两份读数同时确认为可用。仅从时序开始且尚未取得完整来源绑定时，不能凭同值版本从健康入口恢复；须先保留冲突并重新建立可核对的读取。响应头只保留服务端交付上下文；自动版本策略仍核对正文中合同指定位置的版本，不把通用头升级为所有正文结果的同版保证，也不以头部首末范围替代对象样本窗口。
 
-工具发现和收窄遵循 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果限制为 24000 个 JavaScript 字符。JSON 排版超过额度时先尝试不改变内容的紧凑表示，能够完整容纳则保留全部字段、数值和时点；字符串原文不压缩。紧凑表示仍超限时保留原有 TRUNCATED 提示并要求收窄，原始结果继续保存。宿主注入和执行边界先对照 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
+工具发现和收窄参考 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果限制为 24000 个 JavaScript 字符。JSON 排版超过额度时先尝试不改变内容的紧凑表示，能够完整容纳则保留全部字段、数值和时点；字符串原文不压缩。紧凑表示仍超限时明确标记 TRUNCATED，原始结果继续保存。`execute` 另返回 `resultReference.toolCallId`；后续代码用 `await domeye.readResult(id)` 读取该次完整返回，在本题内继续筛选或计算，不再为补齐截断重复 HTTP。其形状仍是原代码的返回值，不自动附加业务字段。引用只存在本题内存，进入新问题或关闭会话时清除；复制和派生结果保留原请求依赖，版本失效或读取故障不能通过复用绕过。`requestControl.reusedResults` 与历史中的 `result_reuse` 记录原工具与 HTTP 回执引用，不伪造新的 HTTP，也不证明任意派生字段的血缘、完整性或可比性。宿主注入和执行边界参考 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
 
 Pi 0.87.0、DeepSeek `deepseek-v4-pro`、默认 high 推理、标准请求。Pro 已[正式支持 low](https://api-docs.deepseek.com/updates/)，但锁定 Pi 的模型目录会将 low 提升为 high；应用只在该模型的会话副本中修正映射，不修改依赖或全局目录。选择 low 仍启用思考，输出上限仍为 32768；这不是 Codex 的 Fast mode。会话记录实际选择的档位，效果和回答质量须单独比较，不能由配置生效推定。
 

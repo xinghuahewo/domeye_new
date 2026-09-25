@@ -107,3 +107,26 @@ test('大参数和大量并行调用在发送给宿主前受限，大结果不�
   assert.ok(calls <= 2);
   await assert.rejects(runCode({ code: 'async () => "x".repeat(1000)', spec: simpleSpec, maxResultBytes: 200 }), error => error.kind === 'serialization');
 });
+
+test('结果读取复用既有宿主额度和隔离，取消后不再执行后续读取', async () => {
+  const request = async () => ({status:200,body:null});
+  let calls=0;
+  const readResult = async () => {calls++;return {value:null};};
+  const result = await runCode({request, readResult,
+    code:'async () => ({raw:typeof __hostReadResult, value:await domeye.readResult("first")})'});
+  assert.deepEqual(result,{raw:'undefined',value:{value:null}});
+  await assert.rejects(runCode({spec:simpleSpec,readResult,code:'async () => 1'}), /只适用于 execute/);
+  await assert.rejects(runCode({request,readResult,maxRequests:2,code:`async () => {
+    await domeye.request({method:'GET',path:'/query'});
+    await domeye.readResult('first'); return await domeye.readResult('first');
+  }`}), error=>error.kind==='input');
+  assert.equal(calls,2);
+  let started;
+  const pending=new Promise(resolve=>{started=resolve;});
+  const controller=new AbortController();
+  const running=runCode({request,signal:controller.signal,
+    readResult:(_id,{signal})=>{calls++;started();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('已取消')),{once:true}));},
+    code:'async () => {await domeye.readResult("first");return await domeye.readResult("second");}'});
+  await pending; controller.abort();
+  await assert.rejects(running,/已停止/); assert.equal(calls,3);
+});

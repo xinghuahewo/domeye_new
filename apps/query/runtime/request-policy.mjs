@@ -231,5 +231,18 @@ export function createRequestPolicy({ spec, request, onEvidence = () => {} }) {
     .map(([family,state])=>({family,version:state.version,
       paths:[...routes].filter(([,route])=>route.family===family && route.versioned && !route.discovery).map(([path])=>path)}))
     .filter(item=>item.paths.length);
-  return { request: controlled, beginTurn, snapshot, requiredVersions };
+  // 复用不产生新响应，不清除冲突、失败或整题重取要求。
+  const assertReusable = responseIds => {
+    for (const id of responseIds) {
+      const receipt = evidence.find(item => item.type === 'response' && item.id === id);
+      if (!receipt || invalidated.includes(id) || receipt.epoch !== familyState(receipt.family).epoch ||
+          versionFamilies(receipt.family).some(name => {
+            const state = familyState(name);
+            return state.conflict || state.failure;
+          })) {
+        throw new ToolFailure('policy', '原结果的请求回执已失效或仍有读取故障；须按原请求策略恢复并重取，不能通过结果复用绕过。');
+      }
+    }
+  };
+  return { request: controlled, beginTurn, snapshot, requiredVersions, assertReusable };
 }

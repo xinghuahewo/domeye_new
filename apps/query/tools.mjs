@@ -1,7 +1,7 @@
 import { Type } from 'typebox';
 import { createDocs } from './docs.mjs';
 import { loadSearchSpec, SPEC_TYPES } from './spec.mjs';
-import { createRequest, runCode, EXECUTION_LIMITS } from './runtime/executor.mjs';
+import { createRequest, runCode, EXECUTION_LIMITS, ToolFailure } from './runtime/executor.mjs';
 import { createRequestPolicy } from './runtime/request-policy.mjs';
 import { makeSourceReceipt } from './runtime/source-receipt.mjs';
 import { truncateResponse } from './runtime/truncate.mjs';
@@ -10,6 +10,7 @@ export const EXECUTE_TYPES = `type QueryValue = string | number | boolean;
 declare const domeye: {
   request(input: {method: "GET"; path: string; query?: Record<string, QueryValue>}):
     Promise<{status: number; body: unknown; headers?: Record<string, string>}>;
+  readResult(toolCallId: string): Promise<unknown>;
 };`;
 // 虚构响应：类别互斥、同端点桶可加；字段与路径须按实际 search 结果选择。
 export const CALCULATION_EXAMPLE = `async () => {
@@ -130,6 +131,9 @@ export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence
   });
   const request = policy.request;
   const docTexts = new Map();
+  // 仅保存本题 execute 的完整返回；每题原有的 20 次工具、单结果 4 MiB 额度仍适用。
+  const results = new Map();
+  let turn = 0, closed = false;
   const docsForModel = (value,toolCallId) => !Array.isArray(value?.results)?value:{...value,results:value.results.map(item=>{
     if(typeof item.source!=='string' || typeof item.text!=='string')return item;
     const key=JSON.stringify([item.source,item.text]),previous=docTexts.get(key);
@@ -166,10 +170,10 @@ ${SEARCH_PROJECTION_EXAMPLE}`,
     {
       name: 'execute', label: '读取并整理数据',
       description: `用 JavaScript 读取业务数据并完成回答需要的计算。code 是返回 JSON 值的 async 箭头函数；可以组合请求，也可以直接用已取得的数值计算。
-单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），最多 ${EXECUTION_LIMITS.maxRequests} 次 domeye.request 调用；被请求策略拦截的调用也计数。
+单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），domeye.request 和 domeye.readResult 合计最多 ${EXECUTION_LIMITS.maxRequests} 次宿主调用；被拦截的调用也计数。
 可用类型：
 ${EXECUTE_TYPES}
-完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算，避免只返回原始表后再补一次计算；新发现的必要计算仍可另行调用。返回超过 24000 字符会附 TRUNCATED 提示；之后用代码减少返回字段、聚合或缩小查询，不能把截断片段当完整结果。
+完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算。返回超过 24000 字符会附 TRUNCATED 提示；不能把片段当完整结果。后续筛选或计算用 await domeye.readResult(resultReference.toolCallId) 读取本题此前 execute 的完整返回，再 return 所需内容，无需重复 HTTP；形状保持该次代码的返回值。复用不更新版本、不证明覆盖完整或业务可比，原请求范围仍以该次回执为准；版本失效、读取故障或进入新问题后不能复用。
 可选 headers 使用小写键，仅保留本次 HTTP 中前缀 x-domeye-result- 下的 state、version、start、end-exclusive、coverage 五项，缺失不补齐。它们描述服务端交付上下文，是否适用于正文结果须按接口来源核对，首末范围不是每条样本的实际窗口。
 从参与数据的定义、单位、版本和实际窗口确认能否比较，再计算并 return 要引用的新增合计、比例、差值和选择结果。每个最多／最少都在本题要求的候选范围内计算；不同分组维度分别比较，局部排名不代表总体排名。已有原始值可直接引用；返回结果保留对象、请求窗、覆盖及可比范围，依据不足的项目保持未知。环境没有 Node、fetch 或外部模块。
 工具另附每次 HTTP 的请求/范围回执 responses。按各回执的 request、source 和 scope 分别解释各来源；某来源没有覆盖或未确认版本时，不向它借用其他来源的 coverage 或版本。它们不是代码返回字段的自动血缘，组合结果时由代码保留各自归属。requestControl.recoveryStopped 列出的结果族本轮已无法再恢复，按附带说明结束这些目标的取证并答复。
@@ -178,14 +182,18 @@ ${COMPARISON_EXAMPLE}
 请求与排名示例：以下虚构合同的 body 含 state、scope（对象、口径、单位、版本、请求及覆盖）、total 和 series；类别互斥，同端点分桶可加。直接用响应明细生成时段合计，再分别比较类型和时段；总体取原始 total。真实调用以 search 确认的结构为准，自由选择所需运算和返回形状。窗口保留真实端点，确需时长时由代码换算并返回单位：
 ${CALCULATION_EXAMPLE}`,
       parameters: Type.Object({code:Type.String({minLength:1,pattern:'\\S',description:'返回 JSON 值的 async 箭头函数；return 本题各目标的读取结果或实际算出的比较结果。'})},{additionalProperties:false}),
-      call: ({code},signal,observers) => runCode({code,request:(input,options) => request(input,{...options,...observers}),signal})
+      call: ({code},signal,observers) => runCode({code,request:(input,options) => request(input,{...options,...observers}),readResult:observers.readResult,signal})
     }
   ];
   // 与首轮模型请求重叠准备本地嵌入；失败仍由实际 docs 调用报告，不阻塞其他工具。
   void docs.warmup?.();
   return {
     tools: definitions.map(({call,...definition}) => ({...definition,execute:async (id,params,signal) => {
-      const events = [], responses = [];
+      const events = [], responses = [], reusedResults = [];
+      const executionTurn = turn;
+      const assertCurrent = () => {
+        if (closed || executionTurn !== turn) throw new ToolFailure('policy', '执行所属问题已结束或会话已关闭。');
+      };
       const requestControl = () => {
         const state=policy.snapshot();
         // 仅显示现有策略已经确定的本轮恢复终态；不改变请求权限或原始正文。
@@ -194,21 +202,35 @@ ${CALCULATION_EXAMPLE}`,
           .map(([family])=>({family,reason:'recovery_exhausted',action:'answer_unavailable',
             note:'此结果族本轮的发现机会已使用，当前版本冲突仍未解决，无法再恢复这部分查询。停止为恢复这部分结果继续搜索或尝试其他入口，直接简要说明未取得可用于本次回答的结果。旧读数仅是上次读取，不能确认当前有效。其他独立问题目标仍可继续。'}));
         return {
-          note:'responses 是本次工具调用内各次 HTTP 的请求/范围回执；scope 仅摘录各自正文，缺失不从其他响应补入。代码结果原样在前一块；回执不自动证明其中任意字段的来源。纯计算没有新的 HTTP 回执。工具失败时仅保留已观察到的回执，不能视为代码成功。成功确认新版本后整题重取；recoveryStopped 所列族则本轮无法恢复。',
-          requiredVersions:policy.requiredVersions(),responses,events,restartRequired:state.restartRequired,invalidatedEvidence:state.invalidatedEvidence,
+          note:'responses 是本次工具调用内各次 HTTP 的请求/范围回执；scope 仅摘录各自正文，缺失不从其他响应补入。reusedResults 引用本题此前的完整返回及原 HTTP 回执，不代表新请求，范围说明沿用被引用的工具调用。代码结果原样在前一块；回执不自动证明其中任意字段的来源。纯计算没有新的 HTTP 回执。工具失败时仅保留已观察到的回执，不能视为代码成功。成功确认新版本后整题重取；recoveryStopped 所列族则本轮无法恢复。',
+          requiredVersions:policy.requiredVersions(),responses,reusedResults,events,restartRequired:state.restartRequired,invalidatedEvidence:state.invalidatedEvidence,
           pendingReplay:state.pendingReplay,unresolvedFailures:state.unresolvedFailures,recoveryStopped
         };
       };
       try {
+        assertCurrent();
         const value = await call(params,signal,{
+          readResult: toolCallId => {
+            assertCurrent();
+            if (typeof toolCallId !== 'string' || !results.has(toolCallId)) throw new ToolFailure('input', '本题没有该 execute 的完整结果；请使用本题回执中的 resultReference.toolCallId。');
+            const saved = results.get(toolCallId);
+            policy.assertReusable(saved.responseIds);
+            const reference = {toolCallId, responseIds: saved.responseIds};
+            if (!reusedResults.some(item => item.toolCallId === toolCallId)) reusedResults.push(reference);
+            onEvidence('result_reuse', {id, ...reference});
+            return JSON.parse(saved.json);
+          },
           onPolicyEvent:event => events.push(event),
           onResponse:(event,response) => responses.push(makeSourceReceipt({toolCallId:id,event,response}))
         });
+        assertCurrent();
         if (definition.name==='docs' && value?.error) throw Object.assign(new Error(value.error.message),{kind:value.error.kind});
+        if (definition.name==='execute') results.set(id, {json:JSON.stringify(value),
+          responseIds:[...new Set([...responses.map(response => response.id), ...reusedResults.flatMap(item => item.responseIds)])]});
         onEvidence('tool_result',{id,name:definition.name,params,value});
-        const content = [{type:'text',text:['search','execute'].includes(definition.name) ? truncateResponse(value) : JSON.stringify(docsForModel(value,id))}];
+        const content = [{type:'text',text:['search','execute'].includes(definition.name) ? truncateResponse(value, definition.name==='execute' ? {toolCallId:id} : {}) : JSON.stringify(docsForModel(value,id))}];
         if (definition.name==='search') content.push({type:'text',text:JSON.stringify({requestContext:requestContext()})});
-        if (definition.name==='execute') content.push({type:'text',text:JSON.stringify({requestControl:requestControl()})});
+        if (definition.name==='execute') content.push({type:'text',text:JSON.stringify({resultReference:{toolCallId:id},requestControl:requestControl()})});
         return {content,details:value};
       } catch (error) {
         const detail = {kind:error.kind ?? (definition.name==='docs'?'retrieval':'code'),message:error.message};
@@ -217,7 +239,7 @@ ${CALCULATION_EXAMPLE}`,
         throw new Error(JSON.stringify({error:detail,...(definition.name==='execute'?{requestControl:requestControl()}: {})}));
       }
     }})),
-    beginTurn: () => {const state=policy.beginTurn();docTexts.clear();return state;},
-    close: async () => docs.close?.()
+    beginTurn: () => {const state=policy.beginTurn();turn++;docTexts.clear();results.clear();return state;},
+    close: async () => {closed=true;results.clear();await docs.close?.();}
   };
 }
