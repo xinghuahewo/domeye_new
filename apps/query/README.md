@@ -135,3 +135,16 @@ npm run test:loop
 ```
 
 程序测试使用固定消息或临时数据验证执行隔离、错误、版本、会话、停止、历史和同源边界。真实问答仍逐项核对理解、说明与接口、数值及时间单位依据、回答自然程度与限制，程序测试不替代问数验收。
+
+### 客户端流计时
+
+新增计时保存在宿主历史的 `turn.timings.models[]`，页面仍使用既有公开计时投影。
+
+
+每轮 `timings.models[]` 新增 `requests` 与 `stream`。`requests` 将每次 HTTP 尝试绑定到模型轮次，记录发起、响应头收到时刻、状态、请求字节数或失败分类；不读取或包装响应体。`stream` 分别记录推理、工具参数、正文的首末有效增量、数量、UTF-16 单元数及按接收顺序连续分组的阶段。只含角色或空增量，以及 SSE keep-alive，均不视为有效增量。阶段最多保留 256 个，超出数量单独记录；分类总计继续累计。
+
+这些时间均为客户端单调时钟，不能当成提供方内部排队、预填充、GPU 推理时长。首个有效增量前的时间包含网络与服务端等待；阶段内部也可能有网络等待或缓冲。首个正文增量到首次公开正文仅覆盖 Agent 转发，不包含浏览器接收和绘制。SDK 的 block-end 可能在整条流结束时统一发出，因此不拿它作为推理结束时间。
+
+`stream.usage` 是 SDK 归一化 token 统计；未收到该 SDK 的 usage 结构时保持 `null`。归一化过程可能将缺失项设为 0，因此不能反推原始字段是否存在。`output` 已包含 `reasoning`，不可重复相加；`input` 不含 `cacheRead`。字符数不是 token 数。推理内容、请求正文、工具参数增量、密钥及请求头均不加入新增计时结构。
+
+验证：`node --experimental-test-module-mocks --test model-timing.integration.test.mjs agent-loop.integration.test.mjs session.test.mjs runtime/model-options.test.mjs`。模拟网络仍经过真实 Agent 和锁定 SDK，覆盖流式回答、工具往返、429、取消、脱敏，以及与旧实现的请求正文一致性。

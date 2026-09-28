@@ -200,7 +200,7 @@ test('批次绑定在会话创建时，非法批次不关闭会话，历史不�
   assert.ok(!JSON.stringify(datasets).includes('127.0.0.1'));
   const first=await post('/api/session',{datasetId:'three-day'}).then(r=>r.json());
   assert.equal(first.dataset.id,'three-day');
-  assert.equal(options[0].apiBaseUrl,'http://127.0.0.1:28572');
+  assert.equal(options[0].apiBaseUrl,'http://127.0.0.1:28473');
   assert.equal((await post('/api/session',{datasetId:'legacy-55'})).status,400);
   assert.equal(factory.agents[0].closed,false);
   await writeFile(join(historyDir,first.id+'.json'),JSON.stringify({id:first.id,dataset:first.dataset,turns:[{question:'范围',answer:'部分交付',status:'completed'}]}));

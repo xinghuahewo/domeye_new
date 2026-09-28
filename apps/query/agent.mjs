@@ -9,6 +9,7 @@ import { CONTRACT_SOURCE_COMMIT } from './source.mjs';
 import { selectDataset, publicDataset } from './datasets.mjs';
 import { createTextRedactor } from './runtime/text-stream.mjs';
 import { configureModel, configuredThinkingLevel } from './runtime/model-options.mjs';
+import { createModelTiming } from './runtime/model-timing.mjs';
 
 const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
 // DeepSeek 的推理与正文共用输出额度；保持有界，不自动续写 length 结果。
@@ -46,7 +47,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
   const apiSourceSnapshot = dataset.apiSourceSnapshot ? JSON.parse(await readFile(new URL('./data/' + dataset.apiSourceSnapshot, import.meta.url),'utf8')) : null;
   const sessionId = randomUUID();
   const turns = [];
-  let current, busy = false, toolCalls = 0, startedClock, modelTiming;
+  let current, busy = false, toolCalls = 0, startedClock, modelTiming, modelObserver;
   let textBlocks = new Map();
   const elapsed = () => Math.round((performance.now() - startedClock) * 1000) / 1000;
   const delta = (contentIndex, text) => {
@@ -67,9 +68,11 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
       modelTiming = {id:current.timings.models.length + 1,started_ms:elapsed(),first_token_ms:null,
         first_text_ms:null,first_public_text_ms:null,ended_ms:null};
       current.timings.models.push(modelTiming);
+      modelObserver = createModelTiming(modelTiming,elapsed);
       textBlocks = new Map();
       onEvent({type:'answer_start',messageId:modelTiming.id});
-      return models.streamSimple(selected,context,{...options,apiKey:modelConfig.apiKey,maxTokens:maxOutputTokens});
+      return models.streamSimple(selected,context,{...options,apiKey:modelConfig.apiKey,maxTokens:maxOutputTokens,
+        fetch:modelObserver.wrapFetch(options?.fetch ?? globalThis.fetch)});
     },
     sessionId, toolExecution:'sequential',
     beforeToolCall:async (_context,signal) => {
@@ -83,7 +86,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
   agent.subscribe(event => {
     if (event.type==='message_update' && current && modelTiming) {
       const part = event.assistantMessageEvent;
-      if (['text_delta','thinking_delta','toolcall_delta'].includes(part.type) && part.delta) modelTiming.first_token_ms ??= elapsed();
+      modelObserver.observe(part);
       if (part.type==='text_delta' && part.delta && !current.cancelled && !current.failure) {
         modelTiming.first_text_ms ??= elapsed();
         if (!textBlocks.has(part.contentIndex)) textBlocks.set(part.contentIndex,createTextRedactor(modelConfig.apiKey));
@@ -98,6 +101,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
       if (message.role==='assistant' && current && modelTiming) {
         modelTiming.ended_ms=elapsed();
         modelTiming.stop_reason=message.stopReason;
+        modelObserver.finish(message);
         if (message.stopReason==='stop' && !current.cancelled && !current.failure) {
           for (const [index, redactor] of textBlocks) delta(index,redactor.finish());
         }
