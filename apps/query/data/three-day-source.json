@@ -16,7 +16,7 @@
     "backend/web/api/result_rollups.py": "e6bbff813a901d6867045997fc26451b0122364a7587acce81555ea53720a4ef",
     "backend/data_pipeline/results/rollups.py": "7132bb9983724bcc3d714f59bbec31429eddab5b2621e46c3bc68f0f1e2fd90f"
   },
-  "documentation_commit": "0648759d3ae84d2ef5f93e1e256fab59950760f7",
+  "documentation_commit": "decd5327adcc2a345200930964da1bb2c334e32c",
   "query_spec_sha256": "47d0a7c16f2f44c83318341ddf7094f1ae76ca1d381a2df748daf3b5e8f8048b",
   "query_spec_note": "由同一提交 OpenAPI 仅规范化完整 URL 路径和 servers，不改变参数或响应结构。"
 }
