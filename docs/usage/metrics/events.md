@@ -67,10 +67,10 @@
 
 完成文件模式下，Core 列表与详情的 `item.lifecycle` 使用同一转换：
 
-- `as_outage`／`prefix_outage` 的有效结束时间为 `ended`；显式 NULL 且事件开始到实际处理截止之间连续覆盖时为 `ongoing`。缺字段、空文本或处理缺口保持 `unknown`，不把“尚未结束”延续到墙钟当前时间。
+- `as_outage`／`prefix_outage` 的有效结束时间为 `ended`。当前检测器保存的显式 `e_time = NULL` 表示尚未触发恢复／结束条件；事件开始到实际处理截止之间连续覆盖时，`lifecycle.state=ongoing`，即截至已处理数据中断仍未结束。缺字段、空文本或处理缺口保持 `unknown`，不把“尚未结束”延续到墙钟当前时间。
 - `data_end_exclusive` 是同一交付版本实际完成文件的排他截止，不是运行计划窗口的终点，也不是入库时间。
 - 国家事件读取现有 `country-outage-incident/v2`，按其 `duration_state` 与恢复记录表达检测事件是否关闭；`observed_at` 使用该 incident 的实际最后观察时间。`ongoing` 与 `recovery_state=unknown` 可以同时成立：检测事件没有关闭，不代表已具备全国网络恢复程度的证据。
-- `end_time.state` 表达结束字段是否记录，`lifecycle.state` 表达检测事件状态；`record` 及 `content_version` 保留原始记录身份。上述解释绑定响应的交付 `version` 和 `metadata.interpretation_version=completed-file-results/v2`，不套用于缺少对应字段的按日留存记录。
+- `end_time.state` 表达结束字段是否记录，`lifecycle.state` 表达检测事件状态。`end_time.state=unknown` 与 `lifecycle.state=ongoing` 可以同时成立，分别表示“没有已记录的结束时刻”和“截至适用数据范围仍未结束”；不能用前者否定后者。解释事件是否持续时，使用同版 `lifecycle` 的状态、判定依据和适用时间。`record` 及 `content_version` 保留原始记录身份。上述解释绑定响应的交付 `version` 和 `metadata.interpretation_version=completed-file-results/v2`，不套用于缺少对应字段的按日留存记录。
 
 描述国家事件仍在持续时，使用 `lifecycle.observed_at` 表达“截至最后观测仍未结束”。整批 `data_end_exclusive` 说明数据处理范围，不能替代该事件的最后观测时刻，也不能把状态延长到现在。AS／前缀的空结束时间则按上述连续处理覆盖解释。
 

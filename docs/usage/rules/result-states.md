@@ -43,6 +43,8 @@ Core 完成文件模式使用 `result_delivery.intervals` 表示实际活动覆�
 
 ## 生命周期与新鲜度
 
-事件结束未知，不证明仍在发生，也不证明已经恢复。`is_final`、`is_final_in_data_range`、`data_through` 和处理完成分别描述结果状态或数据范围，不能代替生命周期证据。
+结束时间是否记录与事件是否持续是不同问题。`end_time.state=unknown` 不能否定同版响应中适用的 `lifecycle.state=ongoing`；生命周期的判定依据、适用时间和当前检测器空结束时间的语义见[事件生命周期](../metrics/events.md#开始结束持续和峰值)。
+
+生命周期本身为 `unknown`，或缺少适用的生命周期证据时，不能确认事件仍在持续，也不能确认已经结束或恢复。`is_final`、`is_final_in_data_range`、`data_through` 和处理完成分别描述结果状态或数据范围，不能代替生命周期证据。
 
 资源缺行能否沿用上一条值、活动缺行能否解释为零，必须由该结果家族的稀疏与连续性规则支持。规则见[资源数量](../metrics/resources.md)与[路由活动](../metrics/activity.md)。
