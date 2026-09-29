@@ -8,7 +8,7 @@ import {Type} from 'typebox';
 
 // 使用真实 Agent、真实 Pi/DeepSeek/OpenAI SDK；只替换网络与业务工具。
 const app = process.env.TIMING_TEST_APP ? pathToFileURL(process.env.TIMING_TEST_APP + '/') : new URL('./', import.meta.url);
-const PRIVATE = '人工私有推理不可保存';
+const PRIVATE = '人工推理仅保存在宿主';
 const KEY = 'synthetic-timing-key';
 const originalFetch = globalThis.fetch;
 const replacement = mock.module(new URL('tools.mjs', app).href, {namedExports:{createTools:async()=>({
@@ -36,7 +36,7 @@ function fixtureResponse(round,signal){
     if(i<chunks.length)controller.enqueue(new TextEncoder().encode(chunks[i++]));else controller.close();
   }}),{headers:{'content-type':'text/event-stream','x-request-id':'fixture-id'}});
 }
-test('真实 SDK 流：区分有效增量、三种阶段、HTTP 请求，且不改变模型输入或保存推理',async t=>{
+test('真实 SDK 流：默认保存各轮推理，保持公开事件和模型输入不变',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'domeye-stream-timing-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const requests=[],events=[];
   globalThis.fetch=async(input,init)=>{
@@ -50,12 +50,16 @@ test('真实 SDK 流：区分有效增量、三种阶段、HTTP 请求，且不�
   const turn=await agent.ask('固定问题');
   assert.equal(turn.status,'completed',turn.error);assert.equal(turn.answer,'公开正文：17。');
   assert.equal(turn.timings.models.length,2);assert.equal(requests.length,2);
-  for(const value of [turn,events,agent.turns,JSON.parse(await readFile(join(dir,agent.id+'.json'),'utf8'))]){
-    assert.equal(JSON.stringify(value).includes(PRIVATE),false);
-    assert.equal(JSON.stringify(value).includes(KEY),false);
-  }
+  const saved=JSON.parse(await readFile(join(dir,agent.id+'.json'),'utf8'));
+  for(const value of [turn,events,agent.turns,saved]) assert.equal(JSON.stringify(value).includes(KEY),false);
+  assert.equal(JSON.stringify(events).includes(PRIVATE),false);
   if(process.env.TIMING_REQUEST_OUTPUT)await writeFile(process.env.TIMING_REQUEST_OUTPUT,JSON.stringify(requests));
   if(process.env.TIMING_EXPECT_BASELINE==='1')return;
+  assert.deepEqual(turn.reasoning,[
+    {model_round_id:1,state:'recorded',blocks:[{content_index:0,text:PRIVATE+'。'}]},
+    {model_round_id:2,state:'recorded',blocks:[{content_index:0,text:PRIVATE}]},
+  ]);
+  assert.deepEqual(saved.turns[0].reasoning,turn.reasoning);
   const [first,last]=turn.timings.models;
   assert.ok(first.stream,'缺少分类型流计时，无法区分推理和工具参数阶段');
   assert.deepEqual(first.requests.map(r=>r.status),[200]);assert.equal(last.requests.length,1);
@@ -80,22 +84,25 @@ test('真实 SDK 流：区分有效增量、三种阶段、HTTP 请求，且不�
 });
 
 test('HTTP 429：沿用 SDK 的终止策略，计时不偷偷增加重试',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'domeye-stream-error-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   let calls=0;globalThis.fetch=async()=>{calls++;return new Response('{"error":{"message":"fixture limit"}}',{
     status:429,headers:{'content-type':'application/json','retry-after':'0'}});};
-  const agent=await createDomeyeAgent({modelConfig:{model:'deepseek-flash',thinkingLevel:'high',apiKey:KEY}});
+  const agent=await createDomeyeAgent({modelConfig:{model:'deepseek-flash',thinkingLevel:'high',apiKey:KEY},historyDir:dir});
   t.after(()=>agent.close());const turn=await agent.ask('限流测试');
   assert.equal(turn.status,'failed');assert.equal(calls,1);
   if(process.env.TIMING_EXPECT_BASELINE==='1')return;
   const round=turn.timings.models[0];assert.equal(round.requests.length,1);assert.equal(round.requests[0].status,429);
   assert.equal(round.stream.first_delta_type,null);assert.equal(round.stream.usage,null);
+  assert.deepEqual(turn.reasoning,[{model_round_id:1,state:'not_returned',blocks:[]}]);
 });
 
 test('取消首个响应前的请求：仍然停止，未知阶段保持 null，HTTP 失败只有分类',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'domeye-stream-cancel-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   let entered;const waiting=new Promise(resolve=>entered=resolve);
   globalThis.fetch=async(_input,init)=>{
     entered();return new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(new DOMException('fixture abort','AbortError')),{once:true}));
   };
-  const agent=await createDomeyeAgent({modelConfig:{model:'deepseek-flash',thinkingLevel:'high',apiKey:KEY}});
+  const agent=await createDomeyeAgent({modelConfig:{model:'deepseek-flash',thinkingLevel:'high',apiKey:KEY},historyDir:dir});
   t.after(()=>agent.close());const pending=agent.ask('取消测试');await waiting;agent.stop();
   const turn=await pending;assert.equal(turn.status,'cancelled');assert.equal(turn.answer,'');
   if(process.env.TIMING_EXPECT_BASELINE==='1')return;

@@ -132,13 +132,14 @@ test('流输出积压时先断开再停止，停止事件不会递归发布',asy
 test('历史只读：UUID 文件、拒绝符号链接与路径逃逸，只输出可读字段', async t => {
   const { origin, historyDir, directory } = await fixture(t, fakeFactory().create);
   const valid = randomUUID(), linked = randomUUID();
-  const record = { id: valid, agent_instructions: secret, turns: [{ question: '已保存的问题', answer: '<script>原样文字</script>', status: 'completed', events: [{ thinking: secret }] }] };
+  const record = { id: valid, agent_instructions: secret, turns: [{ question: '已保存的问题', answer: '<script>原样文字</script>', status: 'completed', events: [{ thinking: secret }],reasoning:[{model_round_id:1,state:'recorded',blocks:[{content_index:0,text:'宿主推理内容'}]}] }] };
   await writeFile(join(historyDir, valid + '.json'), JSON.stringify(record));
   const outside = join(directory, 'outside.json'); await writeFile(outside, JSON.stringify({ ...record, id: linked })); await symlink(outside, join(historyDir, linked + '.json'));
   await writeFile(join(historyDir, 'not-a-uuid.json'), JSON.stringify(record));
   const response = await fetch(origin + '/api/history/' + valid); const value = await response.json();
   assert.equal(response.status, 200); assert.equal(value.readOnly, true); assert.equal(value.turns[0].answer, '<script>原样文字</script>');
   assert.ok(!JSON.stringify(value).includes(secret)); assert.ok(!('events' in value.turns[0]));
+  assert.ok(!('reasoning' in value.turns[0]));assert.ok(!JSON.stringify(value).includes('宿主推理内容'));
   assert.equal((await fetch(origin + '/api/history/' + linked)).status, 404);
   assert.equal((await fetch(origin + '/api/history/..%2Foutside')).status, 404);
   const list = await (await fetch(origin + '/api/history')).json(); assert.deepEqual(list.records.map(item => item.id), [valid]);

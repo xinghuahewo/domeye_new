@@ -136,10 +136,9 @@ function assertPublicProjection(h) {
     const allowed = keys[event.type];
     assert.ok(Object.keys(event).every(key => allowed.includes(key)));
   }
-  for (const value of [h.events, h.saved, h.agent.turns]) {
-    assert.equal(JSON.stringify(value).includes(PRIVATE), false);
-    assert.equal(JSON.stringify(value).includes(KEY), false);
-  }
+  assert.equal(JSON.stringify(h.events).includes(PRIVATE), false);
+  for (const value of [h.events,h.saved,h.agent.turns]) assert.equal(JSON.stringify(value).includes(KEY),false);
+  for (const turn of h.agent.turns) assert.equal(JSON.stringify({...turn,reasoning:[]}).includes(PRIVATE),false);
   assert.deepEqual(h.fixtureErrors, []);
 }
 function assertToolPairs(messages) {
@@ -192,6 +191,9 @@ test('真实故障片段：自由字段名计算结果正常显示，无额外�
   assert.equal(computed.covered_whole_hours, 3);
   assert.equal(computed.covered_remaining_minutes, 35);
   assert.deepEqual(h.saved.at(-1).answer_review, { enabled: false });
+  assert.deepEqual(h.saved.at(-1).turns[0].reasoning.at(-1),{
+    model_round_id:3,state:'recorded',blocks:[{content_index:0,text:PRIVATE}]
+  });
   assert.equal(Object.hasOwn(turn, 'numeric_review'), false);
   assert.equal(Object.hasOwn(turn, 'order_review'), false);
   assert.equal(turn.events.some(event => ['answer_feedback', 'answer_review', 'order_review'].includes(event.type)), false);
@@ -226,8 +228,45 @@ test('模型 length、error、aborted 均不确认部分预览为最终答案', 
     const turn = await h.agent.ask('说明范围。');
     assert.equal(turn.stopReason, stopReason);
     assert.equal(h.requests.length, 1);
+    assert.deepEqual(h.saved.at(-1).turns[0].reasoning,[{
+      model_round_id:1,state:'partial',blocks:[{content_index:0,text:PRIVATE}]
+    }]);
     assertUnpublished(h, turn, stopReason === 'aborted' ? 'cancelled' : 'failed');
   });
+});
+
+test('推理跨分片脱敏，结束消息丢失内容时仍保存已收到的部分',async t=>{
+  for(const stopReason of ['error','aborted']) await t.test(stopReason,async t=>{
+    const h=await setup(t,[{content:[],stopReason,deltas:[
+      {type:'thinking_delta',contentIndex:0,delta:'先检查'+KEY.slice(0,7)},
+      {type:'thinking_delta',contentIndex:0,delta:KEY.slice(7)+'再计算'},
+    ]}]);
+    const turn=await h.agent.ask('固定异常流');
+    assert.deepEqual(h.saved.at(-1).turns[0].reasoning,[{
+      model_round_id:1,state:'partial',blocks:[{content_index:0,text:'先检查[已隐藏凭据]再计算'}]
+    }]);
+    assert.equal(h.requests.length,1);
+    assertUnpublished(h,turn,stopReason==='aborted'?'cancelled':'failed');
+  });
+});
+
+test('推理按内容块保存，消息末尾的完整块不重复追加；仅末尾返回也可记录',async t=>{
+  const h=await setup(t,[{stopReason:'stop',content:[
+    {type:'thinking',thinking:'第一段完整'},
+    {type:'thinking',thinking:'第二段'+KEY},
+    {type:'text',text:'固定正文'},
+  ],deltas:[
+    {type:'thinking_delta',contentIndex:0,delta:'第一段'},
+    {type:'text_delta',contentIndex:2,delta:'固定正文'},
+  ]}]);
+  const turn=await h.agent.ask('固定多块流');
+  assert.equal(turn.status,'completed');
+  assert.deepEqual(h.saved.at(-1).turns[0].reasoning,[{
+    model_round_id:1,state:'recorded',blocks:[
+      {content_index:0,text:'第一段完整'},{content_index:1,text:'第二段[已隐藏凭据]'}
+    ]
+  }]);
+  assertPublicProjection(h);
 });
 
 test('工具预算二十次：第二十一次被阻止，不冒充完成', { timeout: 10_000 }, async t => {
@@ -353,6 +392,8 @@ test('真实 Pi 到 HTTP：首段先到，生成和保存分别等待，不重�
     assert.ok(done.timing.first_text_ms<done.timing.done_ms);
     assert.ok(done.timing.agent.models[0].first_text_ms<done.timing.agent.save_finished_ms);
     for(const event of events)assert.equal(Check(eventSchema,event),true,`实际 HTTP 事件不符合公开合同：${event.type}`);
+    assert.equal(JSON.stringify(events).includes(PRIVATE),false);
+    assert.equal(JSON.stringify(await fetch(origin+'/api/session').then(r=>r.json())).includes(PRIVATE),false);
     assert.equal(h.requests.length,1);
   }finally{releaseModel.resolve();releaseSave.resolve();await reader.cancel();}
 });

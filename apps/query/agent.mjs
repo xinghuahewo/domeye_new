@@ -10,6 +10,8 @@ import { selectDataset, publicDataset } from './datasets.mjs';
 import { createTextRedactor } from './runtime/text-stream.mjs';
 import { configureModel, configuredThinkingLevel } from './runtime/model-options.mjs';
 import { createModelTiming } from './runtime/model-timing.mjs';
+import { createModelReasoning } from './runtime/model-reasoning.mjs';
+import { runtimePaths } from './runtime/settings.mjs';
 
 const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
 // DeepSeek 的推理与正文共用输出额度；保持有界，不自动续写 length 结果。
@@ -33,7 +35,8 @@ export async function loadModelConfig(path) {
   return config;
 }
 
-export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, docsConfig, historyDir, onEvent=()=>{} }) {
+export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, docsConfig, historyDir=runtimePaths().historyDir, onEvent=()=>{} }) {
+  if (typeof historyDir!=='string' || !historyDir.trim()) throw new Error('须提供宿主历史目录以保存模型推理与取证记录。');
   const dataset = selectDataset(datasetId, apiBaseUrl);
   apiBaseUrl = dataset.apiBaseUrl;
   const models = createModels();
@@ -47,7 +50,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
   const apiSourceSnapshot = dataset.apiSourceSnapshot ? JSON.parse(await readFile(new URL('./data/' + dataset.apiSourceSnapshot, import.meta.url),'utf8')) : null;
   const sessionId = randomUUID();
   const turns = [];
-  let current, busy = false, toolCalls = 0, startedClock, modelTiming, modelObserver;
+  let current, busy = false, toolCalls = 0, startedClock, modelTiming, modelObserver, modelReasoning;
   let textBlocks = new Map();
   const elapsed = () => Math.round((performance.now() - startedClock) * 1000) / 1000;
   const delta = (contentIndex, text) => {
@@ -69,6 +72,8 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
         first_text_ms:null,first_public_text_ms:null,ended_ms:null};
       current.timings.models.push(modelTiming);
       modelObserver = createModelTiming(modelTiming,elapsed);
+      modelReasoning = createModelReasoning(modelTiming.id,modelConfig.apiKey);
+      current.reasoning.push(modelReasoning.record);
       textBlocks = new Map();
       onEvent({type:'answer_start',messageId:modelTiming.id});
       return models.streamSimple(selected,context,{...options,apiKey:modelConfig.apiKey,maxTokens:maxOutputTokens,
@@ -87,6 +92,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
     if (event.type==='message_update' && current && modelTiming) {
       const part = event.assistantMessageEvent;
       modelObserver.observe(part);
+      modelReasoning.observe(part);
       if (part.type==='text_delta' && part.delta && !current.cancelled && !current.failure) {
         modelTiming.first_text_ms ??= elapsed();
         if (!textBlocks.has(part.contentIndex)) textBlocks.set(part.contentIndex,createTextRedactor(modelConfig.apiKey));
@@ -96,6 +102,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
     if (event.type==='tool_execution_start') evidence(event.type,{toolCallId:event.toolCallId,toolName:event.toolName,args:event.args});
     if (event.type==='message_end') {
       const message = {...event.message};
+      if (message.role==='assistant') modelReasoning?.finish(message);
       if (Array.isArray(message.content)) message.content=message.content.filter(part=>part.type!=='thinking');
       evidence('message',message);
       if (message.role==='assistant' && current && modelTiming) {
@@ -122,7 +129,6 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
     }
   });
   async function save() {
-    if (!historyDir) return;
     await mkdir(historyDir,{recursive:true,mode:0o700});
     await writeFile(resolve(historyDir,sessionId+'.json'),JSON.stringify({
       id:sessionId,provider:'deepseek',model:model.id,pi:'0.87.0',api_base_url:apiBaseUrl,
@@ -154,8 +160,9 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
     async ask(question) {
       if (busy) throw new Error('当前回答或记录保存尚未结束，请先等待或停止。');
       busy=true;
-      startedClock=performance.now();modelTiming=undefined;textBlocks=new Map();
+      startedClock=performance.now();modelTiming=undefined;modelReasoning=undefined;textBlocks=new Map();
       const turn={id:randomUUID(),question,started_at:new Date().toISOString(),status:'running',events:[],
+        reasoning:[],
         timings:{clock:'monotonic_ms_since_turn_start',models:[],tools:[],generation_end_ms:null,
           save_started_ms:null,save_finished_ms:null,final_message_id:null,final_first_text_ms:null}};
       current=turn;turns.push(turn);toolCalls=0;
@@ -180,6 +187,8 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
       } catch(error) {
         turn.status=turn.cancelled?'cancelled':'failed';turn.error=redact(error.message);
       } finally {
+        // 断流或取消没有完整结束消息时，也保留已经收到的推理并标为不完整。
+        modelReasoning?.finish();
         if(turn.cancelled || turn.status==='failed')turn.answer='';
         turn.timings.generation_end_ms=elapsed();
         turn.completed_at=new Date().toISOString();
