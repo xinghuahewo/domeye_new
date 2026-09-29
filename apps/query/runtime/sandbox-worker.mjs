@@ -1,5 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { newQuickJSWASMModule } from 'quickjs-emscripten';
+import { outlineSchema, selectSchema } from '../schema-tools.mjs';
 
 const { code, spec, hasRequest, hasReadResult, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes } = workerData;
 const QuickJS = await newQuickJSWASMModule();
@@ -77,7 +78,10 @@ try {
       request: async value => parse(await rawRequest(stringify(value))),
       ...(rawReadResult ? {readResult: async id => parse(await rawReadResult(stringify(id)))} : {})
     });
-    if (typeof globalThis.__specJSON === 'string') globalThis.spec = parse(globalThis.__specJSON);
+    if (typeof globalThis.__specJSON === 'string') {
+      globalThis.spec = parse(globalThis.__specJSON);
+      globalThis.schemaTools = Object.freeze({outline: (${outlineSchema.toString()}), select: (${selectSchema.toString()})});
+    }
     delete globalThis.__hostRequest;
     delete globalThis.__hostReadResult;
     delete globalThis.__specJSON;

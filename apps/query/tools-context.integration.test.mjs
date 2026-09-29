@@ -90,6 +90,6 @@ test('选定接口的 search 示例同次返回参数和完整小合同；大合
     assert.ok(selected.schema.properties.coverage);assert.ok(selected.schema.properties.series);
     const wide=(await run('/api/v1/features/ases/overview')).details[0];
     assert.equal(wide.schema,undefined);assert.equal(wide.requiresProjection,true);
-    assert.ok(wide.fields.includes('selected_asn'));
+    assert.ok(wide.responseStructure.fields.includes('selected_asn'));
   }finally{await registered?.close();docsMock.restore();}
 });

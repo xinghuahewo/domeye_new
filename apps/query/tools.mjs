@@ -78,7 +78,7 @@ export const COMPARISON_EXAMPLE = `async () => {
   })};
 }`;
 
-// 只供工具说明引用；不增加 search 的运行时能力。
+// 工具说明中的发现与收窄示例；使用 search 的通用规范导航函数。
 export const SEARCH_DISCOVERY_EXAMPLE = `async () => {
   const keyword = "资源"; // 替换为本题的业务关键词。
   return Object.entries(spec.paths)
@@ -87,7 +87,7 @@ export const SEARCH_DISCOVERY_EXAMPLE = `async () => {
     .map(([path, {get: op}]) => ({method: "GET", path,
       summary: op.summary, description: op.description, deprecated: op.deprecated,
       parameters: op.parameters,
-      responseFields: Object.keys(op.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {})}));
+      responseStructure: schemaTools.outline(op.responses?.["200"]?.content?.["application/json"]?.schema)}));
 }`;
 
 export const SEARCH_PARAMETERS_EXAMPLE = `async () => {
@@ -98,28 +98,26 @@ export const SEARCH_PARAMETERS_EXAMPLE = `async () => {
     const schema = op.responses?.["200"]?.content?.["application/json"]?.schema;
     return {path, method: "GET", description: op.description, parameters: op.parameters,
       responseDescription: op.responses?.["200"]?.description, schema,
-      responseType: schema?.type, fields: Object.keys((schema?.type === "array" ? schema.items : schema)?.properties ?? {})};
+      responseStructure: schemaTools.outline(schema)};
   });
   // 合同较小时一次读齐；过宽时保留完整字段目录，再按需要选原始子树。
-  if (JSON.stringify(contracts, null, 2).length <= 24000) return contracts;
+  if (JSON.stringify(contracts).length <= 24000) return contracts;
   return contracts.map(({schema, ...catalog}) => ({...catalog, requiresProjection: true}));
 }`;
 
 export const SEARCH_PROJECTION_EXAMPLE = `async () => {
   // 按已发现的结构选取本题所需字段；复合字段的原始子树可直接返回。
   const path = "/从发现结果选定的完整路径";
-  const field = "从已发现结构选定的字段名";
+  const schemaPath = ["从目录选定的结构路径"]; // 例如分支路径后接 "properties" 和字段名。
   const status = "200", media = "application/json";
   const op = spec.paths[path]?.get;
   const response = op?.responses?.[status];
-  const subtree = response?.content?.[media]?.schema?.properties?.[field];
-  if (subtree === undefined) throw new Error("字段不在所选位置，请核对响应结构");
+  const subtree = schemaTools.select(response?.content?.[media]?.schema, schemaPath);
   return {path, method: "GET", parameters: op.parameters, status, media, responseDescription: response.description,
-    availableFields: Object.keys(response.content[media].schema.properties ?? {}),
-    field, schema: subtree};
+    schemaPath, schema: subtree};
 }`;
 
-export const SEARCH_PROJECTION_GUIDANCE = '按本题指标含义发现接口，返回方法、完整路径、业务摘要、参数与响应字段名；含义不清或关键词无命中时，用 docs 确认指标后再选择入口。选定接口后一次取得参数、响应说明和本题需要的结构；完整小合同已返回时，直接取数，不为已知字段再调用 search。较宽合同先列完整字段目录，在同一段代码中选择适用子树；只有信息确实不足才另行补查。优先利用已有相关统计，避免逐个筛选重复取同一汇总。已有同版结构可复用；所选子树保留原有描述、单位、时间、可空和复合分支。properties 只列直接字段，复合分支仍需按实际结构读取；省略不表示不存在。示例路径和字段位置须按实际规范调整。返回超过 24000 字符会截断并附 TRUNCATED 提示，之后用更具体的代码收窄；截断片段不是完整结构。';
+export const SEARCH_PROJECTION_GUIDANCE = '按本题指标含义发现接口，返回方法、完整路径、业务摘要、参数与响应结构；含义不清或关键词无命中时，用 docs 确认指标后再选择入口。选定接口后一次取得参数、响应说明和本题需要的结构；完整小合同已返回时，直接取数，不为已知字段再调用 search。schemaTools.outline(schema) 列出直接字段、oneOf/anyOf/allOf 分支及数组元素，每个节点的 schemaPath 均相对于传入的 schema。各分支分别保留，不合并字段或 required，也不自动认定适用分支。目录用于定位，不能替代原合同约束；用 schemaTools.select(schema, schemaPath) 原样读取子树，字段路径接在节点路径后，例如 [...node.schemaPath, "properties", field]。缺失路径明确报错。较宽合同可在同一段代码中选择所需子树；只有信息确实不足才另行补查。优先利用已有相关统计，避免逐个筛选重复取同一汇总。所选子树保留原有描述、单位、时间、可空和复合分支。示例路径须按实际规范调整。返回超过 24000 字符会截断并附 TRUNCATED 提示，截断片段不是完整结构。';
 
 export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence = () => {} }) {
   const spec = await loadSearchSpec(specFile);

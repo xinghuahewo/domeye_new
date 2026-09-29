@@ -11,6 +11,31 @@ export const SPEC_TYPES = `interface Operation {
 declare const spec: {
   paths: Record<string, {get?: Operation; [method: string]: unknown}>;
   components: {schemas: Record<string, unknown>; parameters: Record<string, unknown>};
+};
+interface SchemaOutline {
+  schemaPath: Array<string | number>;
+  keywords?: string[];
+  state?: "not_declared";
+  booleanSchema?: boolean;
+  type?: string | string[];
+  title?: string;
+  description?: string;
+  nullable?: boolean;
+  enum?: unknown[];
+  const?: unknown;
+  required?: string[];
+  discriminator?: unknown;
+  fields?: string[];
+  oneOf?: SchemaOutline[];
+  anyOf?: SchemaOutline[];
+  allOf?: SchemaOutline[];
+  prefixItems?: SchemaOutline[];
+  items?: SchemaOutline | SchemaOutline[];
+  additionalProperties?: SchemaOutline;
+}
+declare const schemaTools: {
+  outline(schema: unknown): SchemaOutline;
+  select(schema: unknown, schemaPath: Array<string | number>): unknown;
 };`;
 
 // search 消费的派生视图：只展开同一规范内的引用，不联网、不修改原规范。

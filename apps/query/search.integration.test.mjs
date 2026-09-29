@@ -1,6 +1,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { truncateResponse } from './runtime/truncate.mjs';
+import { runCode } from './runtime/executor.mjs';
 
 test('Cloudflare 字符边界：短文本原样，超长正文前缀后明确提示收窄', () => {
   for (const size of [23999, 24000]) {
@@ -96,4 +97,78 @@ test('紧凑 JSON 的边界不放宽原额度，字符串内部空白不被删�
   assert.deepEqual(JSON.parse(truncateResponse(value)),value);
   value.padding+='x';
   assert.match(truncateResponse(value),/TRUNCATED/);
+});
+
+test('发现示例能区分复合分支中的字段，空目录不掩盖实际结构', async () => {
+  const { SEARCH_DISCOVERY_EXAMPLE } = await import('./tools.mjs');
+  const spec = { paths: { '/synthetic': { get: { summary: '资源', responses: {
+    '200': { content: { 'application/json': { schema: { oneOf: [
+      { type: 'object', required: ['left_marker'], properties: { left_marker: { type: 'string' } } },
+      { type: 'array', items: { anyOf: [
+        { type: 'object', properties: { right_marker: { type: 'number', nullable: true } } },
+        { type: 'null' }
+      ] } }
+    ] } } } }
+  } } } } };
+  const [catalog] = await runCode({ spec, code: SEARCH_DISCOVERY_EXAMPLE });
+  const branches = catalog.responseStructure.oneOf;
+  assert.deepEqual(branches[0].fields, ['left_marker']);
+  assert.deepEqual(branches[0].required, ['left_marker']);
+  assert.deepEqual(branches[1].items.anyOf[0].fields, ['right_marker']);
+  assert.deepEqual(branches[1].items.anyOf[0].schemaPath, ['oneOf', 1, 'items', 'anyOf', 0]);
+  assert.equal(branches[1].items.anyOf[1].type, 'null');
+  assert.equal(catalog.responseStructure.fields, undefined, '分支字段不能合并为共同字段');
+});
+
+test('真实复合合同先定位分支，再按明确位置读取原始字段；全程不访问业务数据', async () => {
+  const docsMock = mock.module(new URL('./docs.mjs', import.meta.url).href, {
+    namedExports: { createDocs: async () => async () => ({ results: [] }) }
+  });
+  let registered;
+  const evidence = [];
+  try {
+    const { createTools, SEARCH_PARAMETERS_EXAMPLE, SEARCH_PROJECTION_EXAMPLE } = await import('./tools.mjs?schema-navigation');
+    const { loadSearchSpec } = await import('./spec.mjs');
+    registered = await createTools({ apiBaseUrl: 'http://127.0.0.1:1', specFile: 'openapi-three-day.json',
+      onEvidence: (type, value) => evidence.push({ type, value }) });
+    const search = registered.tools.find(tool => tool.name === 'search');
+    const path = '/api/v2/events/resolve';
+    const schema = (await loadSearchSpec('openapi-three-day.json')).paths[path].get.responses['200'].content['application/json'].schema;
+    const catalog = await search.execute('branches', { code: SEARCH_PARAMETERS_EXAMPLE.replace('/从发现结果选定的完整路径', path) });
+    const structure = catalog.details[0].responseStructure;
+    assert.equal(structure.oneOf.length, schema.oneOf.length);
+    for (let index = 0; index < schema.oneOf.length; index++) {
+      assert.deepEqual(structure.oneOf[index].fields, Object.keys(schema.oneOf[index].properties));
+    }
+    assert.ok(!catalog.content[0].text.includes('TRUNCATED'));
+    const schemaPath = ['oneOf', 0, 'properties', 'event', 'properties', 'item', 'properties', 'lifecycle'];
+    const projected = await search.execute('field', { code: SEARCH_PROJECTION_EXAMPLE
+      .replace('/从发现结果选定的完整路径', path)
+      .replace('["从目录选定的结构路径"]', JSON.stringify(schemaPath)) });
+    const expected = schemaPath.reduce((value, key) => value[key], schema);
+    assert.deepEqual(projected.details.schema, expected, '返回原始子树，包括可空、时间和状态说明');
+    assert.deepEqual(projected.details.schemaPath, schemaPath);
+    assert.ok(!projected.content[0].text.includes('TRUNCATED'));
+    await assert.rejects(search.execute('missing-field', { code: `async () => schemaTools.select(
+      spec.paths[${JSON.stringify(path)}].get.responses['200'].content['application/json'].schema,
+      ['oneOf', 0, 'properties', '不存在的字段'])` }), /不存在/);
+    assert.equal(evidence.some(item => item.type === 'http'), false);
+  } finally {
+    await registered?.close(); docsMock.restore();
+  }
+});
+
+test('参数示例保留能以紧凑 JSON 容纳的完整合同，不额外要求投影', async () => {
+  const { SEARCH_PARAMETERS_EXAMPLE } = await import('./tools.mjs');
+  const schema = { type: 'object', properties: Object.fromEntries(Array.from({ length: 240 }, (_, index) =>
+    [`field_${index}`, { type: 'string', nullable: true, description: '保留原始字段说明' }])) };
+  const spec = { paths: { '/synthetic': { get: { parameters: [], responses: {
+    '200': { content: { 'application/json': { schema } } }
+  } } } } };
+  const value = await runCode({ spec, code: SEARCH_PARAMETERS_EXAMPLE.replace('/从发现结果选定的完整路径', '/synthetic') });
+  assert.ok(JSON.stringify(value, null, 2).length > 24000);
+  assert.ok(JSON.stringify(value).length <= 24000);
+  assert.deepEqual(value[0].schema, schema);
+  assert.equal(value[0].requiresProjection, undefined);
+  assert.deepEqual(JSON.parse(truncateResponse(value)), value);
 });
