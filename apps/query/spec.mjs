@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 export const SPEC_TYPES = `interface Operation {
+  operationId?: string;
   summary?: string;
   description?: string;
   tags?: string[];
@@ -36,6 +37,16 @@ interface SchemaOutline {
 declare const schemaTools: {
   outline(schema: unknown): SchemaOutline;
   select(schema: unknown, schemaPath: Array<string | number>): unknown;
+};
+declare const api: {
+  list(): Array<{operationId: string; path: string; summary?: string; deprecated?: boolean; callable: boolean}>;
+  describe(operationIds: string | string[]): Array<Operation & {
+    operationId: string; method: "GET"; path: string; call: string | null;
+    responseDescription?: string; responseState: "complete" | "outline" | "not_declared";
+    responseContract?: {schema: unknown; references: Record<string, unknown>};
+    responseStructure?: SchemaOutline;
+  }>;
+  schema(operationId: string, schemaPath?: Array<string | number>, status?: string): unknown;
 };`;
 
 // search 消费的派生视图：只展开同一规范内的引用，不联网、不修改原规范。
@@ -68,6 +79,10 @@ export function resolveLocalRefs(document) {
   return expand(document);
 }
 
+export async function loadSpecDocument(specFile = 'openapi.json') {
+  return JSON.parse(await readFile(new URL('./data/' + specFile, import.meta.url), 'utf8'));
+}
+
 export async function loadSearchSpec(specFile = 'openapi.json') {
-  return resolveLocalRefs(JSON.parse(await readFile(new URL('./data/' + specFile, import.meta.url), 'utf8')));
+  return resolveLocalRefs(await loadSpecDocument(specFile));
 }

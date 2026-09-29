@@ -77,7 +77,13 @@ node cli.mjs --dataset three-day --prompt '这批数据完整了吗？'
 | `search({code})` | JavaScript 查询已展开引用的 OpenAPI，逐步选出完整接口路径及必要结构；不读业务数据 |
 | `execute({code})` | 独立 QuickJS-WASM 中经 `domeye.request()` 读取和计算，返回代码选择的结果 |
 
-选定接口后，`search` 示例一次返回参数与完整小合同；紧凑 JSON 仍超过既有输出预算时，返回结构目录，供按需选择原始子树。`schemaTools.outline(schema)` 分别列出直接字段、`oneOf`／`anyOf`／`allOf` 分支、数组元素及映射值，每个节点的 `schemaPath` 相对于传入的 Schema。分支字段与必填约束分别保留，不自动合并或选定分支。目录用于定位，完整约束以原始合同为准；`schemaTools.select(schema, schemaPath)` 按字段名和数组下标读取原始子树，位置不存在时明确报错。两者只操作本次沙箱中的规范，不读取业务数据。
+`search` 的操作目录由当前选定的 OpenAPI 派生。`api.list()` 列出操作，`api.describe([操作名,...])` 一次返回多个操作的参数、业务说明和响应合同。在既有输出额度内，`responseState=complete` 的 `responseContract` 保留原始 Schema 及其引用定义；`$ref` 的完整字符串对应 `references` 中的定义，同一响应内重复引用的类型只保留一次。较大的合同用 `responseState=outline` 返回结构目录，未声明结构时标为 `not_declared`。`api.schema(操作名, schemaPath)` 原样读取已展开引用的响应 Schema 子树，默认状态码为 `200`。原始 `spec` 和 `schemaTools` 继续可用。结构目录不会合并 `oneOf` 等分支，也不代替字段的完整约束。
+
+`execute` 可用 `await domeye.api[操作名](params)` 调用已发现的 GET 操作。名称来自 `operationId`；未声明时使用 `GET 完整路径`。路径和查询参数放在同一参数对象中，调用器按合同映射、编码并检查已声明的必填项、标量类型、枚举与数值／字符串范围。不做类型强转、默认值补齐、国家名翻译或版本代填；日期语义等业务条件仍由 API 校验。只读、版本冲突、失败恢复、请求额度与响应留档沿用 `domeye.request()` 的同一条宿主链路，参数校验失败也计入调用额度。同名的路径和查询参数或宿主不支持的位置不会生成可调用方法，原始 `request` 仍可使用。
+
+依赖请求可在同一段代码内串联：读取目录或对象后，从该响应取得实际标识和版本，再传入后续操作。API 返回的 `status`、`body`、允许的响应头、空值和比较资格保持原样；操作调用成功不证明统计可比，也不表示答案已经验收。
+
+选定接口后，可以在同一次 `search` 中取得调用参数及需要的响应字段。小合同可用 `api.schema(操作名)` 完整读取，较大合同按结构目录选择原始子树。`schemaTools.outline(schema)` 分别列出直接字段、`oneOf`／`anyOf`／`allOf` 分支、数组元素及映射值，每个节点的 `schemaPath` 相对于传入的 Schema。分支字段与必填约束分别保留，不自动合并或选定分支。目录用于定位，完整约束以原始合同为准；`schemaTools.select(schema, schemaPath)` 按字段名和数组下标读取原始子树，位置不存在时明确报错。两者只操作本次沙箱中的规范，不读取业务数据。
 
 `search` 和 `execute` 回执列出当前已确认版本及适用路径，供模型显式填写；这只是参数提示，不代填版本，也不改变冲突、失败或完整性判断。所需结构已知时，在同次 `execute` 中取数并计算。
 

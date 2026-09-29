@@ -1,13 +1,15 @@
 import { Type } from 'typebox';
 import { createDocs } from './docs.mjs';
-import { loadSearchSpec, SPEC_TYPES } from './spec.mjs';
+import { loadSpecDocument, resolveLocalRefs, SPEC_TYPES } from './spec.mjs';
 import { createRequest, runCode, EXECUTION_LIMITS, ToolFailure } from './runtime/executor.mjs';
 import { createRequestPolicy } from './runtime/request-policy.mjs';
 import { makeSourceReceipt } from './runtime/source-receipt.mjs';
 import { truncateResponse } from './runtime/truncate.mjs';
+import { collectOperations } from './api-operations.mjs';
 
 export const EXECUTE_TYPES = `type QueryValue = string | number | boolean;
 declare const domeye: {
+  api: Record<string, (params?: Record<string, QueryValue>) => Promise<{status: number; body: unknown; headers?: Record<string, string>}>>;
   request(input: {method: "GET"; path: string; query?: Record<string, QueryValue>}):
     Promise<{status: number; body: unknown; headers?: Record<string, string>}>;
   readResult(toolCallId: string): Promise<unknown>;
@@ -120,7 +122,9 @@ export const SEARCH_PROJECTION_EXAMPLE = `async () => {
 export const SEARCH_PROJECTION_GUIDANCE = '按本题指标含义发现接口，返回方法、完整路径、业务摘要、参数与响应结构；含义不清或关键词无命中时，用 docs 确认指标后再选择入口。选定接口后一次取得参数、响应说明和本题需要的结构；完整小合同已返回时，直接取数，不为已知字段再调用 search。schemaTools.outline(schema) 列出直接字段、oneOf/anyOf/allOf 分支及数组元素，每个节点的 schemaPath 均相对于传入的 schema。各分支分别保留，不合并字段或 required，也不自动认定适用分支。目录用于定位，不能替代原合同约束；用 schemaTools.select(schema, schemaPath) 原样读取子树，字段路径接在节点路径后，例如 [...node.schemaPath, "properties", field]。缺失路径明确报错。较宽合同可在同一段代码中选择所需子树；只有信息确实不足才另行补查。优先利用已有相关统计，避免逐个筛选重复取同一汇总。所选子树保留原有描述、单位、时间、可空和复合分支。示例路径须按实际规范调整。返回超过 24000 字符会截断并附 TRUNCATED 提示，截断片段不是完整结构。';
 
 export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence = () => {} }) {
-  const spec = await loadSearchSpec(specFile);
+  const sourceSpec = await loadSpecDocument(specFile);
+  const spec = resolveLocalRefs(sourceSpec);
+  const operations = collectOperations(spec);
   const docs = await createDocs(docsConfig);
   const paths = Object.entries(spec.paths).filter(([,item]) => item.get).map(([path]) => path);
   const policy = createRequestPolicy({spec,
@@ -155,23 +159,22 @@ export async function createTools({ apiBaseUrl, specFile, docsConfig, onEvidence
 ${SPEC_TYPES}
 spec.paths 的键为完整路径。spec.components 仍可查询；参数和响应已可直接读到完整结构。
 保留业务描述、单位、时间和 deprecated 说明。当前规范没有 tags，不按标签猜测。按本题需要的输出证据比较候选：标签、计数、实际区间各自提供不同依据。
-${SEARCH_PROJECTION_GUIDANCE}
-发现入口：
-${SEARCH_DISCOVERY_EXAMPLE}
-读取选定接口的参数：
-${SEARCH_PARAMETERS_EXAMPLE}
-读取选定响应中的字段结构：
-${SEARCH_PROJECTION_EXAMPLE}`,
+先从下面目录选择本题要调用的操作，一次 api.describe([操作名,...]) 取得所需参数、说明和响应合同。responseState=complete 时，responseContract.schema 与 references 共同给出完整响应合同；遇到 $ref，按完整引用字符串在 references 中找定义，同一类型只保留一份，不需要逐层搜索。只有 responseState=outline 时才按目录收窄；not_declared 表示规范未声明响应结构。
+api.schema(操作名, schemaPath) 原样读取需要的响应子树；可以在同一次 search 中读取多个操作及其字段。api.list() 返回完整操作目录。目录和结构不足时，仍可查询 spec 与 schemaTools；各工具都不代替业务定义。
+操作目录（来自本次同版合同；标记 deprecated 的入口保留原限制）：
+${Object.values(operations).map(op=>`${JSON.stringify(op.operationId)}：${op.summary??op.path}${op.deprecated?'（deprecated）':''}`).join('\n')}
+${SEARCH_PROJECTION_GUIDANCE}`,
       parameters: Type.Object({code:Type.String({minLength:1,pattern:'\\S'})},{additionalProperties:false}),
-      call: ({code},signal) => runCode({code,spec,signal})
+      call: ({code},signal) => runCode({code,spec,sourceSpec,operations,signal})
     },
     {
       name: 'execute', label: '读取并整理数据',
       description: `用 JavaScript 读取业务数据并完成回答需要的计算。code 是返回 JSON 值的 async 箭头函数；可以组合请求，也可以直接用已取得的数值计算。
-单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），domeye.request 和 domeye.readResult 合计最多 ${EXECUTION_LIMITS.maxRequests} 次宿主调用；被拦截的调用也计数。
+单次代码执行最多 ${EXECUTION_LIMITS.timeoutMs / 1000} 秒（包括等待请求），操作调用、domeye.request 和 domeye.readResult 合计最多 ${EXECUTION_LIMITS.maxRequests} 次宿主调用；被拦截的调用也计数。
 可用类型：
 ${EXECUTE_TYPES}
-完整路径、参数和正文结构从 search 取得；search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换；query 中的键和值传原值，由宿主统一进行 URL 编码，不要预编码查询参数。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算。返回超过 24000 字符会附 TRUNCATED 提示；不能把片段当完整结果。后续筛选或计算用 await domeye.readResult(resultReference.toolCallId) 读取本题此前 execute 的完整返回，再 return 所需内容，无需重复 HTTP；形状保持该次代码的返回值。复用不更新版本、不证明覆盖完整或业务可比，原请求范围仍以该次回执为准；版本失效、读取故障或进入新问题后不能复用。
+优先使用 search 返回的 domeye.api[操作名](params)：参数按合同名称直接传入对象，由调用器检查标量结构并填充路径及查询参数；返回值保持原始 {status,body,headers?}。操作名、参数及响应字段以 api.describe/api.schema 为准。目录、标识和版本等依赖值从前一步实际响应读取，在同一段代码中传给下一步；不把未知字段或目录值猜成常量。原始 domeye.request 继续可用，其完整路径、参数和正文结构同样从 search 取得。
+search 附带的 requestContext.requiredVersions 和 execute 回执列明已确认版本，写请求时显式带入对应路径的 version。操作调用不自动补版本或恢复失败。使用 request 时，路径中的 {参数} 用实际取得的值逐段 encodeURIComponent 后替换；所有查询参数传原值，由宿主统一进行 URL 编码，不要预编码查询参数。请求保留用户时间窗，响应覆盖另行说明。每次请求先检查 status 和业务 state；读取失败时直接 return 原始响应，仅在成功且所需值确实存在时计算，保留 null。所需结构已知时，在同一次代码中取数并完成本题要求的计算。返回超过 24000 字符会附 TRUNCATED 提示；不能把片段当完整结果。后续筛选或计算用 await domeye.readResult(resultReference.toolCallId) 读取本题此前 execute 的完整返回，再 return 所需内容，无需重复 HTTP；形状保持该次代码的返回值。复用不更新版本、不证明覆盖完整或业务可比，原请求范围仍以该次回执为准；版本失效、读取故障或进入新问题后不能复用。
 可选 headers 使用小写键，仅保留本次 HTTP 中前缀 x-domeye-result- 下的 state、version、start、end-exclusive、coverage 五项，缺失不补齐。它们描述服务端交付上下文，是否适用于正文结果须按接口来源核对，首末范围不是每条样本的实际窗口。
 从参与数据的定义、单位、版本和实际窗口确认能否比较，再计算并 return 要引用的新增合计、比例、差值和选择结果。每个最多／最少都在本题要求的候选范围内计算；不同分组维度分别比较，局部排名不代表总体排名。已有原始值可直接引用；返回结果保留对象、请求窗、覆盖及可比范围，依据不足的项目保持未知。环境没有 Node、fetch 或外部模块。
 工具另附每次 HTTP 的请求/范围回执 responses。按各回执的 request、source 和 scope 分别解释各来源；某来源没有覆盖或未确认版本时，不向它借用其他来源的 coverage 或版本。它们不是代码返回字段的自动血缘，组合结果时由代码保留各自归属。requestControl.recoveryStopped 列出的结果族本轮已无法再恢复，按附带说明结束这些目标的取证并答复。
@@ -180,7 +183,7 @@ ${COMPARISON_EXAMPLE}
 请求与排名示例：以下虚构合同的 body 含 state、scope（对象、口径、单位、版本、请求及覆盖）、total 和 series；类别互斥，同端点分桶可加。直接用响应明细生成时段合计，再分别比较类型和时段；总体取原始 total。真实调用以 search 确认的结构为准，自由选择所需运算和返回形状。窗口保留真实端点，确需时长时由代码换算并返回单位：
 ${CALCULATION_EXAMPLE}`,
       parameters: Type.Object({code:Type.String({minLength:1,pattern:'\\S',description:'返回 JSON 值的 async 箭头函数；return 本题各目标的读取结果或实际算出的比较结果。'})},{additionalProperties:false}),
-      call: ({code},signal,observers) => runCode({code,request:(input,options) => request(input,{...options,...observers}),readResult:observers.readResult,signal})
+      call: ({code},signal,observers) => runCode({code,operations,request:(input,options) => request(input,{...options,...observers}),readResult:observers.readResult,signal})
     }
   ];
   // 与首轮模型请求重叠准备本地嵌入；失败仍由实际 docs 调用报告，不阻塞其他工具。

@@ -1,8 +1,9 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { newQuickJSWASMModule } from 'quickjs-emscripten';
 import { outlineSchema, selectSchema } from '../schema-tools.mjs';
+import { createApiDiscovery } from '../api-operations.mjs';
 
-const { code, spec, hasRequest, hasReadResult, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes } = workerData;
+const { code, spec, sourceSpec, operations, hasRequest, hasReadResult, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes } = workerData;
 const QuickJS = await newQuickJSWASMModule();
 const runtime = QuickJS.newRuntime();
 runtime.setMemoryLimit(memoryBytes);
@@ -38,7 +39,10 @@ function pump() {
 }
 try {
   if (spec !== undefined) vm.newString(JSON.stringify(spec)).consume(handle => vm.setProp(vm.global, '__specJSON', handle));
-  for (const [name, type, enabled] of [['__hostRequest', 'request', hasRequest], ['__hostReadResult', 'readResult', hasReadResult]]) {
+  if (sourceSpec !== undefined) vm.newString(JSON.stringify(sourceSpec)).consume(handle => vm.setProp(vm.global, '__sourceSpecJSON', handle));
+  if (operations !== undefined) vm.newString(JSON.stringify(operations)).consume(handle => vm.setProp(vm.global, '__operationsJSON', handle));
+  for (const [name, type, enabled] of [['__hostRequest', 'request', hasRequest], ['__hostReadResult', 'readResult', hasReadResult],
+    ['__hostOperation', 'operation', hasRequest && operations !== undefined]]) {
     if (!enabled) continue;
     vm.newFunction(name, handle => {
       const id = ++nextId;
@@ -74,17 +78,27 @@ try {
     const parse = JSON.parse, stringify = JSON.stringify;
     const rawRequest = globalThis.__hostRequest;
     const rawReadResult = globalThis.__hostReadResult;
+    const rawOperation = globalThis.__hostOperation;
+    const operations = typeof globalThis.__operationsJSON === 'string' ? parse(globalThis.__operationsJSON) : {};
+    const methods = Object.fromEntries(Object.entries(operations).filter(([,operation]) => operation.callable)
+      .map(([id]) => [id, async params => parse(await rawOperation(stringify({operationId:id,params})))]));
     if (rawRequest) globalThis.domeye = Object.freeze({
       request: async value => parse(await rawRequest(stringify(value))),
+      api: Object.freeze(methods),
       ...(rawReadResult ? {readResult: async id => parse(await rawReadResult(stringify(id)))} : {})
     });
     if (typeof globalThis.__specJSON === 'string') {
       globalThis.spec = parse(globalThis.__specJSON);
       globalThis.schemaTools = Object.freeze({outline: (${outlineSchema.toString()}), select: (${selectSchema.toString()})});
+      const sourceSpec = typeof globalThis.__sourceSpecJSON === 'string' ? parse(globalThis.__sourceSpecJSON) : globalThis.spec;
+      globalThis.api = (${createApiDiscovery.toString()})(globalThis.spec, operations, globalThis.schemaTools.outline, globalThis.schemaTools.select, sourceSpec);
     }
     delete globalThis.__hostRequest;
     delete globalThis.__hostReadResult;
+    delete globalThis.__hostOperation;
     delete globalThis.__specJSON;
+    delete globalThis.__sourceSpecJSON;
+    delete globalThis.__operationsJSON;
     const isArray = Array.isArray, getPrototypeOf = Object.getPrototypeOf, values = Object.values;
     const plain = Object.prototype, finite = Number.isFinite;
     function assertJSON(value, seen = new Set()) {

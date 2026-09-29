@@ -1,5 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import { createPathMatcher } from './paths.mjs';
+import { requestForOperation } from '../api-operations.mjs';
 
 export class ToolFailure extends Error {
   constructor(kind, message) { super(message); this.kind = kind; }
@@ -13,7 +14,7 @@ const RESULT_RESPONSE_HEADERS = [
 ];
 
 // 代码仅在独立线程中的 QuickJS-WASM 执行；请求能力留在宿主。
-export function runCode({ code, spec, request, readResult, signal, timeoutMs = EXECUTION_LIMITS.timeoutMs, memoryBytes = 64 * 1024 * 1024, maxRequests = EXECUTION_LIMITS.maxRequests, maxRequestBytes = 64 * 1024, maxResultBytes = 4 * 1024 * 1024 }) {
+export function runCode({ code, spec, sourceSpec, operations, request, readResult, signal, timeoutMs = EXECUTION_LIMITS.timeoutMs, memoryBytes = 64 * 1024 * 1024, maxRequests = EXECUTION_LIMITS.maxRequests, maxRequestBytes = 64 * 1024, maxResultBytes = 4 * 1024 * 1024 }) {
   if (typeof code !== 'string' || !code.trim() || code.length > 100_000) return Promise.reject(new ToolFailure('input', 'code 须为非空且不超过 100000 字符的 JavaScript。'));
   if ((spec === undefined) === (request === undefined)) return Promise.reject(new ToolFailure('input', '执行时须明确选择 spec 或 request 上下文。'));
   if (readResult !== undefined && (typeof readResult !== 'function' || request === undefined)) return Promise.reject(new ToolFailure('input', '结果复用只适用于 execute 上下文。'));
@@ -21,7 +22,7 @@ export function runCode({ code, spec, request, readResult, signal, timeoutMs = E
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const worker = new Worker(new URL('./sandbox-worker.mjs', import.meta.url), {
-      workerData: { code, spec, hasRequest: request !== undefined, hasReadResult: readResult !== undefined, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes },
+      workerData: { code, spec, sourceSpec, operations, hasRequest: request !== undefined, hasReadResult: readResult !== undefined, timeoutMs, memoryBytes, maxRequests, maxRequestBytes, maxResultBytes },
       env: {}, execArgv: [], resourceLimits: { maxOldGenerationSizeMb: 96, stackSizeMb: 4 }
     });
     let done = false, requestCount = 0;
@@ -42,11 +43,19 @@ export function runCode({ code, spec, request, readResult, signal, timeoutMs = E
       if (done) return;
       if (message.type === 'result') return finish(null, message.value);
       if (message.type === 'failure') return finish(new ToolFailure(message.error.kind, message.error.message));
-      if (!['request', 'readResult'].includes(message.type)) return;
+      if (!['request', 'readResult', 'operation'].includes(message.type)) return;
       try {
-        const operation = message.type === 'request' ? request : readResult;
+        const operation = message.type === 'readResult' ? readResult : request;
         if (!operation || ++requestCount > maxRequests) return finish(new ToolFailure('input', '本次执行超过允许的宿主调用次数。'));
-        const value = await operation(message.value, { signal: controller.signal });
+        let input = message.value;
+        if (message.type === 'operation') {
+          if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['operationId','params'].includes(key)) ||
+              typeof input.operationId !== 'string' || !Object.hasOwn(operations ?? {}, input.operationId)) {
+            throw new ToolFailure('input', '操作不存在或调用结构不符；请从当前 api.list() 选择。');
+          }
+          input = requestForOperation(operations[input.operationId], input.params);
+        }
+        const value = await operation(input, { signal: controller.signal });
         if (!done) worker.postMessage({ id: message.id, value });
       } catch (error) {
         if (!done) worker.postMessage({ id: message.id, error: { kind: error.kind ?? 'network', message: error.message } });
