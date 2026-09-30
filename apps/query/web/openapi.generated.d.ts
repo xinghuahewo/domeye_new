@@ -4,6 +4,78 @@
  */
 
 export interface paths {
+    "/api/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取宿主支持的模型与配置状态 */
+        get: operations["queryModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取当前会话与固定的模型、数据批次 */
+        get: operations["querySession"];
+        put?: never;
+        /**
+         * 以所选模型和数据批次开启新会话
+         * @description 须同源且当前空闲。省略 modelId 使用宿主默认模型；未知或未配置模型返回 400，保留原会话。切换成功后旧会话仅作为历史阅读，不传递旧模型上下文。
+         */
+        post: operations["newQuerySession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取只读会话目录及各自的模型身份 */
+        get: operations["queryHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取历史会话 */
+        get: operations["queryHistorySession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -28,6 +100,64 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description 会话使用的模型身份，不含凭据、地址或运行配置。历史缺少身份时返回 null，不采用当前默认模型。 */
+        PublicModel: {
+            id: string;
+            label: string;
+            provider: string;
+            model: string;
+        };
+        AvailableModel: {
+            id: string;
+            label: string;
+            provider: string;
+            model: string;
+            /** @description 宿主是否已配置；不证明余额、网络或模型响应可用。 */
+            available: boolean;
+        };
+        ModelList: {
+            defaultModel: string;
+            models: components["schemas"]["AvailableModel"][];
+        };
+        PublicDataset: {
+            id: string;
+            label: string;
+            description: string;
+        };
+        Session: {
+            /** Format: uuid */
+            id: string | null;
+            dataset: components["schemas"]["PublicDataset"] | null;
+            model: components["schemas"]["PublicModel"] | null;
+            busy: boolean;
+            turns: components["schemas"]["PublicTurn"][];
+        };
+        HistorySession: {
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            readOnly: true;
+            dataset: components["schemas"]["PublicDataset"] | null;
+            model: components["schemas"]["PublicModel"] | null;
+            turns: components["schemas"]["PublicTurn"][];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        HistoryRecord: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            dataset: components["schemas"]["PublicDataset"] | null;
+            model: components["schemas"]["PublicModel"] | null;
+            /** Format: date-time */
+            updatedAt: string;
+            count: number;
+            /** @enum {unknown} */
+            status: "running" | "completed" | "cancelled" | "failed";
+        };
+        HistoryList: {
+            records: components["schemas"]["HistoryRecord"][];
+        };
         Millis: number | null;
         PublicTurn: {
             /** Format: uuid */
@@ -118,6 +248,215 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    queryModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 公开结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelList"];
+                };
+            };
+            /** @description Host 或 Origin 不合法 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务正在关闭 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    querySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 公开结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Host 或 Origin 不合法 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务正在关闭 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    newQuerySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    datasetId?: "completed-files" | "three-day";
+                    /** @enum {string} */
+                    modelId?: "deepseek-v4-pro" | "deepseek-flash" | "glm-5.3-flashx";
+                };
+            };
+        };
+        responses: {
+            /** @description 公开结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description 模型、批次或字段无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Host 或 Origin 不合法 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 回答或切换尚未结束 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 请求须为 JSON */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务正在关闭 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    queryHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 公开结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryList"];
+                };
+            };
+            /** @description Host 或 Origin 不合法 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务正在关闭 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    queryHistorySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 公开结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistorySession"];
+                };
+            };
+            /** @description Host 或 Origin 不合法 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 记录不存在或不可读 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务正在关闭 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     queryChat: {
         parameters: {
             query?: never;

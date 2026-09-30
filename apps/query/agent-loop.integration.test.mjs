@@ -352,7 +352,7 @@ test('真实 Pi 到 HTTP：首段先到，生成和保存分别等待，不重�
     async onWrite(){saving.resolve();await releaseSave.promise;}
   });
   const directory=await files.mkdtemp(join(tmpdir(),'domeye-stream-'));
-  const service=await createChatServer({modelConfig:{apiKey:KEY},historyDir:directory,
+  const service=await createChatServer({modelConfig:{provider:'deepseek',model:'deepseek-v4-pro',apiKey:KEY},historyDir:directory,
     createAgent:async ({onEvent})=>{h.onEvent=onEvent;return h.agent;}});
   const origin=await service.listen(0);
   t.after(async()=>{releaseModel.resolve();releaseSave.resolve();await service.close();await files.rm(directory,{recursive:true,force:true});});

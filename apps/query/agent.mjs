@@ -1,20 +1,21 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import { createModels } from '@earendil-works/pi-ai';
-import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek';
-import { readFile, stat, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { createTools } from './tools.mjs';
 import { CONTRACT_SOURCE_COMMIT } from './source.mjs';
 import { selectDataset, publicDataset } from './datasets.mjs';
 import { createTextRedactor } from './runtime/text-stream.mjs';
-import { configureModel, configuredThinkingLevel } from './runtime/model-options.mjs';
+import { configureModel } from './runtime/model-options.mjs';
+import { queryProvider, publicModel } from './models.mjs';
+export { loadModelConfig } from './models.mjs';
 import { createModelTiming } from './runtime/model-timing.mjs';
 import { createModelReasoning } from './runtime/model-reasoning.mjs';
 import { runtimePaths } from './runtime/settings.mjs';
 
 const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
-// DeepSeek 的推理与正文共用输出额度；保持有界，不自动续写 length 结果。
+// 推理与正文共用输出额度；保持有界，不自动续写 length 结果。
 const maxOutputTokens = 32768;
 // Pi 要求 streamFn 用结束事件表达取消；停止后不再进入模型提供方。
 function stoppedStream(model) {
@@ -24,25 +25,15 @@ function stoppedStream(model) {
   return {async *[Symbol.asyncIterator](){yield {type:'error',reason:'aborted',error:message};},async result(){return message;}};
 }
 
-export async function loadModelConfig(path) {
-  if (!path) throw new Error('请通过 DOMEYE_MODEL_CONFIG 指定宿主的独立模型配置。');
-  const info = await stat(path);
-  if (!info.isFile() || (info.mode & 0o077)) throw new Error('模型配置须为仅当前用户可读写的独立普通文件。');
-  const config = JSON.parse(await readFile(path,'utf8'));
-  if (config.provider !== 'deepseek' || !config.model || !config.apiKey) throw new Error('模型配置须提供 DeepSeek 的 provider、model、apiKey。');
-  if (config.baseUrl && new URL(config.baseUrl).origin !== 'https://api.deepseek.com') throw new Error('当前验证只连接配置中的 DeepSeek 官方 API。');
-  configuredThinkingLevel(config);
-  return config;
-}
-
 export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, docsConfig, historyDir=runtimePaths().historyDir, onEvent=()=>{} }) {
   if (typeof historyDir!=='string' || !historyDir.trim()) throw new Error('须提供宿主历史目录以保存模型推理与取证记录。');
   const dataset = selectDataset(datasetId, apiBaseUrl);
   apiBaseUrl = dataset.apiBaseUrl;
   const models = createModels();
-  models.setProvider(deepseekProvider());
-  const known = models.getModel('deepseek',modelConfig.model);
-  if (!known) throw new Error('锁定 Pi 版本未登记所配置的 DeepSeek 模型。');
+  const provider = modelConfig.provider ?? 'deepseek';
+  models.setProvider(queryProvider(provider));
+  const known = models.getModel(provider,modelConfig.model);
+  if (!known) throw new Error('锁定 Pi 版本未登记所配置的模型。');
   const {model,thinkingLevel} = configureModel(known,modelConfig);
   const systemPrompt = await readFile(new URL('./agent-instructions.md',import.meta.url),'utf8') +
     `\n\n当前会话的数据：${dataset.label}。${dataset.description} 工具已绑定该批次的读取入口和接口规范。只使用本项目这一批结果；日期、覆盖和版本从实际响应发现，不能从批次名称推定。旧项目 55 天数据不在范围内。用户若要换批次，请告知在页面选择数据并新建会话。业务定义和限制按需用 docs 读取。\n`;
@@ -131,7 +122,7 @@ export async function createDomeyeAgent({ modelConfig, datasetId, apiBaseUrl, do
   async function save() {
     await mkdir(historyDir,{recursive:true,mode:0o700});
     await writeFile(resolve(historyDir,sessionId+'.json'),JSON.stringify({
-      id:sessionId,provider:'deepseek',model:model.id,pi:'0.87.0',api_base_url:apiBaseUrl,
+      id:sessionId,provider,model:model.id,model_selection:publicModel({provider,model:model.id}),pi:'0.87.0',api_base_url:apiBaseUrl,
       model_options:{thinking_level:thinkingLevel,max_output_tokens:maxOutputTokens},
       agent_instructions:systemPrompt,
       answer_review:{enabled:false},

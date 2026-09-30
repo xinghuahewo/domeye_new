@@ -5,7 +5,7 @@ import { runtimePaths } from './runtime/settings.mjs';
 
 const args=process.argv.slice(2);
 const option=name=>args.includes(name)?args[args.indexOf(name)+1]:undefined;
-const modelConfig=await loadModelConfig(process.env.DOMEYE_MODEL_CONFIG);
+const modelConfig=await loadModelConfig(process.env.DOMEYE_MODEL_CONFIG,option('--model'));
 const agent=await createDomeyeAgent({
   modelConfig,datasetId:option('--dataset') ?? process.env.DOMEYE_QUERY_DATASET,
   apiBaseUrl:process.env.DOMEYE_QUERY_API_BASE_URL,

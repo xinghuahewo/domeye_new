@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const ui = Object.fromEntries(['dataset','session-dataset','new-session','refresh-history','current-session','history','session-title','connection','notice','reading-pane','empty','messages','read-only','back-current','composer','question','send','stop','composer-hint'].map(id => [id, $(id)]));
+const ui = Object.fromEntries(['dataset','model','session-dataset','new-session','refresh-history','current-session','history','session-title','connection','notice','reading-pane','empty','messages','read-only','back-current','composer','question','send','stop','composer-hint'].map(id => [id, $(id)]));
 let session = { id: null, busy: false, turns: [] }, readingId = null, streaming = false, switching = false, records = [], poll, syncVersion = 0;
 const latencyByTurn=new Map();
 function notice(message = '') { ui.notice.textContent = message; ui.notice.hidden = !message; }
@@ -75,7 +75,7 @@ function scrollToBottom(force = false) {
 function controls() {
   const busy = session.busy || streaming || switching;
   ui['new-session'].disabled = busy; ui['refresh-history'].disabled = busy;
-  ui.dataset.disabled = busy;
+  ui.dataset.disabled = busy; ui.model.disabled = busy;
   ui['current-session'].disabled = streaming || switching;
   ui.composer.hidden = Boolean(readingId); ui['read-only'].hidden = !readingId;
   ui.question.disabled = busy; ui.send.hidden = session.busy || streaming; ui.send.disabled = busy || !session.id || !ui.question.value.trim();
@@ -85,12 +85,15 @@ function controls() {
   ui['current-session'].querySelector('span').textContent = session.busy ? '回答中' : '可继续';
   for (const button of ui.history.querySelectorAll('button')) button.disabled = busy;
 }
+function sessionContext(value) {
+  return (value.dataset?.label || '数据批次未标注') + ' · ' + (value.model?.label || '模型未标注');
+}
 function paintHistory() {
   ui.history.replaceChildren();
   if (!records.length) ui.history.append(text('p','还没有保存的会话','history-empty'));
   for (const item of records) {
     const button = text('button','','history-item'); button.type = 'button'; button.classList.toggle('selected',readingId === item.id);
-    button.append(text('strong',item.title || '未命名会话'),text('small',new Date(item.updatedAt).toLocaleDateString('zh-CN',{month:'short',day:'numeric'}) + ' · ' + item.count + ' 次提问'),text('small',item.dataset?.label || '早期记录 · 数据批次未标注'));
+    button.append(text('strong',item.title || '未命名会话'),text('small',new Date(item.updatedAt).toLocaleDateString('zh-CN',{month:'short',day:'numeric'}) + ' · ' + item.count + ' 次提问'),text('small',sessionContext(item)));
     button.addEventListener('click',()=>openHistory(item.id)); ui.history.append(button);
   }
   controls();
@@ -100,7 +103,7 @@ async function syncCurrent() {
   const version = ++syncVersion, updated = await api('/api/session');
   if (version !== syncVersion) return;
   session = updated;
-  if (!readingId && !streaming) { paintTurns(session.turns); ui['session-title'].textContent = '当前会话'; ui['session-dataset'].textContent = session.dataset?.label || ''; }
+  if (!readingId && !streaming) { paintTurns(session.turns); ui['session-title'].textContent = '当前会话'; ui['session-dataset'].textContent = session.id ? sessionContext(session) : ''; }
   controls();
   clearTimeout(poll);
   if (session.busy && !streaming) poll = setTimeout(()=>syncCurrent().catch(error=>notice(error.message)),1200);
@@ -110,7 +113,7 @@ async function openHistory(id) {
   switching = true; controls(); notice();
   try {
     const data = await api('/api/history/' + encodeURIComponent(id)); readingId = id;
-    ui['session-dataset'].textContent = data.dataset?.label || '早期记录 · 数据批次未标注';
+    ui['session-dataset'].textContent = sessionContext(data);
     paintTurns(data.turns); ui['session-title'].textContent = data.turns[0]?.question || '历史会话'; paintHistory(); scrollToBottom(true);
   } catch (error) { notice(error.message); } finally { switching = false; controls(); }
 }
@@ -124,7 +127,7 @@ async function newSession() {
   if (streaming || session.busy || switching) return;
   syncVersion++; clearTimeout(poll);
   switching = true; controls(); notice();
-  try { session = await api('/api/session',{datasetId:ui.dataset.value || 'completed-files'}); readingId = null; ui.question.value = ''; paintTurns([]); ui['session-title'].textContent = '当前会话'; ui['session-dataset'].textContent = session.dataset?.label || ''; await refreshHistory(); }
+  try { session = await api('/api/session',{datasetId:ui.dataset.value || 'completed-files',modelId:ui.model.value}); readingId = null; ui.question.value = ''; paintTurns([]); ui['session-title'].textContent = '当前会话'; ui['session-dataset'].textContent = session.id ? sessionContext(session) : ''; await refreshHistory(); }
   catch (error) { notice(error.message); }
   finally { switching = false; controls(); ui.question.focus(); }
 }
@@ -207,9 +210,12 @@ ui['back-current'].addEventListener('click',()=>backCurrent().catch(error=>notic
 ui['current-session'].addEventListener('click',()=>backCurrent().catch(error=>notice(error.message)));
 ui['refresh-history'].addEventListener('click',()=>refreshHistory().catch(error=>notice(error.message)));
 (async()=>{try{
-  const {datasets} = await api('/api/datasets');
+  const [{datasets},{models,defaultModel}] = await Promise.all([api('/api/datasets'),api('/api/models')]);
+  for (const item of models) { const option = text('option',item.label + (item.available ? '' : '（未配置）')); option.value = item.id; option.disabled = !item.available; ui.model.append(option); }
+  ui.model.value = defaultModel;
   for (const item of datasets) { const option = text('option',item.label); option.value = item.id; ui.dataset.append(option); }
   await syncCurrent();
   if (session.dataset) ui.dataset.value = session.dataset.id;
+  if (session.model) ui.model.value = session.model.id;
   if(!session.id)await newSession();await refreshHistory();
 }catch(error){notice(error.message);ui.connection.textContent='未连接';}})();

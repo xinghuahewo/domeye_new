@@ -17,6 +17,7 @@ const replacement = mock.module(new URL('tools.mjs', app).href, {namedExports:{c
 })}});
 after(()=>{globalThis.fetch=originalFetch;replacement.restore();});
 const {createDomeyeAgent}=await import(new URL('agent.mjs',app));
+const {modelRegistry,selectModel}=await import(new URL('models.mjs',app));
 const usage={prompt_tokens:40,prompt_cache_hit_tokens:24,completion_tokens:12,
   completion_tokens_details:{reasoning_tokens:8},total_tokens:52};
 function fixtureResponse(round,signal){
@@ -36,6 +37,38 @@ function fixtureResponse(round,signal){
     if(i<chunks.length)controller.enqueue(new TextEncoder().encode(chunks[i++]));else controller.close();
   }}),{headers:{'content-type':'text/event-stream','x-request-id':'fixture-id'}});
 }
+test('三个登记模型经过真实 SDK 工具往返，保留推理并记录实际模型，均为标准请求',async t=>{
+  for (const [provider,model] of [['deepseek','deepseek-v4-pro'],['deepseek','deepseek-flash'],['zai','glm-5.3-flashx']]) {
+    const dir=await mkdtemp(join(tmpdir(),'domeye-provider-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+    const requests=[],events=[];
+    globalThis.fetch=async(input,init)=>{
+      const body=JSON.parse(init.body);requests.push(body);
+      assert.equal(String(input),provider==='zai'?'https://open.bigmodel.cn/api/paas/v4/chat/completions':'https://api.deepseek.com/chat/completions');
+      assert.equal(body.model,model);assert.equal(body.reasoning_effort,'high');assert.equal(body.max_tokens,32768);
+      assert.equal(body.service_tier,undefined);assert.equal(body.stream,true);
+      if(provider==='zai') {assert.equal(body.tool_stream,true);assert.deepEqual(body.thinking,{type:'enabled',clear_thinking:false});}
+      else assert.deepEqual(body.thinking,{type:'enabled'});
+      return fixtureResponse(requests.length,init.signal);
+    };
+    const config=selectModel(modelRegistry({provider,model,apiKey:KEY}));
+    const agent=await createDomeyeAgent({modelConfig:config,historyDir:dir,onEvent:event=>events.push(event)});
+    try {
+      const turn=await agent.ask('人工模型接入验证');assert.equal(turn.status,'completed',turn.error);
+      assert.equal(turn.answer,'公开正文：17。');assert.equal(requests.length,2);
+      assert.ok(requests[1].messages.some(message=>message.role==='assistant' && message.reasoning_content===PRIVATE+'。'));
+      const saved=JSON.parse(await readFile(join(dir,agent.id+'.json'),'utf8'));
+      assert.equal(saved.provider,provider);assert.equal(saved.model,model);assert.equal(saved.model_selection.id,model);
+      assert.equal(saved.model_options.thinking_level,'high');
+      if(provider==='zai') {
+        const message=saved.turns[0].events.find(event=>event.type==='message' && event.value.role==='assistant');
+        assert.ok(Object.values(message.value.usage.cost).every(value=>value===null),'FlashX 不使用 Flash 的费率伪造成本');
+      }
+      assert.equal(saved.turns[0].reasoning.length,2);
+      assert.ok(saved.turns[0].reasoning.every(round=>round.state==='recorded' && round.blocks[0].text.startsWith(PRIVATE)));
+      assert.ok(!JSON.stringify(events).includes(PRIVATE));assert.ok(!JSON.stringify(saved).includes(KEY));
+    } finally {await agent.close();}
+  }
+});
 test('真实 SDK 流：默认保存各轮推理，保持公开事件和模型输入不变',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'domeye-stream-timing-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const requests=[],events=[];

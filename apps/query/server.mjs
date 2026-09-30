@@ -3,7 +3,8 @@ import { readFile, readdir, mkdir, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDomeyeAgent, loadModelConfig } from './agent.mjs';
+import { createDomeyeAgent } from './agent.mjs';
+import { modelRegistry, loadModelRegistry, listModels, selectModel, publicModel } from './models.mjs';
 import { PROJECT_DATASETS, selectDataset, publicDataset } from './datasets.mjs';
 import { runtimePaths, chatAddress } from './runtime/settings.mjs';
 import { createTextRedactor } from './runtime/text-stream.mjs';
@@ -29,16 +30,17 @@ class HttpError extends Error {
 }
 
 // 只向页面提供问题、回答和状态；原始取证继续由已有 Agent 保存在宿主。
-export async function createChatServer({ modelConfig, apiBaseUrl,
+export async function createChatServer({ modelConfig, models, apiBaseUrl,
   historyDir = runtimePaths().historyDir, host = '127.0.0.1', publicOrigin,
   createAgent = createDomeyeAgent } = {}) {
   const address = chatAddress(host, publicOrigin);
-  if (!modelConfig || typeof modelConfig.apiKey !== 'string' || !modelConfig.apiKey) throw new Error('须提供有效的宿主模型配置。');
+  const registry = modelRegistry(models ?? modelConfig);
+  const secrets = registry.models.map(config=>config.apiKey);
   await mkdir(historyDir, { recursive: true, mode: 0o700 });
   const historyRoot = await realpath(historyDir);
-  const clean = value => typeof value === 'string' ? value.split(modelConfig.apiKey).join('[已隐藏凭据]') : '';
+  const clean = value => typeof value === 'string' ? secrets.reduce((text,key)=>text.split(key).join('[已隐藏凭据]'),value) : '';
   const failureReason = turn => turn?.status === 'failed' && /^402\s*:/.test(turn.error ?? '')
-    ? '模型服务余额不足，本次回答未完成。补充 DeepSeek 额度后再试。' : '';
+    ? '模型服务余额不足，本次回答未完成。请补充所选模型的额度后再试。' : '';
   const publicTurn = turn => ({
     id:uuid.test(turn?.id ?? '')?turn.id:null,
     question: clean(turn?.question), answer: clean(turn?.answer),
@@ -46,9 +48,9 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
     failureReason: failureReason(turn),
     startedAt: clean(turn?.started_at), completedAt: clean(turn?.completed_at),
   });
-  let agent, selectedDataset, changing = false, changePromise, activeRun, shuttingDown = false, closePromise, origin;
+  let agent, selectedDataset, selectedModel, changing = false, changePromise, activeRun, shuttingDown = false, closePromise, origin;
   const busy = () => changing || Boolean(activeRun);
-  const state = () => ({ id: agent?.id ?? null, dataset:publicDataset(selectedDataset), busy: busy(), turns: (agent?.turns ?? []).map(publicTurn) });
+  const state = () => ({ id: agent?.id ?? null, dataset:publicDataset(selectedDataset), model:publicModel(selectedModel), busy: busy(), turns: (agent?.turns ?? []).map(publicTurn) });
 
   function publish(event) {
     const run = activeRun;
@@ -59,7 +61,7 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
   function textDelta(contentIndex, delta, flush = false) {
     const run = activeRun;
     if (!run) return;
-    if (!run.blocks.has(contentIndex)) run.blocks.set(contentIndex,createTextRedactor(modelConfig.apiKey));
+    if (!run.blocks.has(contentIndex)) run.blocks.set(contentIndex,createTextRedactor(secrets));
     const redactor=run.blocks.get(contentIndex);
     const text=flush?redactor.finish():redactor.push(delta);
     if(text){
@@ -86,24 +88,28 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
       if (label) publish({ type: 'tool', label, state: event.type === 'tool_execution_start' ? 'running' : event.isError ? 'failed' : 'done' });
     }
   }
-  function newSession(datasetId) {
+  function newSession(datasetId, modelId) {
     if (busy()) throw new HttpError(409, '当前回答或会话切换尚未结束。');
     let dataset;
     try { dataset = selectDataset(datasetId, datasetId === 'three-day' ? undefined : apiBaseUrl); }
     catch { throw new HttpError(400, '请选择已登记的本项目结果批次。'); }
+    let chosenModel;
+    try { chosenModel = selectModel(registry,modelId); }
+    catch { throw new HttpError(400, '请选择已配置的模型。'); }
     changing = true;
     changePromise = (async () => {
       try {
-        const previous = agent; agent = undefined;
+        const previous = agent; agent = undefined; selectedDataset = undefined; selectedModel = undefined;
         await previous?.close();
         if (shuttingDown) throw new HttpError(503, '问数服务正在关闭。');
-        const created = await createAgent({ modelConfig, datasetId:dataset.id, apiBaseUrl:dataset.apiBaseUrl, historyDir: historyRoot, onEvent });
+        const created = await createAgent({ modelConfig:chosenModel, datasetId:dataset.id, apiBaseUrl:dataset.apiBaseUrl, historyDir: historyRoot, onEvent });
         if (shuttingDown || !uuid.test(created.id)) {
           await created.close();
           throw new HttpError(503, '会话没有启动，问数服务正在关闭或会话标识无效。');
         }
         agent = created;
         selectedDataset = dataset;
+        selectedModel = chosenModel;
         return state();
       } finally { changing = false; }
     })();
@@ -121,7 +127,11 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
       // 旧记录没有批次标识时保持未标注，不能按当前默认值重写其来源。
       const dataset = value.dataset && typeof value.dataset.id === 'string' && typeof value.dataset.label === 'string'
         ? {id:clean(value.dataset.id),label:clean(value.dataset.label),description:clean(value.dataset.description)} : null;
-      return { id, readOnly: true, dataset, turns: value.turns.map(publicTurn), updatedAt: info.mtime.toISOString() };
+      const stored = value.model_selection;
+      const identity = stored && ['id','label','provider','model'].every(key=>typeof stored[key]==='string')
+        ? stored : publicModel(value);
+      const model = identity ? Object.fromEntries(['id','label','provider','model'].map(key=>[key,clean(identity[key])])) : null;
+      return { id, readOnly: true, dataset, model, turns: value.turns.map(publicTurn), updatedAt: info.mtime.toISOString() };
     } catch (error) {
       if (error instanceof HttpError) throw error;
       throw new HttpError(404, '没有找到可读取的会话记录。');
@@ -134,7 +144,7 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
       try {
         const item = await history(name.slice(0, -5));
         if (item.turns.length) records.push({ id: item.id, title: item.turns[0].question.slice(0, 70),
-          dataset:item.dataset, updatedAt: item.updatedAt, count: item.turns.length, status: item.turns.at(-1).status });
+          dataset:item.dataset, model:item.model, updatedAt: item.updatedAt, count: item.turns.length, status: item.turns.at(-1).status });
       } catch { /* 不向页面泄露无效文件或路径。 */ }
     }
     return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 80);
@@ -219,11 +229,12 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
       if (req.method === 'GET' && url.pathname === '/api/healthz') return json(200, { status:'ok', service:'domeye-query', busy:busy() });
       if (req.method === 'GET' && url.pathname === '/api/session') return json(200, state());
       if (req.method === 'GET' && url.pathname === '/api/datasets') return json(200, {datasets:PROJECT_DATASETS.map(publicDataset)});
+      if (req.method === 'GET' && url.pathname === '/api/models') return json(200, {defaultModel:registry.defaultModel,models:listModels(registry)});
       if (req.method === 'GET' && url.pathname === '/api/history') return json(200, { records: await listHistory() });
       if (req.method === 'GET' && url.pathname.startsWith('/api/history/')) return json(200, await history(url.pathname.slice('/api/history/'.length)));
       if (req.method === 'POST' && url.pathname === '/api/session') {
-        const input = await body(req); checkKeys(input, ['datasetId']);
-        const result = await newSession(input.datasetId); result.busy = false;
+        const input = await body(req); checkKeys(input, ['datasetId','modelId']);
+        const result = await newSession(input.datasetId,input.modelId); result.busy = false;
         return json(200, result);
       }
       if (req.method === 'POST' && url.pathname === '/api/stop') {
@@ -265,8 +276,8 @@ export async function createChatServer({ modelConfig, apiBaseUrl,
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const modelConfig = await loadModelConfig(process.env.DOMEYE_MODEL_CONFIG);
-    const chat = await createChatServer({ modelConfig,
+    const models = await loadModelRegistry(process.env.DOMEYE_MODEL_CONFIG);
+    const chat = await createChatServer({ models,
       apiBaseUrl: process.env.DOMEYE_QUERY_API_BASE_URL,
       historyDir: runtimePaths().historyDir,
       host: process.env.DOMEYE_CHAT_HOST,

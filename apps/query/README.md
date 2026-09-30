@@ -1,12 +1,12 @@
 # Domeye 三工具问数
 
-单用户问数应用，采用 Pi + DeepSeek、QMD 和 `docs`、`search`、`execute`。只查询 Domeye 本项目已生成并交付的结果，旧项目 55 天数据不在能力范围内。页面支持连续追问、切换数据批次、停止与只读历史。
+单用户问数应用，采用 Pi 模型运行时、QMD 和 `docs`、`search`、`execute`。只查询 Domeye 本项目已生成并交付的结果，旧项目 55 天数据不在能力范围内。页面支持连续追问、选择模型和数据批次、停止与只读历史。
 
 在项目中独立运行，不依赖主前端构建，也不启动业务计算或数据发布。服务器部署、状态目录和回退见[问数服务运行手册](../../docs/runbooks/问数服务.md)。
 
 ## 本地启动
 
-需要 Node.js 22.19 以上；服务器使用已有 Node.js 24.12.0。模型配置为权限 0600 的 JSON 文件，包含 `provider: "deepseek"`、`model`、`apiKey`，可选官方 `baseUrl` 和 `thinkingLevel: "low" | "high"`，默认 `high`；不要将配置提交到 Git。
+需要 Node.js 22.19 以上；服务器使用已有 Node.js 24.12.0。模型配置为权限 0600 的独立 JSON 文件，登记方式见[模型登记与切换](#模型登记与切换)；不要将配置提交到 Git。
 
 ```bash
 cd apps/query
@@ -30,7 +30,36 @@ npm run web
 
 两批分别绑定自己的实际 OpenAPI，查询时发现覆盖和版本；不跨批次借用参数或数据。服务器直接读本机 API；本地使用时须将这两个端口通过 SSH 转发。`DOMEYE_QUERY_API_BASE_URL` 是宿主显式覆盖，CLI 对所选批次生效，页面仅对默认完成文件批次生效，改变前须核对接口合同。
 
-左侧选择只影响下次新会话，顶部显示本会话实际批次。早期未标注批次的历史保持未标注。页面在模型生成正文时逐步展示，并标记尚未完成；正常结束且保存成功后才确认完整答案。工具调用前的中间文字在进入工具或下一轮模型时清除，不与最终正文拼接。失败、取消或断流时清除未完成预览。复杂问题仍可能持续数分钟；停止或关闭页面会取消当前模型、检索及在途客户端请求。模型余额不足、请求失败和未知数据分别保留。CLI 继续在正常结束并保存后输出完整答案。
+左侧选择数据和模型后，点击“开始新会话”生效，顶部显示本会话实际批次和模型。早期未标注批次的历史保持未标注。页面在模型生成正文时逐步展示，并标记尚未完成；正常结束且保存成功后才确认完整答案。工具调用前的中间文字在进入工具或下一轮模型时清除，不与最终正文拼接。失败、取消或断流时清除未完成预览。复杂问题仍可能持续数分钟；停止或关闭页面会取消当前模型、检索及在途客户端请求。模型余额不足、请求失败和未知数据分别保留。CLI 继续在正常结束并保存后输出完整答案。
+
+### 模型登记与切换
+
+| 页面名称 | `provider` | `model` | 官方入口 |
+| --- | --- | --- | --- |
+| DeepSeek V4 Pro | `deepseek` | `deepseek-v4-pro` | `https://api.deepseek.com` |
+| DeepSeek V4.1 Flash | `deepseek` | `deepseek-flash` | `https://api.deepseek.com` |
+| GLM-5.3-FlashX | `zai` | `glm-5.3-flashx` | `https://open.bigmodel.cn/api/paas/v4` |
+
+宿主在 `DOMEYE_MODEL_CONFIG` 指定的文件中登记可选模型及默认模型。以下仅为结构示例，凭据占位文字须通过宿主配置渠道替换；两个 DeepSeek 条目可使用同一份该提供方凭据。
+
+```json
+{
+  "defaultModel": "deepseek-v4-pro",
+  "models": [
+    {"provider": "deepseek", "model": "deepseek-v4-pro", "apiKey": "宿主私有凭据"},
+    {"provider": "deepseek", "model": "deepseek-flash", "apiKey": "宿主私有凭据"},
+    {"provider": "zai", "model": "glm-5.3-flashx", "apiKey": "宿主私有凭据"}
+  ]
+}
+```
+
+每项可选 `thinkingLevel: "low" | "high"`，省略为 high，均使用标准请求和 32768 输出上限；可选 `baseUrl` 仅接受上表对应入口。配置在启动时读取，变更后按运行手册重启问数服务。单条 `{provider, model, apiKey}` 配置继续可用，保持原模型为默认值。未配置的模型在页面显示“未配置”并禁选；不自动复用其他提供方的凭据，也不在失败时改用其他模型。
+
+模型在新会话创建时固定，追问沿用该模型；回答和保存尚未结束时不能切换。切换成功后旧会话作为只读历史，新的会话不继承旧模型上下文。顶部和历史记录显示实际模型，旧记录没有身份时显示“模型未标注”。宿主同时保存模型标识、实际推理档位和[推理记录](#模型推理记录)。选择 Flash/FlashX 是选择模型，不开启 Fast mode。
+
+`GET /api/models` 只公开名称、模型标识、提供方、是否已配置和默认选择，不公开密钥或运行地址；“已配置”不证明余额或网络可用。`POST /api/session` 接受 `modelId` 和 `datasetId`，省略 `modelId` 使用宿主默认值；未知或未配置选择返回 400，保留原会话。CLI 使用 `--model glm-5.3-flashx` 或其他已登记 ID，省略时使用默认模型。
+
+历史中的 SDK `usage.cost` 不是实际账单。GLM-5.3-FlashX 不借用其他模型费率，成本估算字段保存为 `null`；token 用量照常记录，费用以提供方账单为准。
 
 ### 国家中断查询
 
@@ -109,7 +138,7 @@ Core 的完整交付绑定已确认时，与完成文件的版本化查询入口
 
 工具发现和收窄参考 [Cloudflare search](https://github.com/cloudflare/mcp/blob/main/src/tools/search.ts) 与[截断实现](https://github.com/cloudflare/mcp/blob/main/src/truncate.ts)：模型可见结果限制为 24000 个 JavaScript 字符。JSON 排版超过额度时先尝试不改变内容的紧凑表示，能够完整容纳则保留全部字段、数值和时点；字符串原文不压缩。紧凑表示仍超限时明确标记 TRUNCATED，原始结果继续保存。`execute` 另返回 `resultReference.toolCallId`；后续代码用 `await domeye.readResult(id)` 读取该次完整返回，在本题内继续筛选或计算，不再为补齐截断重复 HTTP。其形状仍是原代码的返回值，不自动附加业务字段。引用只存在本题内存，进入新问题或关闭会话时清除；复制和派生结果保留原请求依赖，版本失效或读取故障不能通过复用绕过。`requestControl.reusedResults` 与历史中的 `result_reuse` 记录原工具与 HTTP 回执引用，不伪造新的 HTTP，也不证明任意派生字段的血缘、完整性或可比性。宿主注入和执行边界参考 [Cloudflare execute](https://github.com/cloudflare/mcp/blob/main/src/tools/execute.ts)，业务语义由 Domeye 决定。
 
-应用使用 Pi 0.87.0 和 DeepSeek `deepseek-v4-pro`，默认 high 推理、标准请求，输出上限为 32768。模型配置可显式选择 low 或 high；两者均启用思考，会话记录实际使用的档位。
+应用使用 Pi 0.87.0；可选模型、推理档位和输出额度见[模型登记与切换](#模型登记与切换)。三个模型沿用相同工具、数据读取边界和推理记录方式。
 
 会话记录保存问题、文档原文、工具代码、原始 HTTP、答案、数据来源、失败状态及[模型推理记录](#模型推理记录)，不保存模型密钥。`completed` 只表示正常结束并保存，不是答案正确性认证。没有自动评分、词表或答案检查门槛。
 

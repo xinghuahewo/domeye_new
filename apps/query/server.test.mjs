@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createChatServer } from './server.mjs';
+import { Check } from 'typebox/value';
 
 // 固定假 Agent 只验证 HTTP/会话边界；不调用模型、QMD 或业务 API。
 const secret = 'synthetic-only-model-key';
@@ -14,7 +15,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 async function fixture(t, makeAgent, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'domeye-chat-test-'));
   const historyDir = join(directory, 'history');
-  const service = await createChatServer({ modelConfig: { apiKey: secret }, historyDir, createAgent: makeAgent, ...options });
+  const service = await createChatServer({ modelConfig: { provider:'deepseek', model:'deepseek-v4-pro', apiKey: secret }, historyDir, createAgent: makeAgent, ...options });
   const origin = await service.listen(0);
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true }); });
   const post = (path, value, headers = {}) => fetch(origin + path, { method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(value) });
@@ -43,6 +44,63 @@ function fakeFactory({ gate, started, stopped } = {}) {
   };
   return { create, agents };
 }
+
+test('按会话绑定模型：拒绝未配置选择，保护在途回答，公开与历史合同保留模型身份',async t=>{
+  const glmKey='synthetic-glm-key', options=[];
+  const gate=deferred(),started=deferred();t.after(()=>gate.resolve());
+  const factory=fakeFactory({gate,started});
+  const {origin,post,historyDir}=await fixture(t,async input=>{options.push(input);return factory.create(input);},{
+    models:{defaultModel:'deepseek-v4-pro',models:[
+      {provider:'deepseek',model:'deepseek-v4-pro',apiKey:secret},
+      {provider:'deepseek',model:'deepseek-flash',apiKey:secret},
+      {provider:'zai',model:'glm-5.3-flashx',apiKey:glmKey},
+    ]},
+  });
+  const contract=JSON.parse(await readFile(new URL('./openapi.json',import.meta.url),'utf8'));
+  function expand(value){
+    if(Array.isArray(value))return value.map(expand);
+    if(!value || typeof value!=='object')return value;
+    if(value.$ref)return expand(value.$ref.slice(2).split('/').reduce((node,key)=>node[key],contract));
+    return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,expand(item)]));
+  }
+  const matches=(schema,value)=>assert.ok(Check(expand(contract.components.schemas[schema]),value),schema+' 不符合合同');
+  const listed=await fetch(origin+'/api/models').then(r=>r.json());matches('ModelList',listed);
+  assert.deepEqual(listed.models.map(item=>item.available),[true,true,true]);
+  assert.ok(!JSON.stringify(listed).includes('apiKey'));assert.ok(!JSON.stringify(listed).includes('baseUrl'));
+  const first=await post('/api/session',{modelId:'glm-5.3-flashx',datasetId:'three-day'}).then(r=>r.json());
+  matches('Session',first);assert.equal(first.model.label,'GLM-5.3-FlashX');
+  assert.equal(options[0].modelConfig.apiKey,glmKey);assert.equal(options[0].modelConfig.provider,'zai');
+  for(const modelId of ['unknown',null,{},''])assert.equal((await post('/api/session',{modelId})).status,400);
+  assert.equal((await post('/api/session',{modelId:'deepseek-flash',apiKey:'client-injected'})).status,400);
+  assert.equal(factory.agents[0].closed,false);
+  const answering=await post('/api/chat',{sessionId:first.id,question:'绑定模型'});await started.promise;
+  assert.equal((await post('/api/session',{modelId:'deepseek-flash'})).status,409);
+  gate.resolve();await answering.text();
+  assert.equal((await fetch(origin+'/api/session').then(r=>r.json())).model.id,first.model.id);
+  await writeFile(join(historyDir,first.id+'.json'),JSON.stringify({id:first.id,provider:'zai',model:'glm-5.3-flashx',model_selection:first.model,
+    turns:[{question:'历史模型',answer:secret+glmKey,status:'completed'}]}));
+  const second=await post('/api/session',{modelId:'deepseek-flash'}).then(r=>r.json());
+  matches('Session',second);assert.notEqual(second.id,first.id);assert.equal(second.model.label,'DeepSeek V4.1 Flash');
+  assert.equal(options[1].modelConfig.model,'deepseek-flash');assert.equal(factory.agents[0].closed,true);
+  const history=await fetch(origin+'/api/history/'+first.id).then(r=>r.json());matches('HistorySession',history);
+  assert.equal(history.model.id,first.model.id);assert.equal(history.turns[0].answer,'[已隐藏凭据][已隐藏凭据]');
+  const legacyId=randomUUID();await writeFile(join(historyDir,legacyId+'.json'),JSON.stringify({id:legacyId,provider:'deepseek',model:'deepseek-v4-pro',turns:[{question:'旧模型',status:'completed'}]}));
+  const unknownId=randomUUID();await writeFile(join(historyDir,unknownId+'.json'),JSON.stringify({id:unknownId,turns:[{question:'未标注',status:'completed'}]}));
+  assert.equal((await fetch(origin+'/api/history/'+legacyId).then(r=>r.json())).model.id,'deepseek-v4-pro');
+  assert.equal((await fetch(origin+'/api/history/'+unknownId).then(r=>r.json())).model,null);
+  const historyList=await fetch(origin+'/api/history').then(r=>r.json());matches('HistoryList',historyList);
+  assert.equal(historyList.records.find(item=>item.id===first.id).model.id,first.model.id);
+});
+
+test('未配置模型可见但不可选择，不创建 Agent 或关闭已有会话',async t=>{
+  const factory=fakeFactory();const {origin,post}=await fixture(t,factory.create);
+  const listed=await fetch(origin+'/api/models').then(r=>r.json());
+  assert.deepEqual(listed.models.map(item=>item.available),[true,false,false]);
+  const first=await post('/api/session',{}).then(r=>r.json());
+  assert.equal((await post('/api/session',{modelId:'glm-5.3-flashx'})).status,400);
+  assert.equal(factory.agents.length,1);assert.equal(factory.agents[0].closed,false);
+  assert.equal((await fetch(origin+'/api/session').then(r=>r.json())).id,first.id);
+});
 
 test('显式来源支持服务器入口；伪造 Host、Origin 和转发头均不能放行', async t => {
   const factory = fakeFactory();
@@ -172,6 +230,7 @@ test('页面切换锁与迟到同步：旧响应不能覆盖新会话', async ()
     fetch: async (path, options) => {
       let value;
       if (path === '/api/history') value = { records: [] };
+      else if (path === '/api/models') value = {defaultModel:'deepseek-v4-pro',models:[{id:'deepseek-v4-pro',label:'DeepSeek V4 Pro',available:true}]};
       else if (path === '/api/datasets') value = { datasets: [{id:'completed-files',label:'本项目结果'}] };
       else if (options?.method === 'POST') { posts++; current = { id: 'new-session-' + posts, busy: false, turns: [] }; value = current; }
       else { value = current; if (held) { held.entered.resolve(); await held.gate.promise; } }
@@ -221,7 +280,7 @@ test('模型余额不足可读提示；不向页面暴露原始错误中的配�
   ]}));
   const raw=await fetch(origin+'/api/history/'+id).then(r=>r.text());
   const value=JSON.parse(raw);
-  assert.equal(value.turns[0].failureReason,'模型服务余额不足，本次回答未完成。补充 DeepSeek 额度后再试。');
+  assert.equal(value.turns[0].failureReason,'模型服务余额不足，本次回答未完成。请补充所选模型的额度后再试。');
   assert.equal(value.turns[1].failureReason,'');
   assert.ok(!raw.includes(secret));assert.ok(!raw.includes('/宿主/路径'));
 });
@@ -251,7 +310,7 @@ test('页面消费真实分片：步骤不串文，完成前可见，失败取�
       setTimeout,clearTimeout,TextDecoder,performance,requestAnimationFrame:callback=>setImmediate(callback),
       fetch:async path=>{
         if(path==='/api/chat')return {ok:true,body};
-        return {ok:true,json:async()=>path==='/api/history'?{records:[]}:path==='/api/datasets'?{datasets:[]}:current};
+        return {ok:true,json:async()=>path==='/api/history'?{records:[]}:path==='/api/datasets'?{datasets:[]}:path==='/api/models'?{defaultModel:'deepseek-v4-pro',models:[]}:current};
       }
     };
     const source=await readFile(new URL('./web/app.js',import.meta.url),'utf8');

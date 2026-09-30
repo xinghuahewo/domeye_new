@@ -21,3 +21,12 @@ test('正常结束释放未构成凭据的尾部前缀，不丢字',()=>{
   assert.equal(stream.push('ab'),'');
   assert.equal(stream.finish(),'ab');
 });
+
+test('多提供方凭据在同一条流中跨分片隐藏，切换模型后仍保护全部已登记密钥',()=>{
+  const keys=['synthetic-ds-key','synthetic-glm-key'];
+  const source='开始'+keys[1]+'然后'+keys[0]+'结束';
+  for(let cut=0;cut<source.length;cut++){
+    const stream=createTextRedactor(keys);
+    assert.equal(stream.push(source.slice(0,cut))+stream.push(source.slice(cut))+stream.finish(),'开始[已隐藏凭据]然后[已隐藏凭据]结束');
+  }
+});
