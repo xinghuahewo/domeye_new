@@ -1,27 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from 'vue'
 import { getTopFeatures } from '@/api/features'
-import { getResources, type ResourcePoint, type ResourceStatistics } from '@/api/resources'
 import type { FeaturePoint } from '@/types/api'
 import { toBusinessTime } from '@/utils/businessTime'
-import { scopeMillis, scopeError, scopeLabel } from '@/utils/coreScope'
+import { scopeMillis, scopeError, scopeLabel, scopeMinimum, scopeMaximum } from '@/utils/coreScope'
+import { useCoreTrendScope } from '@/utils/coreTrendScope'
 import LineChart, { type ChartSeries } from './LineChart.vue'
 
 const props = defineProps<{ date: string; start?: string; end?: string; country?: string; refreshKey: number }>()
-const selectedWindow = computed(() => ({
+const homeWindow = computed(() => ({
   start: props.start || `${props.date}T00:00:00`,
   end: props.end || toBusinessTime(new Date(Date.parse(`${props.date}T00:00:00+08:00`) + 86400000)).replace(' ', 'T'),
   country: props.country || '',
 }))
+const { selectedWindow, draft, rangeError, localRange, applyRange, resetRange } = useCoreTrendScope(homeWindow)
 const timeBounds = computed<[string, string]>(() => [selectedWindow.value.start + '+08:00', selectedWindow.value.end + '+08:00'])
-const period = computed(() => props.start ? '此区间' : '此日')
+const period = computed(() => props.start || localRange.value ? '此区间' : '此日')
 const points = ref<FeaturePoint[]>([])
 const loading = ref(false)
 const error = ref('')
-const resources = ref<ResourceStatistics | null>(null)
-const resourceError = ref('')
-const resourceBounds = computed<[string, string] | undefined>(() => resources.value?.query
-  ? [resources.value.query.start, resources.value.query.end_exclusive] : undefined)
 let controller: AbortController | undefined
 let requestNumber = 0
 const metrics = computed(() => [
@@ -29,20 +26,6 @@ const metrics = computed(() => [
   { title: 'IPv4 资源量', unit: '/24 等价量', note: 'Feature 文件末状态 · 非去重前缀数', series: [series('IPv4 资源', 'ipv4Prefixes')] },
   { title: 'IPv6 资源量', unit: '/48 等价量', note: 'Feature 文件末状态', series: [series('IPv6 资源', 'ipv6Prefixes')] },
 ])
-const resourceMetrics = computed(() => [
-  { title: 'IPv4 去重前缀', unit: '条', note: '不同 IPv4 前缀', key: 'ipv4_prefix_count' as const },
-  { title: 'IPv6 资源量', unit: '/48 块', note: 'IPv6 /48 覆盖块', key: 'ipv6_48_count' as const },
-  { title: '公有 AS 数', unit: '个', note: 'Resource 尾 ASN 规则 · 与明确起源 AS 数分开', key: 'public_as_count' as const },
-].map(metric => ({ ...metric, series: [resourceSeries(metric.title, metric.key)] })))
-function resourceSeries(name: string, key: keyof ResourcePoint['metrics']): ChartSeries {
-  return { name, color: '#967431', type: 'scatter', data: (resources.value?.points ?? []).map(point => [point.observed_at, point.metrics[key].main]) }
-}
-const resourceNote = computed(() => {
-  const rows = resources.value?.points ?? []
-  if (!rows.length) return '各 RIB 独立时点'
-  const last = toBusinessTime(new Date(rows.at(-1)!.observed_at)).slice(props.start && props.start.slice(0, 10) !== props.end?.slice(0, 10) ? 5 : 11)
-  return `${rows.length} 个 RIB 时点 · 末次 ${last} · 时点之间未知`
-})
 function series(name: string, key: keyof Omit<FeaturePoint, 'time'>, color = '#3e6f89'): ChartSeries {
   const data: ChartSeries['data'] = []
   points.value.forEach((point, index) => {
@@ -61,36 +44,30 @@ function lastValue(items: ChartSeries[]) {
   return last?.[1] == null ? '末值 —' : `末值 ${last[1].toLocaleString('zh-CN')}`
 }
 const observedAt = computed(() => points.value.length
-  ? toBusinessTime(new Date(points.value.at(-1)!.time)).slice(props.start && selectedWindow.value.start.slice(0, 10) !== selectedWindow.value.end.slice(0, 10) ? 5 : 11)
+  ? toBusinessTime(new Date(points.value.at(-1)!.time)).slice(scopeMillis(selectedWindow.value.end) - scopeMillis(selectedWindow.value.start) > 86400000 ? 5 : 11)
   : '')
 async function load() {
   const current = ++requestNumber
   controller?.abort()
-  points.value = []; error.value = ''; resources.value = null; resourceError.value = ''; loading.value = false
+  points.value = []; error.value = ''; loading.value = false
   const window = selectedWindow.value
   const invalid = scopeError(window)
-  if (invalid) { error.value = resourceError.value = invalid; return }
+  if (invalid) { error.value = invalid; return }
   const start = window.start.replace('T', ' ')
   // Feature 旧接口的终点包含在内；秒级采样减一秒转换为本页半开区间。
   const end = toBusinessTime(new Date(scopeMillis(window.end) - 1000))
   const request = new AbortController()
   controller = request; loading.value = true
   try {
-    const [feature, resource] = await Promise.allSettled([
-      getTopFeatures(window.country || 'collector', { start_time: start, end_time: end }, request.signal),
-      window.country ? Promise.resolve(null) : getResources({ start_time: start, end_time: window.end.replace('T', ' ') }, request.signal),
-    ])
+    const feature = await getTopFeatures(window.country || 'collector', { start_time: start, end_time: end }, request.signal)
     if (current !== requestNumber || request.signal.aborted) return
-    if (feature.status === 'fulfilled' && feature.value.every(point => scopeMillis(window.start) <= Date.parse(point.time) && Date.parse(point.time) < scopeMillis(window.end))) points.value = feature.value
+    if (feature.every(point => scopeMillis(window.start) <= Date.parse(point.time) && Date.parse(point.time) < scopeMillis(window.end))) points.value = feature
     else error.value = `${period.value}特征读取失败，请重新读取`
-    if (window.country) resourceError.value = '地区 RIB 统计尚未生成'
-    else if (resource.status === 'fulfilled') resources.value = resource.value
-    else resourceError.value = `${period.value}资源统计读取失败，请重新读取`
   } catch (cause) {
     if (current === requestNumber && !request.signal.aborted) error.value = `${period.value}特征读取失败，请重新读取`
   } finally { if (current === requestNumber) loading.value = false }
 }
-watch(() => `${props.date}|${props.start}|${props.end}|${props.country}|${props.refreshKey}`, load)
+watch([selectedWindow, () => props.refreshKey], load)
 onMounted(load)
 onServerPrefetch(load)
 onBeforeUnmount(() => { requestNumber++; controller?.abort() })
@@ -98,38 +75,38 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 
 <template>
   <section id="routing" class="core-daily-trends" aria-labelledby="core-trends-title">
-    <div class="c-section-caption"><h2 id="core-trends-title">趋势分析</h2><span>{{ props.start ? scopeLabel(selectedWindow) : date }} · {{ country || '全球' }}</span></div>
-    <div class="core-trend-columns">
+    <div class="c-section-caption"><h2 id="core-trends-title">趋势分析</h2><span>{{ scopeLabel(selectedWindow) }} · {{ country || '全球' }}</span></div>
+    <form class="core-trend-range" aria-label="特征图时间筛选" @submit.prevent="applyRange">
+      <label>开始时间<input v-model="draft.start" type="datetime-local" step="1" :min="scopeMinimum" :max="scopeMaximum" required aria-label="特征图开始时间" /></label>
+      <label>结束时间<input v-model="draft.end" type="datetime-local" step="1" :min="scopeMinimum" :max="scopeMaximum" required aria-label="特征图结束时间" /></label>
+      <button type="submit">应用图表区间</button><button type="button" class="core-trend-reset" @click="resetRange">重置为首页区间</button>
+      <p>北京时间 · 右端不含。仅影响下方三张图，国家跟随首页；{{ localRange ? '当前使用独立图表区间' : '当前跟随首页区间' }}。</p>
+      <p v-if="rangeError" class="core-trend-range-error" role="alert">{{ rangeError }}</p>
+    </form>
       <section class="core-trend-panel" aria-label="Feature 特征趋势" :aria-busy="loading">
         <header><h3>特征趋势 <span>FEATURE</span></h3><p>{{ country || '全球 · RRC25' }} · 全部地址族<span v-if="observedAt"> · 末次采样 {{ observedAt }}</span></p></header>
         <div v-for="metric in metrics" :key="metric.title" class="core-trend-metric">
           <div class="core-trend-metric-heading"><h4>{{ metric.title }}</h4><span>{{ lastValue(metric.series) }}</span></div>
           <div v-if="loading" class="core-trend-state" role="status">正在读取区间特征…</div>
           <div v-else-if="error" class="core-trend-state" role="status">{{ error }}</div>
-          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" :time-bounds="timeBounds" />
+          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="320" :show-points="true" :show-data-zoom="true" :time-bounds="timeBounds" />
           <div v-else class="core-trend-state" role="status">{{ points.length ? `${period}未返回该指标` : `${period}没有可用特征采样` }}<small>缺失不表示数量为零</small></div>
           <p>{{ metric.unit }} · {{ metric.note }}</p>
         </div>
       </section>
-      <section class="core-trend-panel" aria-label="Resource 资源趋势" :aria-busy="loading">
-        <header><h3>资源规模 <span>RESOURCE</span></h3><p>{{ resourceNote }}</p></header>
-        <div v-for="metric in resourceMetrics" :key="metric.title" class="core-trend-metric">
-          <div class="core-trend-metric-heading"><h4>{{ metric.title }}</h4><span>{{ lastValue(metric.series) }}</span></div>
-          <div v-if="loading" class="core-trend-state" role="status">正在读取 RIB 资源统计…</div>
-          <div v-else-if="resourceError" class="core-trend-state" role="status">{{ resourceError }}</div>
-          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" :time-bounds="resourceBounds" />
-          <div v-else class="core-trend-state" role="status">{{ resources?.state === 'available' ? '该指标主值不可用' : resources?.message || `${period}没有 RIB 资源统计` }}<small>未计算或不适用不表示零</small></div>
-          <p>{{ metric.note }} · {{ metric.unit }}</p>
-        </div>
-      </section>
-    </div>
-    <p class="core-trend-scope">按所选地区与时间区间读取全部地址族；异常列表的类型、等级和地址族筛选不改变此区。Feature 显示文件末采样，Resource 当前仅有全球独立 RIB 统计点，不连成连续状态或补齐缺失时段。</p>
+    <p class="core-trend-scope">可拖动每张图底部的时间滑块放大查看。三图读取所选地区的全部地址族，显示文件末采样；缺失时段断线。首页地区或区间变化时，图表区间自动跟随重置。</p>
   </section>
 </template>
 
 <style scoped>
 .core-daily-trends { margin:26px 0; scroll-margin-top:18px; }
-.core-trend-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.core-trend-range { display:flex; align-items:end; flex-wrap:wrap; gap:12px; margin-bottom:18px; padding:16px 20px; background:var(--surface); border:1px solid var(--line); border-radius:6px; }
+.core-trend-range label { display:grid; gap:6px; font-size:11px; color:var(--muted); }
+.core-trend-range input { padding:9px; border:1px solid var(--line); border-radius:4px; background:white; }
+.core-trend-range button { padding:10px 16px; border-radius:4px; background:var(--accent); color:white; font-size:12px; }
+.core-trend-range .core-trend-reset { background:transparent; color:var(--accent); border:1px solid var(--line); }
+.core-trend-range p { width:100%; font-size:11px; color:var(--muted); line-height:1.7; }
+.core-trend-range .core-trend-range-error { color:#945038; }
 .core-trend-panel { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:6px; }
 .core-trend-panel>header { padding:19px 21px 16px; border-bottom:1px solid var(--line); }
 .core-trend-panel h3 { font-size:17px; font-weight:550; }
@@ -141,8 +118,8 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 .core-trend-metric-heading { display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; min-height:26px; }
 .core-trend-metric-heading h4 { font-size:13px; font-weight:550; margin:0; }
 .core-trend-metric-heading>span { font:12px var(--mono); }
-.core-trend-state { min-height:200px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:8px; color:var(--muted); font-size:13px; text-align:center; }
+.core-trend-state { min-height:320px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:8px; color:var(--muted); font-size:13px; text-align:center; }
 .core-trend-state small { font-size:11px; }
 .core-trend-scope { margin-top:12px; }
-@media(max-width:700px) { .core-trend-columns { grid-template-columns:1fr; }.core-trend-metric { padding:15px 12px 12px; }.core-trend-panel>header { padding:17px; } }
+@media(max-width:700px) { .core-trend-range { padding:14px 12px; }.core-trend-range label { width:100%; }.core-trend-range input { min-width:0; }.core-trend-metric { padding:15px 12px 12px; }.core-trend-panel>header { padding:17px; } }
 </style>

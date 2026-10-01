@@ -2,15 +2,24 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import CoreDailyTrends from './CoreDailyTrends.vue'
+import type { useCoreTrendScope } from '@/utils/coreTrendScope'
 
-const { get, resource, chart } = vi.hoisted(() => ({ get: vi.fn(), resource: vi.fn(), chart: vi.fn() }))
+const { get, resource, chart, customizeScope } = vi.hoisted(() => ({ get: vi.fn(), resource: vi.fn(), chart: vi.fn(), customizeScope: vi.fn() }))
 vi.mock('@/api/features', () => ({ getTopFeatures: get }))
 vi.mock('@/api/resources', () => ({ getResources: resource }))
-vi.mock('./LineChart.vue', () => ({ default: { props: ['series', 'timeBounds'], setup(props: unknown) { chart(props); return () => null } } }))
-beforeEach(() => { get.mockReset(); chart.mockReset(); resource.mockReset().mockResolvedValue({ state: 'not_calculated', points: [], message: '此日没有 RIB 资源统计' }) })
+vi.mock('@/utils/coreTrendScope', async importOriginal => {
+  const original = await importOriginal<typeof import('@/utils/coreTrendScope')>()
+  return { useCoreTrendScope: (...args: Parameters<typeof useCoreTrendScope>) => {
+    const scope = original.useCoreTrendScope(...args)
+    customizeScope(scope)
+    return scope
+  } }
+})
+vi.mock('./LineChart.vue', () => ({ default: { props: ['series', 'timeBounds', 'showDataZoom', 'height'], setup(props: unknown) { chart(props); return () => null } } }))
+beforeEach(() => { get.mockReset(); chart.mockReset(); resource.mockReset(); customizeScope.mockReset() })
 const render = () => renderToString(h(CoreDailyTrends, { date: '2026-03-31', refreshKey: 0 }))
 
-it('只读所选业务日，Feature 单位分开，Resource 未计算保持缺失', async () => {
+it('只读所选业务日，Feature 三图启用时间滑块，不展示或请求 Resource', async () => {
   get.mockResolvedValue([{ time: '2026-03-31T15:55:00Z', announce: 9, withdraw: 2, ipv4Prefixes: 5, ipv6Prefixes: 0, ipv4Addresses: 1280 }])
   const html = await render()
   expect(get).toHaveBeenCalledWith('collector', { start_time: '2026-03-31 00:00:00', end_time: '2026-03-31 23:59:59' }, expect.any(AbortSignal))
@@ -18,21 +27,26 @@ it('只读所选业务日，Feature 单位分开，Resource 未计算保持缺�
   expect(html).toContain('末值 0')
   expect(html).toContain('/24 等价量')
   expect(html).toContain('/48 等价量')
-  expect(html).toContain('此日没有 RIB 资源统计')
-  expect(resource).toHaveBeenCalledWith({ start_time: '2026-03-31 00:00:00', end_time: '2026-04-01 00:00:00' }, expect.any(AbortSignal))
+  expect(html).not.toContain('Resource 资源趋势')
+  expect(html).not.toContain('RESOURCE')
+  expect(resource).not.toHaveBeenCalled()
+  expect(chart).toHaveBeenCalledTimes(3)
+  for (const [props] of chart.mock.calls) expect(props).toMatchObject({ showDataZoom: true, height: 320 })
   expect(html).toContain('末次采样 23:55:00')
 })
 
-it('资源独立时点只使用主值，真实零、未限定主值与读取失败分别显示', async () => {
-  get.mockResolvedValue([])
-  resource.mockResolvedValue({ state: 'available', points: [{ observed_at: '2026-03-31T00:00:00Z',
-    metrics: { ipv4_prefix_count: { main: 12 }, ipv6_48_count: { main: 0 }, public_as_count: { main: null, raw: 99 } } }] })
-  const html = await render()
-  expect(html).toContain('1 个 RIB 时点 · 末次 08:00:00 · 时点之间未知')
-  expect(html).toContain('末值 12'); expect(html).toContain('末值 0')
-  expect(html).toContain('该指标主值不可用'); expect(html).not.toContain('末值 99')
-  resource.mockRejectedValue(new Error('network'))
-  expect(await render()).toContain('此日资源统计读取失败')
+it('应用局部分钟范围后，三图请求同一半开窗口且仍使用首页国家', async () => {
+  customizeScope.mockImplementationOnce((scope: ReturnType<typeof useCoreTrendScope>) => {
+    scope.draft.value = { start: '2026-02-24T09:00', end: '2026-02-24T10:00' }
+    scope.applyRange()
+  })
+  get.mockResolvedValue([{ time: '2026-02-24T01:05:00Z', announce: 2, withdraw: 0, ipv4Prefixes: 10, ipv6Prefixes: 0 }])
+  const html = await renderToString(h(CoreDailyTrends, { date: '2026-02-23', start: '2026-02-23T00:00:00', end: '2026-02-25T00:00:00', country: '伊朗', refreshKey: 0 }))
+  expect(get).toHaveBeenCalledWith('伊朗', { start_time: '2026-02-24 09:00:00', end_time: '2026-02-24 09:59:59' }, expect.any(AbortSignal))
+  expect(chart).toHaveBeenCalledTimes(3)
+  for (const [props] of chart.mock.calls) expect(props.timeBounds).toEqual(['2026-02-24T09:00:00+08:00', '2026-02-24T10:00:00+08:00'])
+  expect(html).toContain('当前使用独立图表区间')
+  expect(resource).not.toHaveBeenCalled()
 })
 
 it('末值缺失不能拿此前资源值充作当前值', async () => {
@@ -61,7 +75,7 @@ it('跨日地区查询使用同一半开窗口，不借用全球 Resource', asyn
   expect(get).toHaveBeenCalledWith('伊朗', { start_time: '2026-02-23 11:35:00', end_time: '2026-02-24 11:34:59' }, expect.any(AbortSignal))
   expect(resource).not.toHaveBeenCalled()
   expect(html).toContain('末值 10')
-  expect(html).toContain('地区 RIB 统计尚未生成')
+  expect(html).not.toContain('RESOURCE')
   expect(html).toContain('伊朗')
 })
 
