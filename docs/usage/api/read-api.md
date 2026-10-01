@@ -81,7 +81,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 `GET /api/v1/features/countries/comparison` 使用 `country`、`start_time/end_time` 与 `reference_start_time/reference_end_time` 指定同一国家的当前窗和参照窗，可选 `version`；每窗最多 24 小时。它在同次只读请求内复用上述 Feature 和下述中断时序，返回通告、撤回、IPv4/IPv6 资源量、AS 与前缀中断数量的两侧值、实际时间和比较资格，无需调用方重新从裸数字拼接合计或增幅。
 
-活动的 `statistic=window_total` 要求两侧均为精确整窗合计且时长相同；否则 `comparison.state=not_comparable`，差值和百分比为 null。`known_window_sum` 仍只对应列出的已知文件区间，不能替代 `value`。资源和并发中断用 `statistic=last_sample` 比较两窗末个保存样本，保留各自实际 `at`，不是整小时恒定读数；末样本未知不退回更早已知值。参照值为零时可以有差值，百分比保持未知。
+活动的 `statistic=window_total` 要求两侧均为精确整窗合计且时长相同；否则 `comparison.state=not_comparable`，差值和百分比为 null。`known_window_sum` 仍只对应列出的已知文件区间，不能替代 `value`。处理覆盖与活动统计纳入范围的区别见[时间、汇总与比较规则](../rules/time-and-aggregation.md#时序的分桶统计)。资源和并发中断用 `statistic=last_sample` 比较两窗末个保存样本，保留各自实际 `at`，不是整小时恒定读数；末样本未知不退回更早已知值。参照值为零时可以有差值，百分比保持未知。
 
 这些指标的总体由 `population` 表达：Feature 国家记录、检测 ASN、粗路由前缀分别统计，不替换成某次事件峰值成员。`reference` 只是所选参照窗，不自动成为正常基线；`recovery_assessment=not_assessed`，事件状态和恢复仍需事件记录及适用证据。本入口不自动平移或扩大请求窗口。读取失败返回 503，版本变化返回 409，不将失败值变成空集或零。
 

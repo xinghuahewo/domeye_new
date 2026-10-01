@@ -1,4 +1,7 @@
 """公共比较入口保留测量范围和总体；使用合成数据经过真实读取与统计路径。"""
+import json
+from pathlib import Path
+
 import psycopg2
 import pytest
 
@@ -46,6 +49,27 @@ def test_partial_activity_does_not_become_a_full_window_change(series, client):
     assert values['prefix_outage']['population'] == 'coarse_routing_prefixes'
     assert body['metadata']['recovery_assessment'] == 'not_assessed'
     validate(body, 'CountryComparisonPayload')
+
+
+@pytest.mark.parametrize('start,end,first', [('19:02:00', '19:12:00', '19:05:00'),
+                                           ('19:00:00', '19:12:00', '19:00:00')])
+def test_complete_delivery_and_selected_activity_intervals_have_distinct_contracts(series, client, start, end, first):
+    body = client.get(URL, query_string={**QUERY,
+        'reference_start_time': '2026-03-01 ' + start,
+        'reference_end_time': '2026-03-01 ' + end}).get_json()
+    assert body['query']['reference']['coverage']['state'] == 'complete'
+    activity = body['metrics']['announce']
+    assert activity['reference']['source_intervals'] == [{
+        'start': '2026-03-01T' + first + '+08:00',
+        'end_exclusive': '2026-03-01T19:10:00+08:00'}]
+    assert activity['reference']['value'] is None
+    assert activity['comparison']['state'] == 'not_comparable'
+    assert activity['comparison']['delta'] is None
+    validate(body, 'CountryComparisonPayload')
+    schemas = json.loads((Path(__file__).resolve().parents[3] / 'contracts/openapi.json').read_text())['components']['schemas']
+    for name in ['ComparisonWindowReading', 'SeriesWindowStatistics']:
+        ref = schemas[name]['properties']['source_intervals']['items']['$ref']
+        assert ref == '#/components/schemas/ActivitySourceInterval'
 
 
 def test_equal_complete_windows_return_both_activity_changes_and_zero_reference(series, client):

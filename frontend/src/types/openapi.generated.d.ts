@@ -2327,7 +2327,7 @@ export interface components {
             unit: string;
             sample_count: number;
             known_sample_count: number;
-            source_intervals: components["schemas"]["ResultDeliveryInterval"][];
+            source_intervals: components["schemas"]["ActivitySourceInterval"][];
             overlapping_windows: boolean;
             known_window_sum: number | null;
             total: number | null;
@@ -2360,11 +2360,11 @@ export interface components {
             /** Format: date-time */
             at: string | null;
         };
-        /** @description value 仅在完整文件无重叠、无空值且精确覆盖整个请求窗时为整窗合计，否则为 null。known_window_sum 只对应实际所列文件区间，不能冒充整窗 value 或参与整窗增幅。 */
+        /** @description value 仅在完整文件无重叠、无空值且精确覆盖整个请求窗时为整窗合计，否则为 null。known_window_sum 只对应实际所列文件区间，不能冒充整窗 value 或参与整窗增幅。 source_intervals 只说明本次活动统计纳入范围，处理覆盖以 query 对应窗口的 coverage 为准。 */
         ComparisonWindowReading: {
             value: number | null;
             known_window_sum: number | null;
-            source_intervals: components["schemas"]["ResultDeliveryInterval"][];
+            source_intervals: components["schemas"]["ActivitySourceInterval"][];
         };
         /** @description 以 current-reference 计算差值，百分比除以 reference；参照为零时百分比未知。活动需两侧均完整且时长相同。点量只比较返回的实际末样本。总体 country_feature_records、detected_asns、coarse_routing_prefixes 分别解释，不能和某次国家事件峰值成员互换；可比较的增减不证明事件恢复。 */
         CountryMetricComparison: {
@@ -2776,6 +2776,13 @@ export interface components {
             status: false;
             /** @description 中文错误说明 */
             msg: string;
+        };
+        /** @description 本次活动统计选入的完整文件区间合并后的半开时段。它表示统计纳入范围，不是输入交付或处理覆盖；跨越查询边界的完整文件不纳入。区间内可有计数未知的样本，列出区间不证明其计数齐全。处理覆盖完整时，统计纳入范围仍可能小于请求窗口。 */
+        ActivitySourceInterval: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end_exclusive: string;
         };
         /** @description 实际已交付的半开时段；重叠或相邻文件窗口合并，缺口保持分离。单 RIB 时点不构成活动覆盖。 */
         ResultDeliveryInterval: {
