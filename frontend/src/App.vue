@@ -59,7 +59,7 @@ onBeforeUnmount(() => { if (timer !== undefined) window.clearInterval(timer) })
         <strong>本批已接入 {{ delivery.files }} 份结果</strong>
         <span>北京时间 {{ deliveryTime(delivery.start) }} 至 {{ deliveryTime(delivery.end_exclusive) }}（右端不含）</span>
         <span>仅此时段有数据，窗口外未知；原任务未完成，归档暂停。</span>
-        <RouterLink :to="{ name: 'home', query: { date: deliveryQuery.start?.slice(0, 10) } }">本批首页</RouterLink>
+        <RouterLink :to="{ name: 'home', query: deliveryQuery }">本批首页</RouterLink>
         <RouterLink :to="{ name: 'countries', query: deliveryQuery }">本批国家特征</RouterLink>
         <RouterLink :to="{ name: 'ases', query: deliveryQuery }">本批 AS 特征</RouterLink>
       </template>

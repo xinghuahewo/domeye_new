@@ -297,7 +297,7 @@ class DeliveredIndex:
         country = response['query'].get('country', '')
         scoped = 'window_mode' in response['query']
         if scoped:
-            response['metadata']['countries'] = available_countries()
+            response['metadata']['countries'] = available_countries(conn_11)
             if country and country not in response['metadata']['countries']:
                 raise InputError('当前结果源没有该国家或地区，请从地区列表选择', 400)
             response['metadata']['query_coverage'] = {

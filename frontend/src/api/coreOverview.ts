@@ -34,7 +34,7 @@ function validateScale(payload: CoreOverview) {
     const intervals = payload.metadata.result_delivery?.intervals ?? []
     if ((payload.state !== 'available' && !(payload.state === 'window_not_retained' && payload.overview === null))
       || !/^rib_statistics_v1_[0-9a-f]{64}$/.test(rib.snapshot_id ?? '')
-      || !Number.isFinite(stamp) || toBusinessTime(new Date(stamp)).slice(0, 10) !== payload.query.date
+      || !Number.isFinite(stamp) || stamp < Date.parse(payload.query.start) || stamp >= Date.parse(payload.query.end_exclusive)
       || !intervals.some(item => Date.parse(item.start) <= stamp && stamp < Date.parse(item.end_exclusive))
       || rib.collector_id !== payload.metadata.source?.collector_id || !/^[0-9a-f]{64}$/.test(rib.source_sha256 ?? '')
       || rib.rule !== 'rib-attributed-origin/private-skip-v1' || !['all', 'ipv4', 'ipv6'].includes(rib.family)
@@ -148,6 +148,12 @@ export async function getCoreOverview(params: CoreOverviewQuery = {}, signal?: A
     throw new Error('首页数据响应不可用')
   }
   if (params.version && payload.version !== params.version) throw new Error('首页数据版本不一致')
+  if (params.start_time || params.end_time || params.country) {
+    const parse = (value: string) => Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value.replace(' ', 'T')}+08:00`)
+    if ((params.start_time && Date.parse(payload.query.start) !== parse(params.start_time))
+      || (params.end_time && Date.parse(payload.query.end_exclusive) !== parse(params.end_time))
+      || payload.query.country !== (params.country || '')) throw new Error('首页返回的时间或地区范围不一致')
+  }
   if (payload.diagnostic && (payload.state !== 'unavailable' || payload.overview !== null
     || payload.trend !== null || payload.events !== null
     || !payload.metadata?.diagnostic_dates?.includes(payload.query?.date))) {

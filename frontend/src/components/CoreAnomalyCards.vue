@@ -4,27 +4,34 @@ import type { CoreOverview } from '@/api/coreOverview'
 import { anomalyKinds, getAnomalySummary, type AnomalyKind, type AnomalySummary } from '@/api/coreAnomalies'
 import { toBusinessTime } from '@/utils/businessTime'
 
-const props = defineProps<{ date: string; family: string; base: CoreOverview | null; refreshKey: number; requestLoading?: boolean }>()
-const emit = defineEmits<{ select: [kind: AnomalyKind, hour?: number] }>()
+const props = defineProps<{ date: string; start?: string; end?: string; country?: string; family: string; base: CoreOverview | null; refreshKey: number; requestLoading?: boolean }>()
+const emit = defineEmits<{ select: [kind: AnomalyKind, bucket?: { start: string; end_exclusive: string }] }>()
 const summaries = ref<Partial<Record<AnomalyKind, AnomalySummary>>>({})
 const loading = ref(false)
 let controller: AbortController | undefined
 let requestNumber = 0
-const binding = computed(() => [props.date, props.family, props.base?.version, props.base?.state,
-  props.base?.query.date, props.base?.query.family, props.refreshKey].join('|'))
-const matching = computed(() => props.base?.query.date === props.date && props.base?.query.family === props.family)
+const binding = computed(() => [props.date, props.start, props.end, props.country, props.family, props.base?.version, props.base?.state,
+  props.base?.query.date, props.base?.query.start, props.base?.query.end_exclusive, props.base?.query.country, props.base?.query.family, props.refreshKey].join('|'))
+const matching = computed(() => props.base?.query.date === props.date && props.base?.query.family === props.family
+  && (!props.start || Date.parse(props.base.query.start) === Date.parse(`${props.start}+08:00`))
+  && (!props.end || Date.parse(props.base.query.end_exclusive) === Date.parse(`${props.end}+08:00`))
+  && (props.base.query.country || '') === (props.country || ''))
 const usable = computed(() => matching.value && props.base?.state === 'available')
 const label = (kind: AnomalyKind) => summaries.value[kind]?.count?.toLocaleString('zh-CN') ?? '—'
-const note = (kind: AnomalyKind) => summaries.value[kind]?.note || (loading.value || props.requestLoading ? '正在读取' : '当日异常数据不可用')
+const note = (kind: AnomalyKind) => summaries.value[kind]?.note || (loading.value || props.requestLoading ? '正在读取' : '区间异常数据不可用')
 const hours = (kind: AnomalyKind) => summaries.value[kind]?.hours
 const height = (kind: AnomalyKind, value: number) => `${value / Math.max(1, ...(hours(kind) || [])) * 100}%`
-const hourLabel = (hour: number) => `${String(hour).padStart(2, '0')}:00–${String(hour + 1).padStart(2, '0')}:00`
-const bars = (kind: AnomalyKind) => summaries.value[kind]?.buckets?.map(bucket => ({
-  value: bucket.value, hour: Number(toBusinessTime(new Date(bucket.start)).slice(11, 13)),
-  label: `${toBusinessTime(new Date(bucket.start)).slice(11, 16)}–${toBusinessTime(new Date(bucket.end_exclusive)).slice(11, 16)}`,
-  start: toBusinessTime(new Date(bucket.start)).slice(11, 16), end: toBusinessTime(new Date(bucket.end_exclusive)).slice(11, 16),
-  weight: (Date.parse(bucket.end_exclusive) - Date.parse(bucket.start)) / 3600000,
-})) ?? hours(kind)?.map((value, hour) => ({ value, hour, label: hourLabel(hour), start: hourLabel(hour).slice(0, 5), end: hourLabel(hour).slice(6), weight: 1 })) ?? []
+const bounds = computed(() => ({ start: Date.parse(`${props.start || `${props.date}T00:00:00`}+08:00`),
+  end: props.end ? Date.parse(`${props.end}+08:00`) : Date.parse(`${props.date}T00:00:00+08:00`) + 86400000 }))
+const axisTime = (stamp: number) => toBusinessTime(new Date(stamp)).slice(bounds.value.end - bounds.value.start > 86400000 ? 5 : 11, 16)
+const bars = (kind: AnomalyKind) => (summaries.value[kind]?.buckets ?? hours(kind)?.map((value, hour) => ({
+  value, start: new Date(bounds.value.start + hour * 3600000).toISOString(),
+  end_exclusive: new Date(bounds.value.start + (hour + 1) * 3600000).toISOString(),
+})) ?? []).map(bucket => ({
+  ...bucket, label: `${axisTime(Date.parse(bucket.start))}–${axisTime(Date.parse(bucket.end_exclusive))}`,
+  left: `${(Date.parse(bucket.start) - bounds.value.start) / (bounds.value.end - bounds.value.start) * 100}%`,
+  width: `${(Date.parse(bucket.end_exclusive) - Date.parse(bucket.start)) / (bounds.value.end - bounds.value.start) * 100}%`,
+}))
 
 async function load() {
   const current = ++requestNumber
@@ -60,16 +67,16 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 
 <template>
   <section id="anomalies" class="core-anomalies" aria-labelledby="core-anomalies-title" :aria-busy="loading">
-    <div class="c-section-caption"><h2 id="core-anomalies-title">异常态势</h2><span>六类异常 · {{ base?.metadata.result_delivery ? '本批时段新增记录' : '当日新增记录' }}</span></div>
+    <div class="c-section-caption"><h2 id="core-anomalies-title">异常态势</h2><span>六类异常 · 所选地区与区间新增记录</span></div>
     <div class="core-anomaly-grid">
       <article v-for="[kind, title] in anomalyKinds" :key="kind" class="core-anomaly-card" :data-testid="`anomaly-${kind}`">
         <header><h3>{{ title }}</h3><button :aria-label="`查看${title}记录`" :disabled="!usable || !base?.metadata.kinds.includes(kind)" @click="emit('select', kind)">↗</button></header>
         <div class="core-anomaly-number"><strong>{{ label(kind) }}</strong><span v-if="summaries[kind]?.count !== null && summaries[kind]?.count !== undefined">条新增记录</span></div>
         <template v-if="hours(kind)">
-          <div class="core-anomaly-bars" :aria-label="`${title}每小时新增记录`" :style="{ gridTemplateColumns: bars(kind).map(bar => `${bar.weight}fr`).join(' ') }">
-            <button v-for="bar in bars(kind)" :key="bar.label" :aria-label="`${title} ${bar.label}，${bar.value} 条，筛选该时段`" :title="`${bar.label} · ${bar.value} 条`" @click="emit('select', kind, bar.hour)"><span :style="{ height: height(kind, bar.value) }"></span></button>
+          <div class="core-anomaly-bars" :aria-label="`${title}按时间区间新增记录`">
+            <button v-for="bar in bars(kind)" :key="bar.start" :style="{ left: bar.left, width: bar.width }" :aria-label="`${title} ${bar.label}，${bar.value} 条，筛选该时段`" :title="`${bar.label} · ${bar.value} 条`" @click="emit('select', kind, bar)"><span :style="{ height: height(kind, bar.value) }"></span></button>
           </div>
-          <div class="core-anomaly-axis" aria-hidden="true"><span>{{ bars(kind)[0]?.start }}</span><span>{{ bars(kind).at(-1)?.end }}</span></div>
+          <div class="core-anomaly-axis" aria-hidden="true"><span>{{ axisTime(bounds.start) }}</span><span>{{ axisTime(bounds.end) }}</span></div>
         </template>
         <div v-else class="core-anomaly-no-chart" aria-hidden="true">—</div>
         <p>{{ note(kind) }}</p>
@@ -88,8 +95,8 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 .core-anomaly-number { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin:8px 0 14px; }
 .core-anomaly-number strong { font:500 32px/1.2 var(--mono); letter-spacing:-1px; }
 .core-anomaly-number span,.core-anomaly-card p,.core-anomaly-axis { font-size:11px; color:var(--muted); }
-.core-anomaly-bars { height:58px; display:grid; grid-template-columns:repeat(24,minmax(0,1fr)); align-items:end; gap:2px; }
-.core-anomaly-bars button { height:100%; display:flex; align-items:flex-end; padding:0; min-width:0; border-radius:2px; }
+.core-anomaly-bars { height:58px; position:relative; }
+.core-anomaly-bars button { position:absolute; bottom:0; height:100%; border-right:2px solid white; display:flex; align-items:flex-end; padding:0; min-width:0; border-radius:2px; }
 .core-anomaly-bars button:hover { background:#e7eef2; }
 .core-anomaly-bars button span { display:block; width:100%; background:var(--accent); border-radius:1px; }
 .core-anomaly-axis { display:flex; justify-content:space-between; margin-top:6px; }

@@ -34,7 +34,7 @@ def delivery(monkeypatch):
         'archive': 'paused_by_user', 'binding': {'source_run': 'fixture', 'collector': 'rrc25'},
         'rejected': 0, 'unsupported': 0, 'limitations': ['合成测试数据'],
     }
-    state = {'meta': meta, 'items': [], 'records': {}, 'errors': 0, 'queries': []}
+    state = {'meta': meta, 'items': [], 'records': {}, 'errors': 0, 'queries': [], 'countries': {}}
 
     class Cursor:
         def __enter__(self):
@@ -43,17 +43,25 @@ def delivery(monkeypatch):
         def __exit__(self, *args):
             pass
 
-        def execute(self, query, params):
+        def execute(self, query, params=()):
             state['queries'].append((query, params))
-            assert query.startswith('SELECT ')
+            assert query.startswith(('SELECT ', 'WITH RECURSIVE subjects'))
             self.query = query
             self.params = params
 
         def fetchall(self):
+            if self.query.startswith('WITH RECURSIVE subjects'):
+                return [('中国',), ('伊朗',), ('美国',)]
+            if self.query.startswith("SELECT DISTINCT data->'attacked_country'"):
+                return [(value,) for value in state['countries'].values()]
+            if self.query.startswith('SELECT reference,'):
+                return list(state['countries'].items())
             if self.query.startswith("SELECT core_item->>"):
                 fields = ('reference', 'kind', 'object', 'start_time', 'address_family', 'level')
                 rows = []
                 for item in state['items']:
+                    if 'reference = ANY' in self.query and item['reference'] not in self.params[-1]:
+                        continue
                     row = tuple(item[name] for name in fields) + ('level_conflict' in item,)
                     if "core_item->>'record_number'" in self.query:
                         row += (item['record_number'], item['asns'], item.get('parent_prefix'), item.get('country_name'))
@@ -487,3 +495,112 @@ def test_rib_read_uses_bounded_sql_and_never_initializes_old_database(monkeypatc
     query, params = state['queries'][-1]
     assert 'observed_at >= %s AND observed_at < %s ORDER BY observed_at, snapshot_id' in query
     assert params == (start, end)
+
+
+def test_cross_day_window_clips_buckets_preserves_gaps_and_excludes_right_end(delivery, client):
+    delivery['meta']['intervals'] = [interval('2026-02-24T23:50:00+08:00', '2026-02-25T00:10:00+08:00'),
+                                     interval('2026-02-25T02:00:00+08:00', '2026-02-25T03:00:00+08:00')]
+    delivery['items'] = [event(1, at='2026-02-24T23:55:00+08:00'), event(2, at='2026-02-25T00:05:00+08:00'),
+                         event(3, at='2026-02-25T01:00:00+08:00'), event(4, at='2026-02-25T03:00:00+08:00')]
+    response = client.get(URL, query_string={'start_time': '2026-02-24 23:55:00', 'end_time': '2026-02-25 03:00:00'})
+    assert response.status_code == 200
+    payload = response.get_json(); validate(payload, 'CoreOverviewPayload')
+    assert payload['overview']['record_count'] == 2
+    assert payload['metadata']['query_coverage']['state'] == 'partial'
+    buckets = payload['event_trends']['series'][0]['buckets']
+    assert len(buckets) == 3
+    assert buckets[0]['start'] == '2026-02-24T23:55:00+08:00'
+    assert [b['value'] for b in buckets] == [1, 1, 0]
+    assert payload['event_trends']['filter_scope'] == 'window_country_and_family'
+
+
+@pytest.mark.parametrize('kind', delivery_read.KINDS)
+def test_region_exact_membership_controls_totals_cards_and_list(delivery, client, kind):
+    delivery['items'] = [event(number, kind=kind) for number in range(1, 5)]
+    delivery['countries'] = {item['reference']: country for item, country in zip(delivery['items'], ['中国', ['中国', '美国'], '中国台湾省', None])}
+    params = {'start_time': '2026-02-24 08:00:00', 'end_time': '2026-02-24 11:35:00', 'country': '中国'}
+    payload = client.get(URL, query_string=params).get_json()
+    validate(payload, 'CoreOverviewPayload')
+    assert payload['overview']['record_count'] == payload['events']['total'] == 2
+    assert {series['kind']: series['total'] for series in payload['event_trends']['series']} == {
+        event_kind: 2 if event_kind == kind else 0 for event_kind in delivery_read.KINDS
+    }
+    assert payload['metadata']['rib_statistics']['state'] == 'not_applicable'
+    assert payload['overview']['visible_prefixes'] is None
+    assert payload['metadata']['query_coverage']['state'] == 'complete'
+    empty = client.get(URL, query_string={**params, 'country': '伊朗'}).get_json()
+    assert empty['overview']['record_count'] == 0
+    outside = client.get(URL, query_string={**params, 'start_time': '2026-02-25 08:00:00', 'end_time': '2026-02-25 09:00:00'}).get_json()
+    assert outside['overview'] is None and outside['metadata']['query_coverage']['state'] == 'none'
+    assert client.get(URL, query_string={**params, 'country': '并不存在的地区'}).status_code == 400
+
+
+def test_long_window_uses_daily_buckets_without_filling_unknown_days(delivery, client):
+    delivery['items'] = [event(1)]
+    payload = client.get(URL, query_string={'start_time': '2026-02-01 00:00:00', 'end_time': '2026-03-01 00:00:00'}).get_json()
+    validate(payload, 'CoreOverviewPayload')
+    assert payload['event_trends']['bucket_seconds'] == 86400
+    assert len(payload['event_trends']['series'][0]['buckets']) == 1
+    assert payload['event_trends']['series'][0]['total'] == 1
+
+
+@pytest.mark.parametrize('params', [
+    {'start_time': '2026-02-24 08:00:00'},
+    {'start_time': '2026-02-24 09:00:00', 'end_time': '2026-02-24 08:00:00'},
+    {'start_time': '2026-02-30 08:00:00', 'end_time': '2026-03-01 08:00:00'},
+    {'start_time': '2026-01-31 08:00:00', 'end_time': '2026-02-24 08:00:00'},
+    {'date': '2026-02-24', 'start_time': '2026-02-24 08:00:00', 'end_time': '2026-02-24 09:00:00'},
+    {'hour': '8', 'start_time': '2026-02-24 08:00:00', 'end_time': '2026-02-24 09:00:00'},
+])
+def test_invalid_range_is_rejected_before_event_query(delivery, client, params):
+    assert client.get(URL, query_string=params).status_code == 400
+    assert not delivery['queries']
+
+
+def test_country_range_keeps_structured_lifecycle_and_record_version(delivery, client):
+    ref, _ = add_record(delivery, 'country_outage', structured_incident=structured_country(),
+                        peak_snapshot_id='snapshot_fixture', structured_v2=True)
+    delivery['countries'][ref] = "['伊朗', '测试国']"
+    params = {'start_time': '2026-02-24 08:00:00', 'end_time': '2026-02-24 11:35:00',
+              'country': '测试国', 'version': 'delivery_fixture'}
+    response = client.get(URL, query_string=params)
+    assert response.status_code == 200
+    listed = response.get_json(); validate(listed, 'CoreOverviewPayload')
+    detail = client.get(URL + '/record', query_string={'ref': ref, 'version': listed['version']}).get_json()
+    item = listed['events']['items'][0]
+    assert item == detail['item']
+    assert item['lifecycle']['state'] == 'ongoing'
+    assert item['country_incident']['asn_membership']['basis'] == 'peak_snapshot'
+    assert listed['metadata']['countries'] == ['中国', '伊朗', '测试国', '美国']
+    assert client.get(URL, query_string={**params, 'version': 'older'}).status_code == 409
+
+
+def test_six_hour_buckets_keep_timezone_boundary_and_partial_coverage(delivery, client):
+    delivery['meta']['intervals'] = [interval('2026-02-24T05:55:00+08:00', '2026-02-24T06:05:00+08:00')]
+    delivery['items'] = [event(1, at='2026-02-23T21:59:00Z'),
+                         event(2, at='2026-02-23T22:00:00Z'),
+                         event(3, at='2026-02-23T22:05:00Z')]
+    response = client.get(URL, query_string={'start_time': '2026-02-23T00:00:00Z',
+                                            'end_time': '2026-02-26T00:00:00Z'})
+    assert response.status_code == 200
+    payload = response.get_json(); validate(payload, 'CoreOverviewPayload')
+    assert payload['event_trends']['bucket_seconds'] == 21600
+    buckets = payload['event_trends']['series'][0]['buckets']
+    assert [(bucket['start'], bucket['end_exclusive'], bucket['value']) for bucket in buckets] == [
+        ('2026-02-24T05:55:00+08:00', '2026-02-24T06:00:00+08:00', 1),
+        ('2026-02-24T06:00:00+08:00', '2026-02-24T06:05:00+08:00', 1),
+    ]
+    assert payload['overview']['record_count'] == 2
+    assert payload['metadata']['query_coverage']['state'] == 'partial'
+
+
+def test_country_directory_read_failure_is_not_empty_success(delivery, client, monkeypatch):
+    import psycopg2
+    def fail(_conn):
+        raise psycopg2.OperationalError('synthetic unavailable country directory')
+    monkeypatch.setattr(delivery_read, 'available_countries', fail)
+    response = client.get(URL, query_string={'date': '2026-02-24', 'country': '伊朗'})
+    assert response.status_code == 503
+    payload = response.get_json()
+    assert payload['state'] == 'unavailable'
+    assert 'overview' not in payload and 'events' not in payload

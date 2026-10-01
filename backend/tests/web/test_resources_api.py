@@ -79,7 +79,6 @@ def test_resource_window_is_half_open_and_accepts_explicit_timezone(rib, client)
 @pytest.mark.parametrize('query', [
     {}, {'start_time': '2026-02-24 08:00:00'},
     {**WINDOW, 'metric': 'sql'}, {**WINDOW, 'end_time': WINDOW['start_time']},
-    {**WINDOW, 'end_time': '2026-02-25 08:00:01'},
     {**WINDOW, 'start_time': '2026-02-24'},
     {'start_time': '2026-01-31 23:00:00', 'end_time': '2026-02-01 00:00:00'},
     [('start_time', WINDOW['start_time']), ('start_time', WINDOW['start_time']), ('end_time', WINDOW['end_time'])],
@@ -150,3 +149,11 @@ def test_latest_rib_point_is_explicit_and_independent_of_list_hour(rib, client):
     assert payload['events'] is None
     assert payload['metadata']['rib_statistics']['snapshot_id'] == later['snapshot_id']
     assert payload['metadata']['rib_statistics']['metrics']['visible_prefixes'] == 25
+
+
+def test_resource_cross_day_window_reads_existing_points_only(rib, client):
+    response = client.get('/api/v1/resources', query_string={**WINDOW, 'end_time': '2026-03-01 00:00:00'})
+    assert response.status_code == 200
+    payload = response.get_json(); validate(payload, 'ResourceStatisticsPayload')
+    assert len(payload['points']) == 1
+    assert payload['query']['end_exclusive'] == '2026-03-01T00:00:00+08:00'

@@ -11,7 +11,7 @@
 | `/api/v1/healthz` | 服务健康 | 不能由服务健康推断业务数据完整 |
 | `/api/v1/core-overview` | 日期目录、概况、筛选列表与小时趋势；完成文件来源支持国家和时间段查询 | `date` 或 `start_time/end_time`，以及 `country`、`family`、`kind`、`level`、`hour`、`q`、`sort`、`page`、`page_size`、`version`；以响应实际筛选范围解释总数 |
 | `/api/v1/core-overview/record` | 留存异常详情 | 必须使用列表取得的 `ref` 和 `version` |
-| `/api/v1/resources` | 窗口内独立 RIB 的总体资源统计点 | 必须提供 `start_time`、`end_time`；半开窗口最多 24 小时，固定八项 global 指标，不支持任意指标或 ASN 筛选 |
+| `/api/v1/resources` | 窗口内独立 RIB 的总体资源统计点 | 必须提供 `start_time`、`end_time`；半开窗口限定在项目数据档内，支持跨日；固定八项 global 指标，不支持任意指标或 ASN 筛选 |
 | `/api/v1/rib-snapshots` | 发现已登记共享快照 | `date` 或 `latest`；未配置时明确返回相应状态 |
 | `/api/v1/rib-snapshots/{version}` | 同一快照总体规模 | `family`；保持发现取得的版本 |
 | `/api/v1/rib-snapshots/{version}/asns/{asn}` | 同一快照中指定明确起源 ASN 的资源 | `family`；数量与返回样本列表长度分别解释 |
@@ -19,9 +19,15 @@
 
 Core 的规模与路径对照位于其响应相应部分；无需编造一个尚不存在的“路径变化次数 API”。共享快照的同版查询说明见[快照指标](../metrics/snapshots.md)。
 
-完成文件交付模式中，Core 额外提供 `event_trends`：六类事件分别按开始时间计数，只受日期和地址族影响，列表的类型、等级、搜索与分页不改变趋势。`metadata.result_delivery.intervals` 给出实际覆盖；每个小时只返回与覆盖相交的片段，窗口外和中间缺口不补零。投影失败时趋势明确不可用。旧 `trend` 仍是每小时前缀中断对象去重数，两者含义不同。
+完成文件交付模式中，Core 额外提供 `event_trends`：六类事件分别按开始时间计数，只受所选时间区间、国家/地区和地址族影响，列表的类型、等级、搜索与分页不改变趋势。`metadata.result_delivery.intervals` 给出实际覆盖；短区间按小时、2—7 天按 6 小时、更长按天分桶，只返回与覆盖相交的片段，窗口外和中间缺口不补零。投影失败时趋势明确不可用。旧 `trend` 仍按相同时间桶提供前缀中断对象去重数，两者含义不同。
 
-同一模式下，`metadata.rib_statistics` 提供所选日、同一采集器、实际交付时段内最新独立 RIB 的规模及时点；Core 的两个规模主值来自这里，列表筛选不改变快照选择。资源失败不抹去独立事件结果。`/resources` 返回按时点排序的 `points`，没有点为 `not_calculated`，未启用交付为 `not_configured`，读取失败为 HTTP 503；点内只使用 `main`，并检查 `qualification` 和单位。一个点不代表连续曲线。该入口时间支持秒级本地格式，也支持带 Z 或偏移的 ISO 时间；无时区时按 Asia/Shanghai，重复和未知参数返回 400。
+首页已实现全球／国家或地区、已接入时段、近 24 小时／7 天／30 天和自定义区间选择。快捷区间截至已交付数据末端，显式选择通过网址 `start`／`end`／`country` 保留。API 的 `start_time` 与 `end_time` 成对、精确到秒、使用 `[start,end)`，不能与旧 `date`／`hour` 混用。区间和地区查询目前仅支持完成文件结果源，旧按日留存入口继续保留原语义。
+
+地区候选来自当前结果源的国家 Feature 和事件受影响国家字段。事件精确匹配 `event_list.attacked_country` 中的成员，不由攻击方、ASN 或文字搜索猜测归属；多地区事件可在多个地区出现，地区数量不能简单相加为全球总数。`metadata.query_coverage` 单独说明所选区间的完成文件覆盖，`complete` 不代表采集完整。Feature 使用同名国家，缺口断线；其旧含尾端接口由首页以减一秒的方式适配秒级半开区间。国家／ASN 档案自身的 24 小时上限保持不变；首页长区间跳转到普通档案时，导航明确标注“末 24h”。
+
+目前 RIB 规模与 Resource 只有全球统计，选地区时首页明确显示未生成，不能套用全球值。异常列表和国家中断详情设计保持原样。
+
+同一模式下，`metadata.rib_statistics` 提供所选区间、同一采集器、实际交付时段内最新独立 RIB 的规模及时点；Core 的两个规模主值来自这里，列表筛选不改变快照选择。资源失败不抹去独立事件结果。`/resources` 返回按时点排序的 `points`，没有点为 `not_calculated`，未启用交付为 `not_configured`，读取失败为 HTTP 503；点内只使用 `main`，并检查 `qualification` 和单位。一个点不代表连续曲线。该入口时间支持秒级本地格式，也支持带 Z 或偏移的 ISO 时间；无时区时按 Asia/Shanghai，重复和未知参数返回 400。
 
 ## 历史事件与事实读取
 

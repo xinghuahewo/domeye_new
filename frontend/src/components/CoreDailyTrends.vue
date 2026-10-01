@@ -4,10 +4,17 @@ import { getTopFeatures } from '@/api/features'
 import { getResources, type ResourcePoint, type ResourceStatistics } from '@/api/resources'
 import type { FeaturePoint } from '@/types/api'
 import { toBusinessTime } from '@/utils/businessTime'
-import profile from '../../../config/data-profile.json'
+import { scopeMillis, scopeError, scopeLabel } from '@/utils/coreScope'
 import LineChart, { type ChartSeries } from './LineChart.vue'
 
-const props = defineProps<{ date: string; refreshKey: number }>()
+const props = defineProps<{ date: string; start?: string; end?: string; country?: string; refreshKey: number }>()
+const selectedWindow = computed(() => ({
+  start: props.start || `${props.date}T00:00:00`,
+  end: props.end || toBusinessTime(new Date(Date.parse(`${props.date}T00:00:00+08:00`) + 86400000)).replace(' ', 'T'),
+  country: props.country || '',
+}))
+const timeBounds = computed<[string, string]>(() => [selectedWindow.value.start + '+08:00', selectedWindow.value.end + '+08:00'])
+const period = computed(() => props.start ? '此区间' : '此日')
 const points = ref<FeaturePoint[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -33,11 +40,19 @@ function resourceSeries(name: string, key: keyof ResourcePoint['metrics']): Char
 const resourceNote = computed(() => {
   const rows = resources.value?.points ?? []
   if (!rows.length) return '各 RIB 独立时点'
-  const last = toBusinessTime(new Date(rows.at(-1)!.observed_at)).slice(11)
+  const last = toBusinessTime(new Date(rows.at(-1)!.observed_at)).slice(props.start && props.start.slice(0, 10) !== props.end?.slice(0, 10) ? 5 : 11)
   return `${rows.length} 个 RIB 时点 · 末次 ${last} · 时点之间未知`
 })
 function series(name: string, key: keyof Omit<FeaturePoint, 'time'>, color = '#3e6f89'): ChartSeries {
-  return { name, color, data: points.value.map(point => [point.time, point[key]]) }
+  const data: ChartSeries['data'] = []
+  points.value.forEach((point, index) => {
+    const prior = points.value[index - 1]
+    if (prior && Date.parse(point.time) - Date.parse(prior.time) > 300000) {
+      data.push([new Date(Date.parse(prior.time) + 300000).toISOString(), null])
+    }
+    data.push([point.time, point[key]])
+  })
+  return { name, color, data }
 }
 const hasValues = (items: ChartSeries[]) => items.some(item => item.data.some(([, value]) => value !== null))
 function lastValue(items: ChartSeries[]) {
@@ -45,34 +60,37 @@ function lastValue(items: ChartSeries[]) {
   const last = items[0]?.data.at(-1)
   return last?.[1] == null ? '末值 —' : `末值 ${last[1].toLocaleString('zh-CN')}`
 }
-const observedAt = computed(() => points.value.length ? toBusinessTime(new Date(points.value.at(-1)!.time)).slice(11) : '')
+const observedAt = computed(() => points.value.length
+  ? toBusinessTime(new Date(points.value.at(-1)!.time)).slice(props.start && selectedWindow.value.start.slice(0, 10) !== selectedWindow.value.end.slice(0, 10) ? 5 : 11)
+  : '')
 async function load() {
   const current = ++requestNumber
   controller?.abort()
   points.value = []; error.value = ''; resources.value = null; resourceError.value = ''; loading.value = false
-  const date = props.date
-  const start = `${date} 00:00:00`, end = `${date} 23:59:59`
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < profile.window_start.slice(0, 10) || date > profile.snapshot_time.slice(0, 10)) {
-    error.value = resourceError.value = '请选择数据档内的有效日期'; return
-  }
+  const window = selectedWindow.value
+  const invalid = scopeError(window)
+  if (invalid) { error.value = resourceError.value = invalid; return }
+  const start = window.start.replace('T', ' ')
+  // Feature 旧接口的终点包含在内；秒级采样减一秒转换为本页半开区间。
+  const end = toBusinessTime(new Date(scopeMillis(window.end) - 1000))
   const request = new AbortController()
   controller = request; loading.value = true
   try {
-    const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
     const [feature, resource] = await Promise.allSettled([
-      getTopFeatures('collector', { start_time: start, end_time: end }, request.signal),
-      getResources({ start_time: start, end_time: `${nextDay} 00:00:00` }, request.signal),
+      getTopFeatures(window.country || 'collector', { start_time: start, end_time: end }, request.signal),
+      window.country ? Promise.resolve(null) : getResources({ start_time: start, end_time: window.end.replace('T', ' ') }, request.signal),
     ])
     if (current !== requestNumber || request.signal.aborted) return
-    if (feature.status === 'fulfilled' && feature.value.every(point => toBusinessTime(new Date(point.time)).slice(0, 10) === date)) points.value = feature.value
-    else error.value = '此日特征读取失败，请重新读取'
-    if (resource.status === 'fulfilled') resources.value = resource.value
-    else resourceError.value = '此日资源统计读取失败，请重新读取'
+    if (feature.status === 'fulfilled' && feature.value.every(point => scopeMillis(window.start) <= Date.parse(point.time) && Date.parse(point.time) < scopeMillis(window.end))) points.value = feature.value
+    else error.value = `${period.value}特征读取失败，请重新读取`
+    if (window.country) resourceError.value = '地区 RIB 统计尚未生成'
+    else if (resource.status === 'fulfilled') resources.value = resource.value
+    else resourceError.value = `${period.value}资源统计读取失败，请重新读取`
   } catch (cause) {
-    if (current === requestNumber && !request.signal.aborted) error.value = '此日特征读取失败，请重新读取'
+    if (current === requestNumber && !request.signal.aborted) error.value = `${period.value}特征读取失败，请重新读取`
   } finally { if (current === requestNumber) loading.value = false }
 }
-watch(() => `${props.date}|${props.refreshKey}`, load)
+watch(() => `${props.date}|${props.start}|${props.end}|${props.country}|${props.refreshKey}`, load)
 onMounted(load)
 onServerPrefetch(load)
 onBeforeUnmount(() => { requestNumber++; controller?.abort() })
@@ -80,16 +98,16 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 
 <template>
   <section id="routing" class="core-daily-trends" aria-labelledby="core-trends-title">
-    <div class="c-section-caption"><h2 id="core-trends-title">趋势分析</h2><span>{{ date }} · 日内采样</span></div>
+    <div class="c-section-caption"><h2 id="core-trends-title">趋势分析</h2><span>{{ props.start ? scopeLabel(selectedWindow) : date }} · {{ country || '全球' }}</span></div>
     <div class="core-trend-columns">
       <section class="core-trend-panel" aria-label="Feature 特征趋势" :aria-busy="loading">
-        <header><h3>特征趋势 <span>FEATURE</span></h3><p>采集点 · 全部地址族<span v-if="observedAt"> · 末次采样 {{ observedAt }}</span></p></header>
+        <header><h3>特征趋势 <span>FEATURE</span></h3><p>{{ country || '全球 · RRC25' }} · 全部地址族<span v-if="observedAt"> · 末次采样 {{ observedAt }}</span></p></header>
         <div v-for="metric in metrics" :key="metric.title" class="core-trend-metric">
           <div class="core-trend-metric-heading"><h4>{{ metric.title }}</h4><span>{{ lastValue(metric.series) }}</span></div>
-          <div v-if="loading" class="core-trend-state" role="status">正在读取当日特征…</div>
+          <div v-if="loading" class="core-trend-state" role="status">正在读取区间特征…</div>
           <div v-else-if="error" class="core-trend-state" role="status">{{ error }}</div>
-          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" />
-          <div v-else class="core-trend-state" role="status">{{ points.length ? '此日未返回该指标' : '此日没有可用特征采样' }}<small>缺失不表示数量为零</small></div>
+          <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" :time-bounds="timeBounds" />
+          <div v-else class="core-trend-state" role="status">{{ points.length ? `${period}未返回该指标` : `${period}没有可用特征采样` }}<small>缺失不表示数量为零</small></div>
           <p>{{ metric.unit }} · {{ metric.note }}</p>
         </div>
       </section>
@@ -100,12 +118,12 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
           <div v-if="loading" class="core-trend-state" role="status">正在读取 RIB 资源统计…</div>
           <div v-else-if="resourceError" class="core-trend-state" role="status">{{ resourceError }}</div>
           <LineChart v-else-if="hasValues(metric.series)" :series="metric.series" :unit="metric.unit" :height="200" :show-points="true" :time-bounds="resourceBounds" />
-          <div v-else class="core-trend-state" role="status">{{ resources?.state === 'available' ? '该指标主值不可用' : resources?.message || '此日没有 RIB 资源统计' }}<small>未计算或不适用不表示零</small></div>
+          <div v-else class="core-trend-state" role="status">{{ resources?.state === 'available' ? '该指标主值不可用' : resources?.message || `${period}没有 RIB 资源统计` }}<small>未计算或不适用不表示零</small></div>
           <p>{{ metric.note }} · {{ metric.unit }}</p>
         </div>
       </section>
     </div>
-    <p class="core-trend-scope">按所选日期读取全部地址族；异常列表筛选不改变此区。Feature 显示文件末采样，Resource 仅显示独立 RIB 统计点，不连成连续状态或补齐缺失时段。</p>
+    <p class="core-trend-scope">按所选地区与时间区间读取全部地址族；异常列表的类型、等级和地址族筛选不改变此区。Feature 显示文件末采样，Resource 当前仅有全球独立 RIB 统计点，不连成连续状态或补齐缺失时段。</p>
   </section>
 </template>
 

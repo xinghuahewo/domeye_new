@@ -5,7 +5,7 @@ import type { CoreOverview, CoreOverviewItem } from './coreOverview'
 const { get } = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('./coreOverview', () => ({ getCoreOverview: get }))
 const base = { state: 'available', version: 'same-version', metadata: { kinds: ['prefix_outage', 'leak'] },
-  query: { date: '2026-03-31', family: 'all', kind: 'prefix_outage', hour: null, level: 'all', q: '' } } as CoreOverview
+  query: { date: '2026-03-31', start: '2026-03-31T00:00:00+08:00', end_exclusive: '2026-04-01T00:00:00+08:00', family: 'all', kind: 'prefix_outage', hour: null, level: 'all', q: '' } } as CoreOverview
 const item = (id: number, time = '2026-03-30T16:12:00Z') => ({ reference: `ref-${id}`, kind: 'prefix_outage',
   object: '192.0.2.0/24', start_time: time }) as CoreOverviewItem
 const page = (items: CoreOverviewItem[], total = items.length, number = 1) => ({ ...base,
@@ -86,4 +86,20 @@ it('新 API 的部分时段直接使用已覆盖分桶，不额外分页或补�
   expect(get).not.toHaveBeenCalled()
   partial.event_trends!.series[0]!.total = 3
   await expect(getAnomalySummary(partial, 'prefix_outage')).rejects.toThrow('总数')
+})
+
+it('国家跨日趋势只取同范围分桶，保留缺口而不退回全球单日查询', async () => {
+  const buckets = [{ start: '2026-02-20T08:00:00+08:00', end_exclusive: '2026-02-20T12:00:00+08:00', value: 2 },
+    { start: '2026-02-24T08:00:00+08:00', end_exclusive: '2026-02-24T11:35:00+08:00', value: 0 }]
+  const ranged = { ...base,
+    query: { ...base.query, date: '2026-02-20', start: '2026-02-20T00:00:00+08:00', end_exclusive: '2026-02-27T00:00:00+08:00', window_mode: 'range', country: '伊朗' },
+    event_trends: { state: 'available', metric: 'recorded_event_starts', filter_scope: 'window_country_and_family',
+      bucket_seconds: 21600, series: [{ kind: 'prefix_outage', total: 2, buckets }] } } as CoreOverview
+  expect(await getAnomalySummary(ranged, 'prefix_outage')).toMatchObject({ count: 2, hours: [2, 0], buckets, note: '每 6 小时新增 · 仅已覆盖时段' })
+  expect(get).not.toHaveBeenCalled()
+  ranged.event_trends!.filter_scope = 'date_and_family'
+  await expect(getAnomalySummary(ranged, 'prefix_outage')).rejects.toThrow('定义不一致')
+  ranged.event_trends!.filter_scope = 'window_country_and_family'
+  buckets[1]!.end_exclusive = '2026-02-27T00:00:01+08:00'
+  await expect(getAnomalySummary(ranged, 'prefix_outage')).rejects.toThrow('超出日期')
 })

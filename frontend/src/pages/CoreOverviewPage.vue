@@ -5,7 +5,8 @@ import { getCoreOverview, getCoreOverviewRecord, type CoreOverview, type CoreOve
 import { errorMessage } from '@/utils/normalize'
 import { toBusinessTime, formatBusinessEndTime } from '@/utils/businessTime'
 import profile from '../../../config/data-profile.json'
-import RibSnapshotScale from '@/components/RibSnapshotScale.vue'
+import CoreScopeFilters from '@/components/CoreScopeFilters.vue'
+import { localTime, scopeFromQuery, scopeError, scopeLabel, type CoreScope } from '@/utils/coreScope'
 import CoreAnomalyCards from '@/components/CoreAnomalyCards.vue'
 import CoreDailyTrends from '@/components/CoreDailyTrends.vue'
 import type { AnomalyKind } from '@/api/coreAnomalies'
@@ -15,13 +16,21 @@ import './coreOverview.css'
 
 const route = useRoute()
 const router = useRouter()
-const date = ref(typeof route.query.date === 'string' ? route.query.date : profile.snapshot_time.slice(0, 10))
+const fallbackScope: CoreScope = { start: `${profile.snapshot_time.slice(0, 10)}T00:00:00`, end: profile.window_end_exclusive.slice(0, 19), country: '' }
+const scope = ref(scopeFromQuery(route.query, fallbackScope))
+const date = computed(() => scope.value.start.slice(0, 10))
+const regionLabel = computed(() => scope.value.country || '全球')
+const retainedScope = computed(() => {
+  const delivery = metadata.value?.result_delivery || resultDelivery.value
+  return delivery?.start && delivery.end_exclusive ? { start: localTime(delivery.start), end: localTime(delivery.end_exclusive) } : undefined
+})
+const coverageLabel = computed(() => metadata.value?.query_coverage?.intervals
+  .map(item => scopeLabel({ start: localTime(item.start), end: localTime(item.end_exclusive) })).join('；'))
 const family = ref<CoreOverviewQuery['family']>('all')
 const kind = ref<CoreOverviewQuery['kind']>('all')
 const level = ref<CoreOverviewQuery['level']>('all')
 const sort = ref<CoreOverviewQuery['sort']>('severity')
 const query = ref('')
-const hour = ref<number | null>(null)
 const page = ref(1)
 const data = ref<CoreOverview | null>(null)
 const anomalyBase = ref<CoreOverview | null>(null)
@@ -52,7 +61,7 @@ const scaleNote = computed(() => {
   const rib = ribStatistics.value
   if (rib) {
     if (rib.state === 'available') return `单 RIB · ${toBusinessTime(new Date(rib.observed_at!)).slice(5, 16)}（${profile.timezone}）`
-    return rib.message || '此日无独立 RIB 统计'
+    return rib.message || '区间内无独立 RIB 统计'
   }
   const value = scale.value
   if (!value) return ready.value ? '前缀条数 · 数据待验证' : '选定窗口不可用'
@@ -62,8 +71,6 @@ const scaleNote = computed(() => {
   return `单 RIB · ${toBusinessTime(new Date(value.observed_at)).slice(5, 16)}（${profile.timezone}）`
 })
 const availableDates = computed(() => metadata.value?.available_dates ?? (metadata.value ? [metadata.value.retained_window.start.slice(0, 10)] : []))
-const diagnosticDates = computed(() => metadata.value?.diagnostic_dates ?? [])
-const directoryDates = computed(() => [...availableDates.value, ...diagnosticDates.value])
 const availableTypes = computed(() => metadata.value?.kinds ?? [])
 const typeScopeLabel = computed(() => metadata.value ? `已接入 ${availableTypes.value.length} 类异常` : '类型范围待读取')
 const failureLabels = { level_conflict: '总表与明细等级冲突', invalid_time_order: '结束早于开始或持续时长为负', time_fields_conflict: '结束时间或持续时长冲突',
@@ -73,13 +80,12 @@ const diagnosticTypes = { ...types, all: '六类异常' }
 const diagnosticStage = computed(() => data.value?.diagnostic?.stage === 'source_read' ? '源数据读取未完成'
   : data.value?.diagnostic?.stage === 'source_field_validation' ? '整日源记录校验未通过' : '源字段预检；不是该日完整数据准入')
 const diagnosticTitle = computed(() => data.value?.diagnostic?.stage === 'source_read' ? '源数据读取未完成' : '源记录校验失败')
-const hasFilters = computed(() => hour.value !== null || kind.value !== 'all' || level.value !== 'all' || !!query.value)
+const hasFilters = computed(() => kind.value !== 'all' || level.value !== 'all' || !!query.value)
 const pathComparison = computed(() => ready.value ? data.value?.metadata.path_comparison : undefined)
 const pathReady = computed(() => pathComparison.value?.state === 'available' ? pathComparison.value : undefined)
 const pathRatio = computed(() => pathReady.value?.metrics?.different_fraction == null ? '—'
   : `${(pathReady.value.metrics.different_fraction * 100).toFixed(2)}%`)
-const time = (value: string) => toBusinessTime(new Date(value)).slice(11)
-const hourLabel = (value: number) => `${String(value).padStart(2, '0')}:00–${String(value + 1).padStart(2, '0')}:00`
+const time = (value: string) => toBusinessTime(new Date(value)).slice(scope.value.start.slice(0, 10) === scope.value.end.slice(0, 10) ? 11 : 5)
 const count = (value: number | undefined | null) => value == null ? '—' : value.toLocaleString('zh-CN')
 const objectLabel = (item: CoreOverviewItem) => item.kind === 'country_outage' && item.country_name
   ? `${item.country_name}（${item.object}）` : `${item.kind === 'as_outage' && !item.object_identity ? 'AS' : ''}${item.object}`
@@ -96,8 +102,10 @@ async function load(resetVersion = false) {
   error.value = ''
   data.value = null
   try {
-    const result = await getCoreOverview({ date: date.value, family: family.value, kind: kind.value,
-      level: level.value, sort: sort.value, q: query.value, hour: hour.value ?? undefined,
+    const invalid = scopeError(scope.value)
+    if (invalid) throw new Error(invalid)
+    const result = await getCoreOverview({ start_time: scope.value.start, end_time: scope.value.end, country: scope.value.country, family: family.value, kind: kind.value,
+      level: level.value, sort: sort.value, q: query.value,
       page: page.value, page_size: 10, version: pinnedVersion.value || undefined }, request.signal)
     if (current !== requestNumber) return
     data.value = result
@@ -114,20 +122,25 @@ async function load(resetVersion = false) {
     if (current === requestNumber) loading.value = false
   }
 }
-function resetFilters() { hour.value = null; kind.value = 'all'; level.value = 'all'; query.value = '' }
-async function selectAnomaly(value: AnomalyKind, selectedHour?: number) {
-  kind.value = value; hour.value = selectedHour ?? null; level.value = 'all'; query.value = ''
+function resetFilters() { kind.value = 'all'; level.value = 'all'; query.value = '' }
+async function selectAnomaly(value: AnomalyKind, bucket?: { start: string; end_exclusive: string }) {
+  kind.value = value; level.value = 'all'; query.value = ''
+  if (bucket) scope.value = { ...scope.value, start: localTime(bucket.start), end: localTime(bucket.end_exclusive) }
   await nextTick()
   document.getElementById('events')?.scrollIntoView({ block: 'start' })
 }
 function goPage(value: number) { page.value = value; void load() }
-function useRetainedWindow() { const latest = availableDates.value.at(-1); if (latest) date.value = latest }
-function selectRetainedDate(event: Event) { const value = (event.target as HTMLSelectElement).value; if (value) date.value = value }
-watch([date, family, kind, level, sort, query, hour], () => { page.value = 1; void load() })
-watch(date, value => {
-  if (route.query.date !== value) void router.replace({ query: { ...route.query, date: value, snapshot_version: undefined } })
+function useRetainedWindow() { if (retainedScope.value) scope.value = { ...scope.value, ...retainedScope.value } }
+watch([scope, family, kind, level, sort, query], () => { page.value = 1; void load() })
+watch(scope, value => {
+  if (route.query.start !== value.start || route.query.end !== value.end || (route.query.country || '') !== value.country) {
+    void router.replace({ query: { ...route.query, date: undefined, start: value.start, end: value.end, country: value.country || undefined, snapshot_version: undefined } })
+  }
 })
-watch(() => route.query.date, value => { date.value = typeof value === 'string' ? value : profile.snapshot_time.slice(0, 10) })
+watch(() => [route.query.start, route.query.end, route.query.country, route.query.date], () => {
+  const next = scopeFromQuery(route.query, fallbackScope)
+  if (JSON.stringify(next) !== JSON.stringify(scope.value)) scope.value = next
+})
 let pendingDeliveryRefresh = false
 watch(() => resultDelivery.value?.version, (version, previous) => {
   if (!version || !previous || version === previous || version === pinnedVersion.value) return
@@ -172,7 +185,8 @@ function showScope() {
       ['本批实际范围', `${delivery.start} → ${delivery.end_exclusive}（右端不含）`],
       ['已交付文件', String(delivery.files)], ['消费版本', pinnedVersion.value || '尚未取得'],
       ['解释版本', metadata.value?.interpretation_version ?? '未知'],
-      ['统计范围', '全球计算结果；国家和 ASN 页面再按对象查询'],
+      ['统计范围', `${regionLabel.value} · ${scopeLabel(scope.value)}（右端不含）`],
+      ['地区口径', '按事件来源的受影响国家字段匹配；不代表全网或实际用户影响'],
       ['参考资料历史适用性', 'Unknown'], ['归档状态', '用户暂停'],
     ], '仅此批实际完成时段可用。未知及窗口外时段不补零；原批次未完成。独立 RIB 规模不代表连续状态；异常记录不能直接推出实际断网、用户影响或原因。')
     return
@@ -322,34 +336,23 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
 
 <template>
   <div class="core-real">
-    <div class="core-toolbar">
-      <button @click="showScope">● RRC25 <span>来源说明 ⓘ</span></button>
-      <label>日期 <input v-model="date" type="date" aria-label="观察日期" :min="profile.window_start.slice(0, 10)" :max="profile.snapshot_time.slice(0, 10)" /></label>
-      <label v-if="directoryDates.length">日期目录 <select aria-label="日期目录" :value="directoryDates.includes(date) ? date : ''" @change="selectRetainedDate"><option value="" disabled>选择日期</option><optgroup :label="`已留存（${availableDates.length} 天）`"><option v-for="day in [...availableDates].reverse()" :key="day" :value="day">{{ day }}</option></optgroup><optgroup v-if="diagnosticDates.length" :label="`有失败诊断（${diagnosticDates.length} 天）`"><option v-for="day in [...diagnosticDates].reverse()" :key="day" :value="day">{{ day }} · 失败诊断</option></optgroup></select></label>
-      <span class="core-zone">{{ profile.timezone }}</span>
-      <label class="core-family">地址族 <select v-model="family" aria-label="地址族"><option value="all">全部</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option><option value="unknown">未知</option></select></label>
-      <button @click="load(true)" :disabled="loading">重新读取</button>
-    </div>
     <main class="variant-c c-overview core-main" :aria-busy="loading">
-      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势</h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><div class="c-time-stamp"><span>观测日期</span><strong>{{ date }} · {{ metadata?.result_delivery ? '部分时段' : '00:00–24:00' }}</strong><small>RRC25 · 观察覆盖未知</small></div></div>
+      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势 <span class="core-heading-region">/ {{ regionLabel }}</span></h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><button class="core-source-button" @click="showScope">● RRC25 · 来源说明 ⓘ</button></div>
+      <CoreScopeFilters v-model="scope" :countries="metadata?.countries || []" :retained="retainedScope" :loading="loading" @refresh="load(true)" />
+      <p v-if="metadata?.query_coverage?.state === 'partial'" class="core-coverage-note" role="status"><strong>部分时段有数据</strong> 已覆盖 {{ coverageLabel }}；其余时段未知，图表不补零。</p>
       <div v-if="data?.diagnostic" class="core-notice core-diagnostic" role="alert"><strong>{{ diagnosticTitle }}</strong><span>此日不提供异常统计和异常列表，不表示没有异常。</span><ul><li v-for="reason in data.diagnostic.reasons" :key="`${reason.kind}:${reason.code}`">{{ diagnosticTypes[reason.kind] }}：{{ failureLabels[reason.code] }}<template v-if="reason.count !== null">，{{ count(reason.count) }} 条</template>。</li></ul><small>核验阶段：{{ diagnosticStage }}。原始值保留，此日尚未准入。</small><button @click="showDiagnostic">核验依据与版本 ↗</button></div>
       <div v-else-if="error" class="core-notice" role="alert"><strong>数据不可用</strong><span>{{ error }}</span><button @click="load(true)">重新读取</button></div>
-      <div v-else-if="data?.state === 'window_not_retained'" class="core-notice" role="status"><strong>选定日期尚未留存</strong><span>不是没有异常；本版本已留存 {{ availableDates.length }} 天，可在上方选择日期。</span><button @click="useRetainedWindow">查看最近已留存日期</button></div>
+      <div v-else-if="data?.state === 'window_not_retained'" class="core-notice" role="status"><strong>选定区间没有已接入数据</strong><span>不能解释为没有异常，请调整时间区间。</span><button @click="useRetainedWindow">查看已接入时段</button></div>
       <section aria-labelledby="c-overview-title">
-        <div class="c-section-caption"><h2 id="c-overview-title">整体概况</h2><span>{{ familyLabel }} · {{ typeScopeLabel }}</span></div>
+        <div class="c-section-caption"><h2 id="c-overview-title">整体概况</h2><label class="core-family-select">{{ typeScopeLabel }} · 异常与 RIB 地址族 <select v-model="family" aria-label="地址族"><option value="all">全部</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option><option value="unknown">未知</option></select></label></div>
         <div class="c-metrics">
-          <RibSnapshotScale :date="date" :family="family || 'all'" :refresh-key="snapshotRefresh"
-            :version="typeof route.query.snapshot_version === 'string' ? route.query.snapshot_version : undefined"
-            @selected="version => router.replace({ query: { ...route.query, snapshot_version: version } })"
-            @reselect="router.replace({ query: { ...route.query, snapshot_version: undefined } })">
           <button class="c-metric" @click="showScale"><span class="c-metric-label">可见前缀数 <span>↗</span></span><strong :class="{ 'c-unknown-number': !scaleReady }" data-testid="core-prefix-count">{{ scaleReady ? count(data?.overview?.visible_prefixes) : '—' }} <small v-if="scaleReady">条</small></strong><span class="c-metric-note">{{ scaleNote }}</span></button>
           <button class="c-metric" @click="showOrigin"><span class="c-metric-label">可见起源 AS 数 <span>↗</span></span><strong :class="{ 'c-unknown-number': !originReady }" data-testid="core-origin-count">{{ originReady ? count(data?.overview?.visible_origin_ases) : '—' }} <small v-if="originReady">个</small></strong><span class="c-metric-note">{{ originNote }}</span></button>
-          </RibSnapshotScale>
           <button class="c-metric" @click="showScope"><span class="c-metric-label">新增异常记录 <span>↗</span></span><strong data-testid="core-record-count">{{ ready ? count(data?.overview?.record_count) : '—' }} <small v-if="ready">条</small></strong><span class="c-metric-note">{{ loading ? '正在读取' : ready ? `选定留存窗口 · ${availableTypes.length} 类记录` : '选定窗口不可用' }}</span></button>
         </div>
       </section>
       <p v-if="metadata?.projection_unavailable_records" role="status">{{ metadata.projection_unavailable_records }} 条原始业务记录暂不能用于首页展示；保留原文，未计入下面的数量。</p>
-      <CoreAnomalyCards :date="date" :family="family || 'all'" :base="anomalyBase" :refresh-key="snapshotRefresh" :request-loading="loading" @select="selectAnomaly" />
+      <CoreAnomalyCards :start="scope.start" :end="scope.end" :country="scope.country" :date="date" :family="family || 'all'" :base="anomalyBase" :refresh-key="snapshotRefresh" :request-loading="loading" @select="selectAnomaly" />
       <section id="events" class="c-panel c-events" aria-labelledby="c-events-title">
         <div class="c-panel-heading"><div><p class="overline">ROUTING ANOMALIES</p><h2 id="c-events-title">路由异常 <span class="c-event-count">{{ ready ? count(data?.events?.total) : '—' }}</span></h2></div><span class="c-tag">RRC25 · 留存记录</span></div>
         <div class="c-filter-row"><div class="c-event-filters">
@@ -357,7 +360,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
           <label><span class="sr-only">危险等级</span><select v-model="level" aria-label="危险等级"><option value="all">全部等级</option><option value="high">高</option><option value="middle">中</option><option value="low">低</option><option value="conflict">等级待核实</option><option value="unknown">未知</option></select></label>
           <label class="c-list-search"><span aria-hidden="true">⌕</span><input v-model="query" maxlength="120" aria-label="筛选异常对象或编号" placeholder="筛选对象 / ASN / 编号" /></label>
         </div><label class="c-sort">排序 <select v-model="sort" aria-label="异常排序"><option value="severity">等级优先 · 时间倒序</option><option value="time">发生时间倒序</option></select></label></div>
-        <div class="c-list-context" aria-live="polite"><span>{{ familyLabel }} · {{ hour === null ? '整个窗口' : hourLabel(hour) }}</span><span v-if="ready && kind === 'prefix_outage'" data-testid="core-distinct-prefixes">去重前缀 {{ count(data?.events?.distinct_prefixes) }} 个</span><button v-if="hasFilters" class="c-text-button" @click="resetFilters">清除筛选 ×</button></div>
+        <div class="c-list-context" aria-live="polite"><span>{{ familyLabel }} · 整个窗口</span><span v-if="ready && kind === 'prefix_outage'" data-testid="core-distinct-prefixes">去重前缀 {{ count(data?.events?.distinct_prefixes) }} 个</span><button v-if="hasFilters" class="c-text-button" @click="resetFilters">清除筛选 ×</button></div>
         <p v-if="ready && data?.query.excluded_unknown_family" class="c-note">本地址族筛选未纳入 {{ data.query.excluded_unknown_family }} 条无法判定地址族的记录，可切换“未知”查看。</p>
         <div v-if="!ready" class="c-events-empty" role="status"><strong>{{ loading ? '正在读取异常记录' : '事件数据不可用' }}</strong><p>不可用不能解释为没有异常。</p></div>
         <div v-else-if="!data?.events?.total" class="c-events-empty" role="status"><strong>没有匹配的留存记录</strong><p>可以清除筛选或选择其他时段。</p><button class="c-text-button" @click="resetFilters">清除筛选</button></div>
@@ -365,7 +368,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
         <div class="c-table-footer"><p>结束未记录 ≠ 持续中。等级冲突标为待核实，详情保留两份原值；等级不代表损害概率。</p><div v-if="ready && data?.events?.total" class="c-pagination"><span>{{ data.events.page }} / {{ data.events.page_count }}</span><button aria-label="上一页异常" :disabled="page === 1" @click="goPage(page - 1)">←</button><button aria-label="下一页异常" :disabled="page >= data.events.page_count" @click="goPage(page + 1)">→</button></div></div>
       </section>
       <p class="c-bottom-note">列表局部筛选不改变上方概况和趋势。只说明 RRC25 的已存异常记录，不代表全网状态、实际断网或原因。</p>
-      <CoreDailyTrends :date="date" :refresh-key="snapshotRefresh" />
+      <CoreDailyTrends :start="scope.start" :end="scope.end" :country="scope.country" :date="date" :refresh-key="snapshotRefresh" />
       <footer class="core-footer"><button @click="showScope">来源、版本与数据边界 ↗</button><button v-if="pathReady" @click="showPaths">两次 RIB 观察对照 ↗</button><span :title="pinnedVersion">{{ pinnedVersion ? `${pinnedVersion.slice(0, 28)}…` : '留存版本待读取' }}</span></footer>
     </main>
     <dialog ref="dialog" class="core-dialog" aria-labelledby="core-dialog-title" @close="afterClose" @click="event => { if (event.target === dialog) closeDialog() }">
