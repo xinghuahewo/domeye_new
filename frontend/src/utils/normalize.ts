@@ -842,10 +842,16 @@ const normalizeAsnProfile = (value: unknown): AsnProfile | null => {
 export const normalizeAsOverview = (payload: unknown): AsOverview => {
   if (!isRecord(payload)) throw new Error('ASN 工作台响应格式异常')
   if (payload.status === false) throw new Error(cleanText(payload.msg) || 'ASN 工作台查询失败')
+  const coverage = isRecord(payload.delivery_coverage) ? payload.delivery_coverage : null
   const rankings = (value: unknown) => (Array.isArray(value) ? value : [])
     .map(normalizeAsnProfile)
     .filter((profile): profile is AsnProfile => profile !== null)
   return {
+    deliveryCoverage: coverage && (coverage.state === 'complete' || coverage.state === 'partial') ? {
+      version: cleanText(coverage.version), state: coverage.state,
+      intervals: (Array.isArray(coverage.intervals) ? coverage.intervals : []).filter(isRecord)
+        .map(item => ({ start: cleanText(item.start), end_exclusive: cleanText(item.end_exclusive) })),
+    } : undefined,
     startTime: normalizeTime(payload.start_time) ?? '',
     endTime: normalizeTime(payload.end_time) ?? '',
     timezone: cleanText(payload.timezone) || 'Asia/Shanghai',

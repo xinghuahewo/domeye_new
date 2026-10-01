@@ -1,29 +1,33 @@
 <script setup lang="ts">
-import { shallowRef, computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onServerPrefetch, reactive, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-
-import { getAsOverview, getAsRecentEvents, getASPrefixOutages, type FeatureRange } from '@/api/features'
+import { getAsCandidates, getAsOverview, getAsRecentEvents, getASPrefixOutages, type FeatureRange } from '@/api/features'
 import EventTable from '@/components/EventTable.vue'
 import AsnRequestState from '@/components/AsnRequestState.vue'
 import AsnEventTimeline from '@/components/AsnEventTimeline.vue'
 import AsnRibSnapshot from '@/components/AsnRibSnapshot.vue'
 import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
 import PageState from '@/components/PageState.vue'
-import SparklinePair from '@/components/SparklinePair.vue'
-import type { AsnProfile, AsOverview, EventRow, OutagePoint } from '@/types/api'
+import type { AsCandidatePage, AsOverview, EventRow, FeaturePoint, OutagePoint } from '@/types/api'
 import { resultDelivery } from '@/api/health'
 import { errorMessage } from '@/utils/normalize'
-import { recentRange, rangeFromQuery, toBackendTime } from '@/utils/time'
 import { businessTimezone, businessTimeToIso, toBusinessTime } from '@/utils/businessTime'
+import { scopeError, scopeFromQuery, scopeLabel, scopeMaximum, scopeMinimum, scopeMillis } from '@/utils/coreScope'
+import profile from '../../../config/data-profile.json'
 
 const route = useRoute()
 const router = useRouter()
 const delivered = computed(() => resultDelivery.value?.state === 'available')
-const defaults = rangeFromQuery(route.query.start, route.query.end, recentRange(24))
-const query = reactive({ start: defaults.start, end: defaults.end })
-watch([() => route.query.start, () => route.query.end], ([start, end]) => Object.assign(query, rangeFromQuery(start, end, query)))
+const text = (value: unknown) => typeof value === 'string' ? value : ''
+const fallback = { start: `${profile.snapshot_time.slice(0, 10)}T00:00:00`, end: scopeMaximum, country: '' }
+const selectedAsn = computed(() => text(route.params.asn).trim().replace(/^AS/i, ''))
 const asnInput = ref('')
+const countryInput = ref('')
+const query = reactive({ start: fallback.start, end: fallback.end })
+const draft = reactive({ ...query })
+const formError = ref('')
 const overview = ref<AsOverview | null>(null)
+const candidates = ref<AsCandidatePage | null>(null)
 const prefixOutages = ref<OutagePoint[]>([])
 const recentEvents = ref<EventRow[]>([])
 const loading = ref(false)
@@ -32,620 +36,251 @@ const outageLoading = ref(false)
 const outageError = ref('')
 const eventsLoading = ref(false)
 const eventError = ref('')
+const resourceFamily = ref<'ipv4' | 'ipv6'>('ipv4')
+let candidateVersion = ''
+let candidateScope = ''
 let loadToken = 0
-
-const selectedAsn = computed(() => {
-  const value = route.params.asn
-  if (typeof value !== 'string') return ''
-  return value.trim().replace(/^AS/i, '')
-})
+let controller: AbortController | undefined
+let pendingLoad: Promise<void> | undefined
 const selected = computed(() => overview.value?.selectedAsn ?? null)
 const hasMessageSummary = computed(() => (selected.value?.sampleCount ?? 0) > 0)
+const timeBounds = computed<[string, string]>(() => [businessTimeToIso(query.start), businessTimeToIso(query.end)])
 const eventContext = computed(() => {
-  const start = typeof route.query.event_start === 'string' ? route.query.event_start : ''
-  const end = typeof route.query.event_end === 'string' ? route.query.event_end : ''
-  const reference = typeof route.query.event_ref === 'string' ? route.query.event_ref : ''
+  const start = text(route.query.event_start), end = text(route.query.event_end), reference = text(route.query.event_ref)
   if (!start || !end || !reference) return null
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  if (
-    Number.isNaN(startDate.getTime())
-    || Number.isNaN(endDate.getTime())
-    || startDate.getTime() >= endDate.getTime()
-  ) return null
+  const startDate = new Date(start), endDate = new Date(end)
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || startDate >= endDate) return null
   return { start, end, reference, startDate, endDate }
 })
-
-const returnEventLink = computed(() => ({
-  name: 'event-detail',
-  query: {
-    ref: eventContext.value?.reference || '',
-    focus: typeof route.query.return_anchor === 'string' ? route.query.return_anchor : 'affected-as',
-    as_page: typeof route.query.as_page === 'string' ? route.query.as_page : undefined,
-    as_query: typeof route.query.as_query === 'string' ? route.query.as_query : undefined,
-    as_classification: typeof route.query.as_classification === 'string'
-      ? route.query.as_classification
-      : undefined,
-  },
-}))
-
-function eventWindowLabel(): string {
-  if (!eventContext.value) return ''
-  const formatter = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: businessTimezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  })
-  return `${formatter.format(eventContext.value.startDate)} — ${formatter.format(eventContext.value.endDate)}`
-}
-
-const selectedSeries = computed(() => selected.value?.series ?? [])
-const snapshotQuery = computed(() => Object.fromEntries(
-  Object.entries(route.query).filter(([key]) => ['snapshot_date', 'snapshot_version', 'snapshot_family'].includes(key)),
-))
-
+const incompleteEvent = computed(() => !eventContext.value && ['event_start', 'event_end', 'event_ref'].some(key => route.query[key] !== undefined))
+const returnEventLink = computed(() => ({ name: 'event-detail', query: {
+  ref: eventContext.value?.reference || '', focus: text(route.query.return_anchor) || 'affected-as',
+  as_page: text(route.query.as_page) || undefined, as_query: text(route.query.as_query) || undefined,
+  as_classification: text(route.query.as_classification) || undefined,
+} }))
+const listQuery = computed(() => ({ ...route.query, start: query.start, end: query.end,
+  event_start: undefined, event_end: undefined, event_ref: undefined, return_anchor: undefined }))
+const eventCountry = computed(() => text(route.query.country) || text(route.query.attacked_country) || undefined)
+const eventListLink = computed(() => ({ name: 'events', query: { attacked_as: selectedAsn.value, attacked_country: eventCountry.value, start: query.start, end: query.end } }))
+const candidateSort = computed(() => ['activity', 'latest', 'asn'].includes(text(route.query.sort)) ? text(route.query.sort) as 'activity' | 'latest' | 'asn' : 'activity')
+const candidateOrder = computed(() => route.query.order === 'asc' ? 'asc' as const : 'desc' as const)
+const candidatePage = computed(() => /^\d+$/.test(text(route.query.page)) ? Math.max(1, Number(route.query.page)) : 1)
+const resourceUnit = computed(() => delivered.value ? resourceFamily.value === 'ipv4' ? '/24 覆盖块' : '/48 覆盖块' : '原始值 · 单位 Unknown')
 function asnRoute(asn: string) {
-  return {
-    name: 'asn-detail',
-    params: { asn },
-    query: eventContext.value ? { ...route.query } : { ...snapshotQuery.value, start: query.start, end: query.end },
-  }
+  return { name: 'asn-detail', params: { asn }, query: eventContext.value ? { ...route.query } : { ...route.query, start: query.start, end: query.end } }
 }
-
-const asnSuggestions = computed(() => {
-  const profiles = new Map<string, AsnProfile>()
-  for (const ranking of [
-    overview.value?.updateRankings,
-    overview.value?.withdrawRateRankings,
-    overview.value?.anomalyRankings,
-  ]) {
-    for (const profile of ranking ?? []) profiles.set(profile.asn, profile)
-  }
-  return [...profiles.values()]
-})
-
-const rankingSections = computed(() => [
-  {
-    key: 'updates',
-    index: '01',
-    title: '更新量最高',
-    note: 'ANNOUNCE + WITHDRAW',
-    rows: overview.value?.updateRankings ?? [],
-    value: (profile: AsnProfile) => formatNumber(profile.updateTotal),
-    unit: '条',
-  },
-  {
-    key: 'withdraw',
-    index: '02',
-    title: '撤回率最高',
-    note: 'WITHDRAW / UPDATES',
-    rows: overview.value?.withdrawRateRankings ?? [],
-    value: (profile: AsnProfile) => formatPercent(profile.withdrawRate),
-    unit: '',
-  },
-  {
-    key: 'anomaly',
-    index: '03',
-    title: '异常事件最多',
-    note: 'SIX CORE CLASSES',
-    rows: overview.value?.anomalyRankings ?? [],
-    value: (profile: AsnProfile) => formatNumber(profile.anomalyCount),
-    unit: '起',
-  },
-])
-
-const messageSeries = computed<ChartSeries[]>(() => [
-  {
-    name: 'ANNOUNCE',
-    color: '#3e6f89',
-    data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.announce]),
-  },
-  {
-    name: 'WITHDRAW',
-    color: '#788f58',
-    data: selectedSeries.value.map((point) => [businessTimeToIso(point.time), point.withdraw]),
-  },
-])
-
-const resourceSeries = computed<ChartSeries[]>(() => [
-  {
-    name: 'IPv4 /24 SEGMENTS',
-    color: '#3e6f89',
-    data: selectedSeries.value
-      .map((point) => [businessTimeToIso(point.time), point.ipv4Prefixes]),
-  },
-  {
-    name: 'IPv6 /48 SEGMENTS',
-    color: '#788f58',
-    data: selectedSeries.value
-      .map((point) => [businessTimeToIso(point.time), point.ipv6Prefixes]),
-  },
-])
-
-const outageSeries = computed<ChartSeries[]>(() => [{
-  name: 'PREFIX OUTAGE',
-  color: '#967431',
-  data: prefixOutages.value.map((point) => [businessTimeToIso(point.time), point.count]),
-}])
-
-function featureRange(): FeatureRange {
-  return { start_time: toBackendTime(query.start), end_time: toBackendTime(query.end) }
+function rangeError(range: { start: string; end: string }) {
+  return scopeError({ ...range, country: '' }) || (scopeMillis(range.end) - scopeMillis(range.start) > 45 * 86400000 ? '单次最多查看 45 天，请缩小时间范围' : '')
 }
-
-function formatNumber(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : value.toLocaleString('zh-CN')
+function applyRange() {
+  if (eventContext.value) return
+  const complete = (value: string) => value.length === 16 ? `${value}:00` : value
+  const next = { start: complete(draft.start), end: complete(draft.end) }
+  formError.value = rangeError(next)
+  if (formError.value) return
+  if (query.start === next.start && query.end === next.end) reload()
+  else void router.push({ query: { ...route.query, ...next, date: undefined, page: undefined } })
 }
-
-function formatPercent(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : `${value.toFixed(1)}%`
-}
-
-function changeLabel(value: number | null) {
-  if (value === null) return '上一窗口无基线'
-  if (value === 0) return '与上一窗口持平'
-  return `${value > 0 ? '↑' : '↓'} ${Math.abs(value).toFixed(1)}% 较上一窗口`
-}
-
-function displayName(profile: AsnProfile | null | undefined) {
-  if (!profile) return '—'
-  return `AS${profile.asn}${profile.asName ? ` · ${profile.asName}` : ''}`
-}
-
-async function load() {
-  const token = ++loadToken
-  loading.value = true
-  overview.value = null
-  error.value = ''
-  outageError.value = ''
-  eventError.value = ''
-  prefixOutages.value = []
-  recentEvents.value = []
-  const range = featureRange()
-  const asn = selectedAsn.value
-  outageLoading.value = Boolean(asn)
-  eventsLoading.value = Boolean(asn)
-  let overviewReady = false
-  try {
-    const result = await getAsOverview(
-      range,
-      asn || undefined,
-      6,
-      Boolean(eventContext.value),
-      eventContext.value?.reference,
-    )
-    if (token !== loadToken) return
-    overview.value = result
-    overviewReady = true
-  } catch (cause) {
-    if (token !== loadToken) return
-    overview.value = null
-    error.value = cause
-  } finally {
-    if (token === loadToken) loading.value = false
-  }
-  if (!overviewReady || !asn || token !== loadToken) return
-
-  try {
-    const result = await getAsRecentEvents(
-      asn,
-      range,
-      10,
-      Boolean(eventContext.value),
-      eventContext.value?.reference,
-    )
-    if (token === loadToken) recentEvents.value = result.data
-  } catch (cause) {
-    if (token === loadToken) eventError.value = errorMessage(cause)
-  } finally {
-    if (token === loadToken) eventsLoading.value = false
-  }
-  if (token !== loadToken) return
-  try {
-    const result = await getASPrefixOutages(asn, range)
-    if (token === loadToken) prefixOutages.value = result
-  } catch (cause) {
-    if (token === loadToken) outageError.value = errorMessage(cause)
-  } finally {
-    if (token === loadToken) outageLoading.value = false
-  }
-}
-
-function openAsn(asn?: string) {
-  const target = (asn ?? asnInput.value).trim().replace(/^AS/i, '')
-  if (!/^\d+$/.test(target)) {
-    error.value = '请输入纯数字 ASN 或 AS 加数字，例如 AS3356'
+function openAsn() {
+  const asn = asnInput.value.trim().replace(/^AS/i, '')
+  if (!/^\d{1,10}$/.test(asn) || Number(asn) < 1 || Number(asn) > 4294967295) {
+    formError.value = '请输入 1 至 4294967295 的 ASN，例如 AS3356'
     return
   }
-  void router.push(asnRoute(target))
+  formError.value = ''
+  void router.push(asnRoute(String(Number(asn))))
 }
-
+function filterCandidates() {
+  const q = asnInput.value.trim()
+  if (q && !/^(?:AS)?\d+$/i.test(q)) { formError.value = '候选筛选请输入数字 ASN 或 AS 加数字'; return }
+  formError.value = ''
+  void router.push({ query: { ...route.query, start: query.start, end: query.end, q: q || undefined, country: countryInput.value.trim() || undefined, page: undefined } })
+}
+function sortCandidates(event: Event) {
+  const [sort, order] = (event.target as HTMLSelectElement).value.split(':')
+  void router.push({ query: { ...route.query, sort, order, page: undefined } })
+}
+function goPage(page: number) { void router.push({ query: { ...route.query, page: String(page) } }) }
 function openEvent(event: EventRow) {
-  if (!event.detailUrl) return
-  void router.push({ name: 'event-detail', query: { ref: event.detailUrl, start: query.start, end: query.end } })
+  if (event.detailUrl) void router.push({ name: 'event-detail', query: { ref: event.detailUrl, attacked_country: eventCountry.value, start: query.start, end: query.end } })
 }
-
-watch(
-  [() => route.params.asn, () => route.query.event_start, () => route.query.event_end, () => route.query.event_ref, () => route.query.start, () => route.query.end],
-  () => {
-    if (eventContext.value) {
-      query.start = toBusinessTime(eventContext.value.startDate).replace(' ', 'T')
-      query.end = toBusinessTime(eventContext.value.endDate).replace(' ', 'T')
-    } else {
-      Object.assign(query, rangeFromQuery(route.query.start, route.query.end, query))
+const number = (value: number | null | undefined) => value == null ? '—' : value.toLocaleString('zh-CN')
+const percent = (value: number | null | undefined) => value == null ? '—' : `${value.toFixed(1)}%`
+function observationTime(value: string | null) {
+  if (!value) return '未知'
+  try { return toBusinessTime(new Date(businessTimeToIso(value))).slice(5, 16) }
+  catch { return '时间未知' }
+}
+function featureSeries(name: string, key: keyof Omit<FeaturePoint, 'time'>, color: string): ChartSeries {
+  const data: ChartSeries['data'] = []
+  const records = selected.value?.series ?? []
+  records.forEach((point, index) => {
+    const time = businessTimeToIso(point.time), previous = records[index - 1]
+    if (previous && Date.parse(time) - Date.parse(businessTimeToIso(previous.time)) > 300000) {
+      data.push([new Date(Date.parse(businessTimeToIso(previous.time)) + 300000).toISOString(), null])
     }
-    asnInput.value = selectedAsn.value ? `AS${selectedAsn.value}` : ''
-    void load()
-  },
-  { immediate: true },
-)
+    data.push([time, point[key] ?? null])
+  })
+  return { name, color, data }
+}
+const messageSeries = computed(() => [featureSeries('宣告', 'announce', '#3e6f89'), featureSeries('撤回', 'withdraw', '#788f58')])
+const resourceSeries = computed(() => [featureSeries(resourceFamily.value === 'ipv4' ? 'IPv4 资源' : 'IPv6 资源', resourceFamily.value === 'ipv4' ? 'ipv4Prefixes' : 'ipv6Prefixes', '#3e6f89')])
+const outageSeries = computed<ChartSeries[]>(() => [{ name: '并发前缀中断', color: '#967431', data: prefixOutages.value.map(point => [businessTimeToIso(point.time), point.count]) }])
+const hasValues = (series: ChartSeries[]) => series.some(row => row.data.some(([, value]) => typeof value === 'number' && Number.isFinite(value)))
+function featureRange(): FeatureRange { return { start_time: query.start.replace('T', ' '), end_time: query.end.replace('T', ' ') } }
+function reload() { candidateVersion = ''; void load() }
+async function load() {
+  const token = ++loadToken
+  controller?.abort()
+  const request = new AbortController()
+  controller = request
+  overview.value = null; candidates.value = null; prefixOutages.value = []; recentEvents.value = []
+  error.value = null; outageError.value = ''; eventError.value = ''
+  loading.value = false; outageLoading.value = false; eventsLoading.value = false
+  const invalid = incompleteEvent.value ? '事件上下文不完整，无法读取原事件窗口'
+    : eventContext.value && !selectedAsn.value ? '事件窗口必须指定 ASN' : rangeError(query)
+  if (invalid) { error.value = invalid; eventError.value = invalid; outageError.value = invalid; return }
+  const range = featureRange(), asn = selectedAsn.value, context = eventContext.value
+  const current = () => token === loadToken && !request.signal.aborted
+  loading.value = true
+  if (!asn) {
+    try { const result = await getAsCandidates(range, { country: text(route.query.country) || undefined, q: text(route.query.q) || undefined,
+      sort: candidateSort.value, order: candidateOrder.value, page: candidatePage.value, page_size: 20, version: candidateVersion || undefined }, request.signal)
+      if (current()) { candidates.value = result; candidateVersion = result.version }
+    } catch (cause) { if (current()) error.value = cause }
+    finally { if (current()) loading.value = false }
+    return
+  }
+  if (!/^\d{1,10}$/.test(asn) || Number(asn) < 1 || Number(asn) > 4294967295) {
+    error.value = 'ASN 无效'; eventError.value = 'ASN 无效'; outageError.value = 'ASN 无效'; loading.value = false; return
+  }
+  outageLoading.value = true; eventsLoading.value = true
+  await Promise.allSettled([
+    getAsOverview(range, asn, 6, Boolean(context), context?.reference, request.signal)
+      .then(result => { if (current()) overview.value = result })
+      .catch(cause => { if (current()) error.value = cause })
+      .finally(() => { if (current()) loading.value = false }),
+    getAsRecentEvents(asn, range, 10, Boolean(context), context?.reference, request.signal)
+      .then(result => { if (current()) recentEvents.value = result.data })
+      .catch(cause => { if (current()) eventError.value = errorMessage(cause) })
+      .finally(() => { if (current()) eventsLoading.value = false }),
+    getASPrefixOutages(asn, range, request.signal)
+      .then(result => { if (current()) prefixOutages.value = result })
+      .catch(cause => { if (current()) outageError.value = errorMessage(cause) })
+      .finally(() => { if (current()) outageLoading.value = false }),
+  ])
+}
+watch(() => [route.params.asn, route.query.start, route.query.end, route.query.date, route.query.event_start, route.query.event_end, route.query.event_ref,
+  route.query.country, route.query.q, route.query.sort, route.query.order, route.query.page], () => {
+  const scope = scopeFromQuery(route.query, fallback)
+  Object.assign(query, eventContext.value ? {
+    start: toBusinessTime(eventContext.value.startDate).replace(' ', 'T'), end: toBusinessTime(eventContext.value.endDate).replace(' ', 'T'),
+  } : { start: scope.start, end: scope.end })
+  Object.assign(draft, query)
+  asnInput.value = selectedAsn.value ? `AS${selectedAsn.value}` : text(route.query.q)
+  countryInput.value = text(route.query.country)
+  const nextCandidateScope = [query.start, query.end, text(route.query.country), text(route.query.q)].join('|')
+  if (candidateScope !== nextCandidateScope) { candidateVersion = ''; candidateScope = nextCandidateScope }
+  formError.value = ''
+  pendingLoad = load()
+}, { immediate: true })
+onServerPrefetch(() => pendingLoad)
+onBeforeUnmount(() => { loadToken++; controller?.abort() })
 </script>
 
 <template>
   <article class="page asn-page">
     <section v-if="eventContext" class="event-window-context" aria-label="国家中断事件窗口">
-      <div>
-        <span>按国家中断事件窗口查看</span>
-        <strong>{{ eventWindowLabel() }} · {{ businessTimezone }}</strong>
-        <small class="event-reference">事件：{{ eventContext.reference }}</small>
-      </div>
+      <div><span>国家中断事件中的网络</span><strong>{{ scopeLabel(query) }} · {{ businessTimezone }}</strong><small>事件：{{ eventContext.reference }}</small></div>
       <RouterLink :to="returnEventLink">← 返回事件中的相关 AS</RouterLink>
     </section>
-    <header class="page-heading asn-heading">
-      <div>
-        <p class="eyebrow">重点 AS 态势 / ASN desk</p>
-        <h1>{{ selectedAsn ? `AS${selectedAsn}` : '重点 ASN 监测台' }}</h1>
+    <header class="asn-heading">
+      <div><p class="eyebrow">NETWORK OBSERVATORY</p><h1>{{ selectedAsn ? `AS${selectedAsn}` : '网络档案' }}<span v-if="selected">{{ selected.asName || selected.orgName || '名称未知' }}</span></h1>
+        <p v-if="selected" class="asn-identity">{{ selected.orgName || '组织未知' }}<i>·</i>{{ selected.country || '国家未知' }}<i>·</i>{{ selected.asType || '类型未知' }}<b v-if="selected.important">重点网络</b></p>
+        <p v-else-if="!selectedAsn" class="asn-intro">查找一个 AS，查看它在所选时段的报文、资源与异常记录。</p>
       </div>
-      <p class="page-heading-copy">
-        {{ eventContext ? '核对本事件窗口内的 ASN 报文活动与资源记录。所选 ASN 和事件上下文保留在页面顶部。' : delivered ? '在运维候选集内查询本批 ASN Feature 与事件；与首页使用同一结果版本，不代表全网 ASN 排名。' : '在可审计的运维候选集内定位 ASN 报文和六类异常；该视图使用独立历史数据，不代表全网 ASN 排名。' }}
-      </p>
+      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases', query: listQuery }">← 全部候选网络</RouterLink>
     </header>
+    <section class="asn-controls" aria-label="网络与时间范围">
+      <form class="asn-search" @submit.prevent="openAsn"><label>查找网络<input v-model="asnInput" aria-label="检索 ASN" placeholder="输入 ASN，例如 AS3356" /></label><button type="submit">打开档案 →</button></form>
+      <form v-if="!eventContext && !incompleteEvent" class="asn-time" @submit.prevent="applyRange">
+        <label>开始时间<input v-model="draft.start" type="datetime-local" step="1" required :min="scopeMinimum" :max="scopeMaximum" aria-label="AS 开始时间" /></label>
+        <label>结束时间<input v-model="draft.end" type="datetime-local" step="1" required :min="scopeMinimum" :max="scopeMaximum" aria-label="AS 结束时间" /></label>
+        <button type="submit">应用区间</button>
+      </form>
+      <p class="asn-range-note">{{ incompleteEvent ? '事件参数不完整，需返回原事件重新打开 ASN。' : eventContext ? '沿用原事件窗口，时间不可更改。' : '北京时间 · 右端不含 · 单次最多 45 天。' }} {{ scopeLabel(query) }}</p>
+      <p v-if="formError" class="asn-error" role="alert">{{ formError }}</p>
+    </section>
+    <p class="asn-source-line">{{ delivered ? '本批已交付结果' : '历史观测数据' }}<span>缺失时段保留未知；BGP 观测不能直接解释为实际用户影响。</span></p>
+    <p v-if="overview?.deliveryCoverage?.state === 'partial'" class="chart-note" role="status">所选区间仅部分时段有已交付观测；以下数量只对应已交付部分，其余时段未知。</p>
+    <AsnRequestState :loading="loading" :error="error" :event-window="Boolean(eventContext)" @retry="reload" />
 
-    <section v-if="!eventContext" class="legacy-boundary" aria-label="ASN 数据准入边界">
-      <b>{{ delivered ? '本批计算结果 · 有限时段' : '历史数据 · 独立口径' }}</b>
-      <p>{{ delivered ? '仅覆盖页首所列时段，窗口外未知；这不是整窗业务验收。缺失值不表示零。' : '本页用于历史对象定位，数据尚未统一发布，不与首页指标混算；缺失值表示未知。' }}</p>
+    <section v-if="!selectedAsn" class="asn-candidates" aria-labelledby="candidate-title">
+      <header class="section-heading"><div><p class="eyebrow">EXPLORE NETWORKS</p><h2 id="candidate-title">有特征记录的网络</h2></div><span>仅所选窗口内的候选网络</span></header>
+      <form class="candidate-filters" @submit.prevent="filterCandidates"><label>国家或地区<input v-model="countryInput" aria-label="筛选候选国家或地区" placeholder="全部国家或地区" /></label><button type="submit">筛选候选</button>
+        <label class="candidate-sort">排序<select aria-label="候选网络排序" :value="`${candidateSort}:${candidateOrder}`" @change="sortCandidates"><option value="activity:desc">更新量从高到低</option><option value="latest:desc">最近采样优先</option><option value="asn:asc">ASN 从小到大</option><option value="asn:desc">ASN 从大到小</option></select></label></form>
+      <template v-if="candidates">
+        <p v-if="candidates.coverage.state === 'partial'" class="chart-note" role="status">仅部分时段有交付数据，其余时段未知；列表中的数量只来自已有采样。</p>
+        <div v-if="candidates.items.length" class="candidate-table-scroll"><table class="candidate-table"><thead><tr><th>网络</th><th>国家 / 地区</th><th>宣告</th><th>撤回</th><th>更新总量</th><th>撤回占比</th><th>最后采样 · 北京时间</th><th><span class="sr-only">打开</span></th></tr></thead><tbody>
+          <tr v-for="item in candidates.items" :key="item.asn"><td><RouterLink :to="asnRoute(item.asn)"><strong>AS{{ item.asn }}</strong><small>{{ item.asName || item.orgName || '名称未知' }}</small></RouterLink></td><td>{{ item.country || item.countries.join('、') || '未知' }}</td><td>{{ number(item.announce) }}</td><td>{{ number(item.withdraw) }}</td><td>{{ number(item.updateTotal) }}</td><td>{{ percent(item.withdrawRate) }}</td><td :title="item.latestObservation || undefined">{{ observationTime(item.latestObservation) }}</td><td><RouterLink :to="asnRoute(item.asn)" :aria-label="`打开 AS${item.asn} 档案`">↗</RouterLink></td></tr>
+        </tbody></table></div>
+        <PageState v-else :title="candidates.state === 'window_not_observed' ? '所选区间没有已交付观测' : '所选范围没有可展示的候选网络'" detail="仅表示没有返回 Feature 样本，不能解释为这些网络没有路由或没有异常。" />
+        <footer class="candidate-footer"><span>共 {{ number(candidates.total) }} 个候选 · 宣告 / 撤回为路由元素次数 · 国家按 Feature 来源字段</span><div><button :disabled="candidatePage <= 1" @click="goPage(candidatePage - 1)">上一页</button><span>{{ candidatePage }} / {{ Math.max(1, candidates.pageCount) }}</span><button :disabled="candidatePage >= candidates.pageCount" @click="goPage(candidatePage + 1)">下一页</button></div></footer>
+      </template>
     </section>
 
-    <form class="asn-console" @submit.prevent="openAsn()">
-      <label>
-        <span>检索 ASN</span>
-        <input v-model="asnInput" list="asn-suggestions" placeholder="例如：AS3356、4134" />
-        <datalist id="asn-suggestions">
-          <option v-for="profile in asnSuggestions" :key="profile.asn" :value="`AS${profile.asn}`">
-            {{ profile.asName }} · {{ profile.country }}
-          </option>
-        </datalist>
-      </label>
-      <button class="solid-action" type="submit">打开档案</button>
-      <RouterLink v-if="selectedAsn" class="text-action" :to="{ name: 'ases', query: { ...snapshotQuery, start: query.start, end: query.end } }">返回 ASN 总览</RouterLink>
-      <span class="console-freshness">DATA CUT · {{ overview?.latestObservation || '尚无观测' }}</span>
-    </form>
-
-    <AsnRibSnapshot :asn="selectedAsn" />
-
-    <AsnRequestState :loading="loading && !overview" :error="error" :event-window="Boolean(eventContext)" @retry="load" />
-
-    <template v-if="overview">
-      <section v-if="!eventContext" class="scope-note" aria-label="ASN 排行范围说明">
-        <div>
-          <span>COMPARISON SCOPE</span>
-          <strong>{{ overview.scopeSize }} / {{ overview.candidatePoolSize }}</strong>
-        </div>
-        <p>{{ overview.scopeNote }}</p>
+    <template v-if="selectedAsn">
+      <section class="asn-window-summary" aria-label="所选区间摘要">
+        <div class="section-heading"><h2>区间摘要</h2><span>{{ selected?.latestObservation ? `末次采样 ${selected.latestObservation}` : '采样时点未知' }}</span></div>
+        <div class="summary-metrics"><article><span>宣告</span><strong>{{ number(hasMessageSummary ? selected?.announce : null) }}</strong><small>已返回报文元素</small></article><article><span>撤回</span><strong>{{ number(hasMessageSummary ? selected?.withdraw : null) }}</strong><small>已返回报文元素</small></article><article><span>撤回占比</span><strong>{{ percent(hasMessageSummary ? selected?.withdrawRate : null) }}</strong><small>撤回 /（宣告 + 撤回）</small></article><article><span>异常记录</span><strong>{{ number(selected?.anomalyCount) }}</strong><small>所选窗口 · 六类异常</small></article></div>
       </section>
-
-      <section v-if="!eventContext" class="asn-leaders" aria-label="ASN 态势核心指标">
-        <article>
-          <span>有特征 ASN</span>
-          <strong>{{ overview.featureAsnCount }}</strong>
-          <b>/ {{ overview.scopeSize }} 个当前候选</b>
-        </article>
-        <article>
-          <span>重要 ASN</span>
-          <strong>{{ overview.importantAsnCount }}</strong>
-          <b>STATIC IMPORTANT-AS LABEL</b>
-        </article>
-        <article>
-          <span>存在异常</span>
-          <strong>{{ overview.asnsWithAnomalies }}</strong>
-          <b>六类核心异常</b>
-        </article>
-        <article>
-          <span>更新量最高</span>
-          <strong>{{ displayName(overview.updateLeader) }}</strong>
-          <b>{{ formatNumber(overview.updateLeader?.updateTotal) }} 条</b>
-        </article>
+      <AsnEventTimeline v-if="eventContext && selected && overview" :profile="selected" :start-time="overview.startTime" :end-time="overview.endTime" />
+      <section v-if="!eventContext" class="asn-chart-panel" aria-label="ASN 报文活动">
+        <div class="section-heading"><div><p class="eyebrow">01 / MESSAGES</p><h2>报文活动</h2></div><span>宣告与撤回 · 元素</span></div>
+        <PageState v-if="loading" kind="loading" title="正在读取报文活动" /><PageState v-else-if="error" kind="error" title="报文活动不可用" /><LineChart v-else-if="hasValues(messageSeries)" :series="messageSeries" :timezone="businessTimezone" unit="元素" :height="320" :time-bounds="timeBounds" show-data-zoom show-points /><PageState v-else title="所选区间没有可用报文样本" detail="缺失不表示数量为零。" />
       </section>
-
-      <section v-if="!eventContext" class="ranking-board" aria-label="ASN 候选集排行">
-        <article v-for="section in rankingSections" :key="section.key" class="ranking-sheet">
-          <header>
-            <span>{{ section.index }}</span>
-            <div>
-              <h2>{{ section.title }}</h2>
-              <p>{{ section.note }}</p>
-            </div>
-          </header>
-          <ol>
-            <li v-for="(profile, index) in section.rows" :key="profile.asn">
-              <span class="rank-index">{{ String(index + 1).padStart(2, '0') }}</span>
-              <RouterLink :to="asnRoute(profile.asn)">
-                <strong>AS{{ profile.asn }} <em v-if="profile.important">重点</em></strong>
-                <small>{{ profile.asName || profile.orgName || '静态名称未知' }} · {{ profile.country || '国家未知' }}</small>
-              </RouterLink>
-              <SparklinePair :points="profile.sparkline" :label="`AS${profile.asn} 报文趋势`" />
-              <b>{{ section.value(profile) }} <small>{{ section.unit }}</small></b>
-            </li>
-          </ol>
-        </article>
+      <section class="asn-chart-panel" aria-label="ASN 前缀并发中断">
+        <div class="section-heading"><div><p class="eyebrow">02 / PREFIX OUTAGES</p><h2>前缀并发中断</h2></div><span>3 分钟采样 · 起</span></div>
+        <PageState v-if="outageLoading" kind="loading" title="正在读取前缀中断时序" /><PageState v-else-if="outageError" kind="error" title="前缀中断时序不可用" :detail="outageError" @retry="load" /><LineChart v-else-if="hasValues(outageSeries)" :series="outageSeries" :timezone="businessTimezone" unit="起" :height="300" :time-bounds="timeBounds" show-data-zoom show-points /><PageState v-else title="所选区间没有可用中断时序" detail="无可用时序不表示没有中断。" />
       </section>
-
-      <section v-if="selected" class="asn-dossier" aria-labelledby="asn-dossier-title">
-        <header class="dossier-heading">
-          <div>
-            <p>{{ eventContext ? 'SELECTED ASN / EVENT WINDOW DOSSIER' : 'SELECTED ASN / WINDOW DOSSIER' }}</p>
-            <h2 id="asn-dossier-title">AS{{ selected.asn }} · {{ selected.asName || '名称未知' }}</h2>
-            <span>{{ selected.orgName || '组织未知' }} · {{ selected.country || '国家未知' }} · {{ selected.asType || '类型未知' }}</span>
-          </div>
-          <div class="dossier-actions">
-            <RouterLink :to="{ name: 'events', query: { attacked_as: selected.asn, date: query.start.slice(0, 10) } }">检索该 ASN 事件 →</RouterLink>
-            <span>最后观测 {{ selected.latestObservation || '未知' }}</span>
-            <b v-if="selected.important">IMPORTANT AS</b>
-          </div>
-        </header>
-
-        <div class="identity-ledger">
-          <span>全球排名 <b>{{ selected.globalRank ?? '—' }}</b></span>
-          <span>国家排名 <b>{{ selected.countryRank ?? '—' }}</b></span>
-          <span>样本域 <b>{{ overview.scopeSize }} ASN</b></span>
-          <span>证据语义 <b>OBSERVATION, NOT CAUSAL TRACE</b></span>
-        </div>
-
-        <div v-if="!eventContext" class="dossier-metrics">
-          <article>
-            <span>更新总量</span>
-            <strong>{{ formatNumber(hasMessageSummary ? selected.updateTotal : null) }}</strong>
-            <small>{{ hasMessageSummary ? changeLabel(selected.updateChangeRate) : '暂无报文汇总' }}</small>
-          </article>
-          <article>
-            <span>撤回率</span>
-            <strong>{{ formatPercent(hasMessageSummary ? selected.withdrawRate : null) }}</strong>
-            <small v-if="hasMessageSummary">{{ formatNumber(selected.withdraw) }} WITHDRAW</small>
-            <small v-else>暂无报文汇总</small>
-          </article>
-          <article>
-            <span>IPv4 /24 等效段</span>
-            <strong>{{ formatNumber(selected.ipv4Prefixes) }}</strong>
-            <small>历史快照 · 独立统计</small>
-          </article>
-          <article>
-            <span>IPv6 /48 等效段</span>
-            <strong>{{ formatNumber(selected.ipv6Prefixes) }}</strong>
-            <small>历史快照 · 独立统计</small>
-          </article>
-          <article>
-            <span>异常 / 高风险</span>
-            <strong>{{ selected.anomalyCount }} / {{ selected.highRiskCount }}</strong>
-            <small>六类核心异常</small>
-          </article>
-        </div>
-
-        <AsnEventTimeline v-if="eventContext" :profile="selected" :start-time="overview.startTime" :end-time="overview.endTime" />
-
-        <div class="asn-chart-grid">
-          <section v-if="!eventContext" class="asn-chart-panel">
-            <div class="section-heading"><h3>报文脉冲</h3><span>announce / withdraw</span></div>
-            <PageState v-if="selected.series.length === 0" title="当前窗口没有 ASN 报文样本" />
-            <LineChart v-else :series="messageSeries" :timezone="businessTimezone" unit="条" :height="300" />
-          </section>
-          <section v-if="!eventContext" class="asn-chart-panel">
-            <div class="section-heading"><h3>路由资源等效段</h3><span>历史快照 · 缺失不等于零</span></div>
-            <PageState v-if="selected.series.length === 0" title="当前窗口没有资源快照" />
-            <LineChart v-else :series="resourceSeries" :timezone="businessTimezone" unit="个" :height="300" />
-          </section>
-          <section class="asn-chart-panel is-wide">
-            <div class="section-heading"><h3>前缀并发中断</h3><span>3-minute active slots</span></div>
-            <PageState v-if="outageLoading" kind="loading" title="正在读取 ASN 前缀中断时间槽" />
-            <PageState v-else-if="outageError" kind="error" title="ASN 中断时序不可用" :detail="outageError" @retry="load" />
-            <LineChart v-else :series="outageSeries" :timezone="businessTimezone" unit="起" :height="270" />
-          </section>
-        </div>
-
-        <section class="asn-events">
-          <div class="section-heading"><h3>最近异常事件</h3><span>{{ recentEvents.length }} latest records</span></div>
-          <PageState v-if="eventsLoading" kind="loading" title="正在读取 ASN 最近事件" />
-          <PageState v-else-if="eventError" kind="error" title="ASN 事件不可用" :detail="eventError" @retry="load" />
-          <PageState v-else-if="recentEvents.length === 0" title="当前窗口没有可展示的 ASN 异常事件" />
-          <EventTable v-else compact :events="recentEvents" @select="openEvent" />
-        </section>
+      <section v-if="!eventContext" class="asn-chart-panel" aria-label="ASN 资源趋势">
+        <div class="section-heading"><div><p class="eyebrow">03 / RESOURCES</p><h2>资源趋势</h2></div><div class="resource-tabs" role="group" aria-label="资源地址族"><button :aria-pressed="resourceFamily === 'ipv4'" @click="resourceFamily = 'ipv4'">IPv4</button><button :aria-pressed="resourceFamily === 'ipv6'" @click="resourceFamily = 'ipv6'">IPv6</button></div></div>
+        <p class="chart-note">{{ resourceUnit }} · 按来源文件时间标签绘制，数值为文件处理后的资源记录，与独立 RIB 去重前缀数不同。</p>
+        <PageState v-if="loading" kind="loading" title="正在读取资源趋势" /><PageState v-else-if="error" kind="error" title="资源趋势不可用" /><LineChart v-else-if="hasValues(resourceSeries)" :series="resourceSeries" :timezone="businessTimezone" :unit="resourceUnit" :height="320" :time-bounds="timeBounds" show-data-zoom show-points /><PageState v-else title="所选地址族没有可用资源值" detail="未知保留为空，不使用另一地址族代替。" />
       </section>
-
-      <PageState v-else title="从排行打开一个 ASN 档案" detail="总览只用于定位，档案页再加载单 ASN 时序、并发中断和最近事件。" />
+      <section class="asn-events" aria-labelledby="asn-events-title"><div class="section-heading"><div><p class="eyebrow">EVENT RECORDS</p><h2 id="asn-events-title">区间异常事件</h2></div><RouterLink :to="eventListLink">检索全部事件 →</RouterLink></div>
+        <PageState v-if="eventsLoading" kind="loading" title="正在读取异常事件" /><PageState v-else-if="eventError" kind="error" title="ASN 事件不可用" :detail="eventError" @retry="load" /><PageState v-else-if="!recentEvents.length" title="当前窗口没有可展示的异常事件" /><EventTable v-else compact :events="recentEvents" @select="openEvent" /><p class="chart-note">最多展示最近 10 条记录。等级和检测分类不能直接说明实际损害或原因。</p>
+      </section>
+      <AsnRibSnapshot :asn="selectedAsn" />
+      <details class="asn-source-details"><summary>数据来源与解释范围</summary><p>{{ delivered ? 'Feature 与异常查询读取本批已交付结果，仅已有时段可用。' : '历史特征、异常与独立 RIB 快照分别读取；不能按页面相邻位置混算。' }} 每个图表的空值与缺口保持未知。</p><p>资源保留所选地址族的独立单位；RIB 只说明标明时点的起源前缀，不代表整个窗口的连续状态。</p><p v-if="selected">名称、组织、类型与排名采用静态参考资料，历史适用性未知。全球排名 {{ number(selected.globalRank) }} · 国家排名 {{ number(selected.countryRank) }}，不是本页窗口内的网络表现排名。</p></details>
     </template>
   </article>
 </template>
 
 <style scoped>
-.asn-heading { align-items: end; }
-
-.event-window-context {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 13px 16px;
-  color: #e8f4f8;
-  background: #14384a;
-  border-left: 4px solid #e27839;
-}
-.event-reference { overflow-wrap: anywhere; font-size: 10px; line-height: 1.6; color: #b6d3dc; }
-.event-window-context div { min-width: 0; display: grid; gap: 4px; }
-.event-window-context span { color: #91c2d2; font-size: 9px; font-weight: 750; letter-spacing: .06em; }
-.event-window-context strong { font: 700 11px/1.4 var(--mono); }
-.event-window-context a { color: #ffd0ad; font-size: 10px; font-weight: 750; text-decoration: none; }
-
-.legacy-boundary {
-  display: grid;
-  grid-template-columns: minmax(240px, auto) 1fr;
-  align-items: center;
-  gap: 18px;
-  padding: 11px 15px;
-  color: #684c31;
-  background: #fffaf2;
-  border: 1px solid #ebd6aa;
-  border-left: 4px solid #df7a1f;
-}
-.legacy-boundary b { color: #9a4f0c; font: 800 9px/1.3 var(--mono); letter-spacing: .06em; }
-.legacy-boundary p { margin: 0; font-size: 10px; line-height: 1.55; }
-
-.asn-console {
-  display: grid;
-  grid-template-columns: minmax(220px, 340px) 132px auto 1fr;
-  align-items: end;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-}
-
-.asn-console label { display: grid; gap: 7px; }
-.asn-console label span,
-.console-freshness {
-  color: var(--muted);
-  font: 650 9px/1.3 var(--mono);
-  letter-spacing: .035em;
-  text-transform: uppercase;
-}
-.asn-console input {
-  width: 100%;
-  height: 38px;
-  padding: 0 11px;
-  color: var(--ink);
-  background: #fff;
-  border: 1px solid var(--line-dark);
-  border-radius: 5px;
-}
-.asn-console .solid-action { min-height: 38px; }
-.text-action { align-self: center; color: var(--primary); font-size: 11px; font-weight: 700; text-decoration: none; }
-.console-freshness { align-self: center; justify-self: end; }
-
-.scope-note {
-  display: grid;
-  grid-template-columns: 190px 1fr;
-  align-items: center;
-  gap: 18px;
-  padding: 12px 16px;
-  color: #334155;
-  background: #f4f7fb;
-  border: 1px solid #cbd5e1;
-  border-left: 3px solid var(--primary);
-}
-.scope-note div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.scope-note span { color: var(--primary); font: 700 9px/1 var(--mono); letter-spacing: .05em; }
-.scope-note strong { font: 750 17px/1 var(--mono); white-space: nowrap; }
-.scope-note p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
-
-.asn-leaders {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-}
-.asn-leaders article { min-width: 0; display: grid; gap: 7px; padding: 17px 18px; }
-.asn-leaders article + article { border-left: 1px solid var(--line); }
-.asn-leaders span,
-.dossier-metrics span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
-.asn-leaders strong { overflow: hidden; color: #17212b; font-size: clamp(22px, 2.2vw, 30px); letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
-.asn-leaders b { color: #536171; font: 650 10px/1.3 var(--mono); }
-
-.ranking-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.ranking-sheet { overflow: hidden; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
-.ranking-sheet:last-child { grid-column: 1 / -1; }
-.ranking-sheet > header { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 12px; min-height: 70px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-.ranking-sheet > header > span { color: var(--signal); font: 750 13px/1 var(--mono); }
-.ranking-sheet h2,
-.ranking-sheet p { margin: 0; }
-.ranking-sheet h2 { color: #24313d; font-size: 16px; }
-.ranking-sheet p { margin-top: 4px; color: var(--muted); font: 600 8px/1 var(--mono); letter-spacing: .045em; }
-.ranking-sheet ol { margin: 0; padding: 0; list-style: none; }
-.ranking-sheet li { min-height: 64px; display: grid; grid-template-columns: 28px minmax(130px, 1fr) 132px minmax(82px, auto); align-items: center; gap: 10px; padding: 10px 16px; }
-.ranking-sheet li + li { border-top: 1px solid #edf0f4; }
-.rank-index { color: #98a2b3; font: 650 9px/1 var(--mono); }
-.ranking-sheet li > a { min-width: 0; display: grid; gap: 4px; text-decoration: none; }
-.ranking-sheet li > a:hover strong { color: var(--primary); }
-.ranking-sheet li > a strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.ranking-sheet li > a small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.ranking-sheet em { margin-left: 5px; padding: 2px 4px; color: #9a3412; background: #ffedd5; border-radius: 3px; font: 700 7px/1 var(--mono); font-style: normal; }
-.ranking-sheet li > b { justify-self: end; color: #17212b; font: 720 13px/1 var(--mono); white-space: nowrap; }
-.ranking-sheet li > b small { color: var(--muted); font-size: 8px; }
-
-.asn-dossier { overflow: hidden; background: var(--paper); border: 1px solid var(--line); border-top: 3px solid var(--primary); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
-.dossier-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 20px; border-bottom: 1px solid var(--line); }
-.dossier-heading p,
-.dossier-heading h2 { margin: 0; }
-.dossier-heading p { color: var(--primary); font: 700 9px/1 var(--mono); letter-spacing: .05em; }
-.dossier-heading h2 { margin-top: 7px; color: #17212b; font-size: 27px; letter-spacing: -.035em; }
-.dossier-heading > div > span { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; }
-.dossier-actions { display: grid; justify-items: end; gap: 7px; font-size: 10px; }
-.dossier-actions a { color: var(--primary); font-weight: 700; text-decoration: none; }
-.dossier-actions span { color: var(--muted); font-family: var(--mono); }
-.dossier-actions b { padding: 4px 6px; color: #9a3412; background: #ffedd5; font: 700 8px/1 var(--mono); }
-.identity-ledger { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
-.identity-ledger span { flex: 1 1 180px; padding: 9px 14px; color: var(--muted); background: #f8fafc; font: 600 8px/1.3 var(--mono); }
-.identity-ledger b { color: #334155; }
-.dossier-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
-.dossier-metrics article { min-width: 0; display: grid; align-content: start; gap: 8px; padding: 15px 14px; }
-.dossier-metrics article + article { border-left: 1px solid var(--line); }
-.dossier-metrics article:nth-child(n + 5) { border-top: 1px solid var(--line); }
-.dossier-metrics article:nth-child(5) { border-left: 0; }
-.dossier-metrics strong { overflow: hidden; color: #17212b; font: 740 clamp(17px, 1.8vw, 23px)/1 var(--mono); letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
-.dossier-metrics small { color: var(--muted); font-size: 8px; line-height: 1.45; }
-.asn-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
-.asn-chart-panel { min-width: 0; padding: 18px; background: var(--paper); }
-.asn-chart-panel.is-wide { grid-column: 1 / -1; }
-.asn-chart-panel .section-heading,
-.asn-events .section-heading { margin: 0 0 14px; }
-.asn-chart-panel h3,
-.asn-events h3 { margin: 0; color: #24313d; font-size: 15px; }
-.asn-events { padding: 18px; }
-
-@media (max-width: 1180px) {
-  .asn-console { grid-template-columns: minmax(220px, 1fr) 132px auto; }
-  .console-freshness { grid-column: 1 / -1; justify-self: start; }
-  .ranking-sheet li { grid-template-columns: 26px minmax(100px, 1fr) minmax(76px, auto); }
-  .ranking-sheet :deep(.sparkline-pair) { display: none; }
-}
-
-@media (max-width: 820px) {
-  .scope-note,
-  .asn-leaders,
-  .ranking-board,
-  .asn-chart-grid { grid-template-columns: 1fr; }
-  .ranking-sheet:last-child { grid-column: auto; }
-  .asn-leaders article + article { border-top: 1px solid var(--line); border-left: 0; }
-  .asn-chart-panel.is-wide { grid-column: auto; }
-  .dossier-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dossier-metrics article:nth-child(odd) { border-left: 0; }
-  .dossier-metrics article:nth-child(n + 3) { border-top: 1px solid var(--line); }
-}
-
-@media (max-width: 620px) {
-  .legacy-boundary { grid-template-columns: 1fr; gap: 5px; }
-  .asn-console { grid-template-columns: 1fr; }
-  .text-action,
-  .console-freshness { justify-self: start; }
-  .ranking-sheet li { grid-template-columns: 24px minmax(0, 1fr) auto; padding-inline: 12px; }
-  .dossier-heading { align-items: start; flex-direction: column; }
-  .dossier-actions { justify-items: start; }
-  .dossier-metrics { grid-template-columns: 1fr; }
-  .dossier-metrics article + article { border-top: 1px solid var(--line); border-left: 0; }
-}
+.asn-page { --accent:var(--primary); --surface:var(--paper); max-width:1320px; margin-inline:auto; display:grid; gap:22px; }
+.asn-heading { display:flex; justify-content:space-between; align-items:end; gap:24px; padding:8px 0 5px; }
+.eyebrow { color:var(--muted); font:10px var(--mono); letter-spacing:.13em; margin:0 0 8px; }
+.asn-heading h1 { font-size:38px; letter-spacing:-1.3px; margin:0; line-height:1.2; font-weight:550; }
+.asn-heading h1 span { display:block; font-size:18px; font-weight:450; letter-spacing:0; margin-top:8px; color:var(--muted); }
+.asn-identity,.asn-intro { margin-top:14px; color:var(--muted); font-size:13px; line-height:1.8; }
+.asn-identity i { padding:0 9px; font-style:normal; }.asn-identity b { font-size:10px; font-weight:500; margin-left:14px; padding:3px 7px; background:#edf2df; color:#617340; }
+.text-action,.section-heading>a { color:var(--accent); font-size:12px; text-decoration:none; white-space:nowrap; }
+.asn-controls { background:var(--surface); border:1px solid var(--line); border-top:3px solid var(--accent); padding:18px 22px; display:flex; flex-wrap:wrap; gap:18px 32px; align-items:end; }
+.asn-search,.asn-time { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }.asn-search { flex:1; }.asn-search label { flex:1; min-width:180px; }
+label { display:grid; gap:7px; color:var(--muted); font-size:11px; }input,select { min-height:38px; padding:8px 10px; border:1px solid var(--line); border-radius:4px; background:white; color:var(--ink); font-size:12px; min-width:0; }button { cursor:pointer; }button:disabled { cursor:default; opacity:.45; }
+.asn-controls button,.candidate-filters>button { min-height:38px; padding:8px 15px; border:0; border-radius:4px; background:var(--accent); color:white; font-size:12px; }
+.asn-range-note { flex-basis:100%; color:var(--muted); font-size:10px; margin:0; }.asn-error { color:#9b4538; flex-basis:100%; margin:0; font-size:12px; }
+.asn-source-line { margin:0; font-size:11px; color:var(--muted); }.asn-source-line>span { margin-left:14px; }
+.section-heading { display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:18px; }.section-heading h2 { margin:0; font-size:20px; font-weight:550; }.section-heading>span { color:var(--muted); font-size:11px; }
+.asn-candidates,.asn-window-summary,.asn-chart-panel,.asn-events { min-width:0; padding:22px 24px; background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+.candidate-filters { display:flex; align-items:end; flex-wrap:wrap; gap:12px; margin:20px 0; }.candidate-sort { margin-left:auto; }.candidate-table-scroll { overflow:auto; }.candidate-table { width:100%; border-collapse:collapse; text-align:left; font-size:12px; }.candidate-table th { font-size:10px; color:var(--muted); font-weight:500; white-space:nowrap; }.candidate-table td,.candidate-table th { border-bottom:1px solid var(--line); padding:14px 10px; }.candidate-table td:nth-child(n+3):nth-child(-n+5) { font-family:var(--mono); }.candidate-table a { text-decoration:none; color:var(--accent); }.candidate-table strong { font:500 14px var(--mono); }.candidate-table tbody tr:hover { background:#f7fafb; }
+.candidate-footer { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; padding-top:18px; font-size:11px; color:var(--muted); }.candidate-footer>div { display:flex; align-items:center; gap:14px; }.candidate-footer button { padding:6px 10px; border:1px solid var(--line); background:white; border-radius:3px; color:var(--accent); }
+.candidate-table td { white-space:nowrap; }.candidate-table td small { display:block; color:var(--muted); font-size:10px; margin-top:5px; max-width:190px; overflow:hidden; text-overflow:ellipsis; }
+.summary-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-top:1px solid var(--line); padding-top:20px; }.summary-metrics article { display:grid; gap:10px; padding:0 22px; border-left:1px solid var(--line); }.summary-metrics article:first-child { border:0; padding-left:0; }.summary-metrics span { font-size:12px; color:var(--muted); }.summary-metrics strong { font:500 30px/1.2 var(--mono); letter-spacing:-1px; }.summary-metrics small { font-size:10px; color:var(--muted); }
+.chart-note { font-size:11px; line-height:1.8; color:var(--muted); margin:8px 0 16px; }.resource-tabs { display:flex; border:1px solid var(--line); border-radius:4px; overflow:hidden; }.resource-tabs button { padding:7px 14px; font-size:12px; color:var(--muted); background:white; border:0; }.resource-tabs button[aria-pressed=true] { color:white; background:var(--accent); }
+.asn-source-details { border-top:1px solid var(--line); padding:18px 0; color:var(--muted); font-size:11px; line-height:1.8; }.asn-source-details summary { cursor:pointer; font-size:12px; color:var(--accent); }.asn-source-details p { margin:10px 0 0; }
+.event-window-context { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:18px; background:#14384a; border-left:4px solid #c19350; padding:14px 18px; color:white; }.event-window-context>div { display:grid; gap:5px; min-width:0; }.event-window-context span,.event-window-context small { color:#b6cbd4; font-size:10px; overflow-wrap:anywhere; }.event-window-context strong { font:12px var(--mono); }.event-window-context a { color:#eed2a0; font-size:12px; text-decoration:none; }
+@media(max-width:1000px) { .asn-time { flex-basis:100%; }.asn-time label { flex:1; }.summary-metrics strong { font-size:25px; } }
+@media(max-width:700px) { .asn-page { gap:16px; }.asn-heading { align-items:start; flex-direction:column; gap:14px; }.asn-heading h1 { font-size:32px; }.asn-controls,.asn-candidates,.asn-window-summary,.asn-chart-panel,.asn-events { padding:17px 14px; }.asn-time { display:grid; grid-template-columns:1fr; width:100%; }.asn-search { width:100%; }.summary-metrics { grid-template-columns:1fr 1fr; gap:22px 0; }.summary-metrics article { padding:0 12px; }.summary-metrics article:nth-child(3) { border-left:0; padding-left:0; }.section-heading { align-items:start; flex-wrap:wrap; gap:12px; }.candidate-sort { margin-left:0; }.asn-source-line>span { display:block; margin:7px 0 0; } }
 </style>

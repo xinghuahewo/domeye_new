@@ -19,6 +19,7 @@ from .features.api import (
     ASFeatureListResource,
     ASRecentEventsResource,
     ASWorkbenchResource,
+    ASCandidatesResource,
     ASPrefixOutageFeatureResource,
     CountryASOutageFeatureResource,
     CountryFeatureListResource,
@@ -71,6 +72,7 @@ api.add_resource(CountryFeatureSeriesResource, '/features/countries/series')
 api.add_resource(CountryComparisonResource, '/features/countries/comparison')
 api.add_resource(ASFeatureListResource, '/features/ases')
 api.add_resource(ASWorkbenchResource, '/features/ases/overview')
+api.add_resource(ASCandidatesResource, '/features/ases/candidates')
 api.add_resource(ASRecentEventsResource, '/features/ases/events')
 api.add_resource(CountryASOutageFeatureResource, '/features/outages/country-as')
 api.add_resource(CountryPrefixOutageFeatureResource, '/features/outages/country-prefix')

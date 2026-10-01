@@ -7,7 +7,6 @@ const source = readFileSync(
   'utf8',
 )
 const template = source.slice(source.indexOf('<template>'), source.indexOf('</template>'))
-const asnPage = readFileSync(new URL('../pages/AsnPage.vue', import.meta.url), 'utf8')
 
 describe('国家中断通用观测页用户效果', () => {
   it('keeps the agreed information order', () => {
@@ -45,11 +44,7 @@ describe('国家中断通用观测页用户效果', () => {
     expect(source).toContain('event_start: props.page.resolution.window_start_utc')
     expect(source).toContain('event_end: props.page.resolution.window_end_utc')
     expect(source).toContain("return_anchor: 'affected-as'")
-    // 时间转换与缺失值由 businessTime / AsnEventTimeline 的公开输出测试覆盖；导航另做浏览器回归。
-    expect(asnPage).toContain('按国家中断事件窗口查看')
-    expect(asnPage).toContain('Boolean(eventContext.value)')
-    expect(asnPage).toContain('eventContext.value?.reference')
-    expect(asnPage).toContain('返回事件中的相关 AS')
+    // 接收端的原窗口请求、锁定时间控件及返回查询，由 AsnPage.test.ts 的行为测试覆盖。
   })
 
   it('keeps drilldowns bounded and does not request the audit endpoint', () => {

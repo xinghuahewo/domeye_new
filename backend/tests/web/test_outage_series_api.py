@@ -282,3 +282,15 @@ def test_prefix_queries_reuse_membership_without_rescanning_the_country_independ
         assert response.status_code == 200
         assert [p['outage_count'] for p in response.get_json()['data']] == [1, 1, None, None]
     assert members.scans == 0
+
+
+def test_single_asn_outage_series_accepts_multiday_but_global_keeps_daily_limit(completed_outages, outage_rows, client):
+    query = {'asn': '64501', 'start_time':'2026-02-27 08:00:00', 'end_time':'2026-03-01 08:00:00'}
+    response = client.get('/api/v1/features/outages/as-prefix', query_string=query)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload['data']) == 960
+    assert payload['query']['end_exclusive'] == '2026-03-01T08:00:00+08:00'
+    assert all(point['outage_count'] == 0 for point in payload['data'])
+    assert client.get('/api/v1/features/outages/global-prefix', query_string={k:v for k,v in query.items() if k!='asn'}).status_code == 400
+    assert client.get('/api/v1/features/outages/as-prefix', query_string={**query,'end_time':'2026-04-15 08:00:00'}).status_code == 400

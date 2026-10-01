@@ -163,8 +163,9 @@ def _get_outage_feature(kind, country, asn, start_time, end_time, conn, prefixes
         return error
     if start_time_dt >= end_time_dt:
         return {'status': False, 'msg': '开始时间必须早于结束时间'}, 400
-    if end_time_dt - start_time_dt > datetime.timedelta(days=1):
-        return {'status': False, 'msg': '中断时序单次最多查询 24 小时'}, 400
+    maximum_days = 45 if asn is not None else 1
+    if end_time_dt - start_time_dt > datetime.timedelta(days=maximum_days):
+        return {'status': False, 'msg': '单 ASN 中断时序最多查询 45 天' if asn is not None else '中断时序单次最多查询 24 小时'}, 400
     if os.environ.get('DOMEYE_RESULT_DELIVERY') != 'true':
         return {'status': False, 'msg': '中断时序缺少可核对的检测语义与处理覆盖范围'}, 503
     zone = ZoneInfo(delivery_read.PROFILE['timezone'])

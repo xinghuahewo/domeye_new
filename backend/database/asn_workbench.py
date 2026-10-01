@@ -1,5 +1,8 @@
 """ASN 工作台所需的只读聚合查询。"""
 
+import os
+from zoneinfo import ZoneInfo
+import pandas as pd
 import psycopg2.extras
 from psycopg2 import extensions
 
@@ -29,6 +32,18 @@ def _finish_read(conn, started_idle):
 
 
 def _feature_union(conn, grouped_asns, start_time, end_time):
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true':
+        asns = list(dict.fromkeys(asn for group in grouped_asns.values() for asn in group))
+        if not asns:
+            return [], []
+        # 交付数据已含明确 subject，不能按当前静态国家猜测历史物理表。
+        zone = ZoneInfo('Asia/Shanghai')
+        return ["""SELECT x.t, x.subject AS asn, x.announ_num, x.withdraw_num,
+                          x.v4prefix_num, x.v6prefix_num, x.v4ip_num
+                   FROM result_delivery.features x JOIN result_delivery.files f USING (ordinal)
+                   WHERE x.scope='asn' AND x.subject = ANY(%s)
+                   AND f.window_start >= %s AND f.window_end <= %s
+                   AND f.window_start < f.window_end"""], [asns, start_time.replace(tzinfo=zone), end_time.replace(tzinfo=zone)]
     parts = []
     params = []
     for table_base, asns in grouped_asns.items():
@@ -66,13 +81,16 @@ def get_as_feature_aggregates(conn, grouped_asns, previous_start, current_start,
 
     started_idle = _transaction_started_idle(conn)
     try:
-        frame = select_as_list_feature_db(
-            conn,
-            grouped_asns,
-            previous_start,
-            end_time,
-            SOURCE,
-        )
+        if os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true':
+            parts, params = _feature_union(conn, grouped_asns, previous_start, end_time)
+            if not parts:
+                return []
+            with conn.cursor() as cursor:
+                cursor.execute(' UNION ALL '.join(parts) + ' ORDER BY asn, t', params)
+                frame = pd.DataFrame(cursor.fetchall(), columns=['t', 'asn', 'announce', 'withdraw',
+                                                                 'v4Prefix_num', 'v6Prefix_num', 'v4IP_num'])
+        else:
+            frame = select_as_list_feature_db(conn, grouped_asns, previous_start, end_time, SOURCE)
         if frame.empty:
             return []
         frame = frame.sort_values(['asn', 't'])
@@ -83,25 +101,26 @@ def get_as_feature_aggregates(conn, grouped_asns, previous_start, current_start,
                 continue
             previous = group[group['t'] < current_start]
             updates = current['announce'] + current['withdraw']
-            peak_index = updates.idxmax()
+            valid_updates = updates.dropna()
+            peak_index = valid_updates.idxmax() if not valid_updates.empty else None
             latest = current.iloc[-1]
             baseline = previous.iloc[-1] if not previous.empty else None
 
             def latest_value(column):
-                values = current[column].dropna()
-                return None if values.empty else int(values.iloc[-1])
+                value = latest[column]
+                return None if pd.isna(value) else int(value)
 
             def baseline_value(column):
-                if baseline is None or baseline[column] is None:
+                if baseline is None or pd.isna(baseline[column]):
                     return None
                 return int(baseline[column])
 
             rows.append({
                 'asn': str(asn),
-                'announce': int(current['announce'].sum()),
-                'withdraw': int(current['withdraw'].sum()),
-                'previous_announce': int(previous['announce'].sum()) if not previous.empty else None,
-                'previous_withdraw': int(previous['withdraw'].sum()) if not previous.empty else None,
+                'announce': int(current['announce'].sum()) if current['announce'].notna().all() else None,
+                'withdraw': int(current['withdraw'].sum()) if current['withdraw'].notna().all() else None,
+                'previous_announce': int(previous['announce'].sum()) if not previous.empty and previous['announce'].notna().all() else None,
+                'previous_withdraw': int(previous['withdraw'].sum()) if not previous.empty and previous['withdraw'].notna().all() else None,
                 'sample_count': int(len(current.index)),
                 'previous_sample_count': int(len(previous.index)),
                 'latest_observation': latest['t'],
@@ -111,10 +130,10 @@ def get_as_feature_aggregates(conn, grouped_asns, previous_start, current_start,
                 'baseline_ipv4_prefixes': baseline_value('v4Prefix_num'),
                 'baseline_ipv6_prefixes': baseline_value('v6Prefix_num'),
                 'baseline_ipv4_addresses': baseline_value('v4IP_num'),
-                'update_stddev': float(updates.std(ddof=0)) if len(updates.index) > 1 else 0.0,
-                'update_average': float(updates.mean()),
-                'peak_updates': int(updates.loc[peak_index]),
-                'peak_time': current.loc[peak_index, 't'],
+                'update_stddev': float(valid_updates.std(ddof=0)) if len(valid_updates.index) > 1 and len(valid_updates) == len(updates) else None,
+                'update_average': float(valid_updates.mean()) if not valid_updates.empty else None,
+                'peak_updates': int(updates.loc[peak_index]) if peak_index is not None else None,
+                'peak_time': current.loc[peak_index, 't'] if peak_index is not None else None,
             })
         return rows
     except Exception:
@@ -232,8 +251,8 @@ def get_as_sparklines(conn, grouped_asns, start_time, end_time):
             SELECT
                 asn,
                 date_trunc('hour', t) AS bucket,
-                COALESCE(SUM(announ_num), 0)::bigint AS announce,
-                COALESCE(SUM(withdraw_num), 0)::bigint AS withdraw
+                CASE WHEN COUNT(announ_num)=COUNT(*) THEN SUM(announ_num) END::bigint AS announce,
+                CASE WHEN COUNT(withdraw_num)=COUNT(*) THEN SUM(withdraw_num) END::bigint AS withdraw
             FROM ranged
             GROUP BY asn, date_trunc('hour', t)
             ORDER BY asn, bucket

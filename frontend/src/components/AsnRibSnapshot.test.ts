@@ -31,6 +31,8 @@ it('实际ASN快照组件按显式版本读取，日期冲突仍显示版本实�
   expect(html).toContain('2026-02-27 08:00:00')
   expect(html).toContain(version)
   expect(html).toContain('与五分钟资源／报文特征独立')
+  expect(html).toContain('此处单独选择快照日期，不随上方时间区间改变')
+  expect(html).not.toMatch(/<details[^>]*\sopen(?:\s|>)/)
   expect(get).toHaveBeenCalledWith(`rib-snapshots/${version}/asns/13335`, expect.objectContaining({ params: { family: 'ipv4' } }))
   expect(get.mock.calls.every(([url]) => url.includes(version))).toBe(true)
 })

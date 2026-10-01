@@ -60,8 +60,7 @@ onBeforeUnmount(() => { if (timer !== undefined) window.clearInterval(timer) })
         <span>北京时间 {{ deliveryTime(delivery.start) }} 至 {{ deliveryTime(delivery.end_exclusive) }}（右端不含）</span>
         <span>仅此时段有数据，窗口外未知；原任务未完成，归档暂停。</span>
         <RouterLink :to="{ name: 'home', query: deliveryQuery }">本批首页</RouterLink>
-        <RouterLink :to="{ name: 'countries', query: deliveryQuery }">本批国家特征</RouterLink>
-        <RouterLink :to="{ name: 'ases', query: deliveryQuery }">本批 AS 特征</RouterLink>
+        <RouterLink :to="{ name: 'ases', query: deliveryQuery }">本批 AS 查询</RouterLink>
       </template>
       <span v-else>本批结果{{ delivery.state === 'empty' ? '尚未交付' : '暂不可读' }}，不能解释为零。</span>
     </aside>

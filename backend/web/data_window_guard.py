@@ -83,6 +83,7 @@ def enforce_request_data_window():
             "/api/v1/features/countries/series",
             "/api/v1/features/countries/comparison",
             "/api/v1/features/ases/overview",
+            "/api/v1/features/ases/candidates",
             "/api/v1/features/ases/events",
         }
         inside = (

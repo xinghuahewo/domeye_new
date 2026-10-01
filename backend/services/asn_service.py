@@ -4,13 +4,18 @@ from ast import literal_eval
 from collections import Counter, defaultdict
 from copy import deepcopy
 import datetime
+import os
 import re
 import threading
 import time
 from zoneinfo import ZoneInfo
+import psycopg2
+from flask import g, has_request_context
 
 from config.config import BIG_COUNTRY, FEATURE_OTHER_TABLE
 from config.database import conn_11
+from data_pipeline.results import delivery_read
+from data_pipeline.overview.input import InputError
 from services.feature_statistics import activity_summary
 from database.asn_workbench import (
     get_as_event_counts,
@@ -25,6 +30,7 @@ from services.country_outage_general_read_model import (
     country_outage_general_read_model,
 )
 from utils import data_loader
+from utils.asn_reference import get_asn_identity, REFERENCE_NOTE
 from utils.get_event import deal_event
 from utils.get_other_info import get_as_importance
 
@@ -36,6 +42,26 @@ _ASN_CACHE_MAX_ENTRIES = 32
 _STATIC_PRIORITY_LIMIT = 100
 _IMPORTANT_PRIORITY_LIMIT = 50
 _ANOMALY_PRIORITY_LIMIT = 50
+
+
+def _delivery_coverage(start, end, conn):
+    if os.environ.get('DOMEYE_RESULT_DELIVERY') != 'true':
+        return None, None
+    try:
+        meta = getattr(g, 'result_delivery', None) if has_request_context() else None
+        if meta is None:
+            meta = delivery_read.status(conn)
+        if meta['state'] != 'available':
+            raise InputError('交付来源不可用')
+        zone = ZoneInfo(delivery_read.PROFILE['timezone'])
+        left, right = start.replace(tzinfo=zone), end.replace(tzinfo=zone)
+        intervals = delivery_read._covered_intervals(meta, left, right)
+        if not intervals:
+            return None, ({'status': False, 'msg': '所选区间没有已交付观测，数量未知'}, 503)
+        return {'version': meta['version'], 'state': 'complete' if intervals == [(left, right)] else 'partial',
+                'intervals': [{'start': a.isoformat(), 'end_exclusive': b.isoformat()} for a,b in intervals]}, None
+    except (psycopg2.Error, InputError, ValueError, KeyError, TypeError):
+        return None, ({'status': False, 'msg': '所选区间的交付覆盖不可读取，数量未知'}, 503)
 
 
 def _cached_asn_result(key):
@@ -80,11 +106,11 @@ def _parse_range(start_time, end_time, event_window=False):
         return None, None, ({'status': False, 'msg': '时间格式错误，应为 YYYY-MM-DD HH:MM:SS'}, 400)
     if start >= end:
         return None, None, ({'status': False, 'msg': '开始时间必须早于结束时间'}, 400)
-    maximum = datetime.timedelta(days=45 if event_window else 1)
+    maximum = datetime.timedelta(days=45)
     if end - start > maximum:
         if event_window:
             return None, None, ({'status': False, 'msg': 'ASN 事件窗口最多支持 45 天'}, 400)
-        return None, None, ({'status': False, 'msg': 'ASN 工作台最多支持 24 小时窗口'}, 400)
+        return None, None, ({'status': False, 'msg': '单 ASN 查询最多支持 45 天窗口'}, 400)
     return start, end, None
 
 
@@ -125,7 +151,7 @@ def _normalize_asn(value):
     text = str(value or '').strip().upper()
     if text.startswith('AS'):
         text = text[2:]
-    return text if text.isdigit() else ''
+    return str(int(text)) if len(text) <= 10 and text.isascii() and text.isdigit() and 0 < int(text) <= 4294967295 else ''
 
 
 def _row_value(row, key):
@@ -259,7 +285,7 @@ def _feature_point(row):
 
 
 def _static_profile(asn):
-    info = data_loader.as_info.get(asn, {})
+    info = {**data_loader.as_info.get(asn, {}), **get_asn_identity(asn)}
     org_name = info.get('org_name_cn') or info.get('org_name') or ''
     return {
         'asn': asn,
@@ -359,29 +385,40 @@ def get_asn_workbench(
         return {'status': False, 'msg': 'ASN 必须是纯数字或 AS 加数字'}, 400
     if event_window and not selected_asn:
         return {'status': False, 'msg': '事件窗口必须指定 ASN'}, 400
+    if not selected_asn and end - start > datetime.timedelta(days=1):
+        return {'status': False, 'msg': 'ASN 工作台最多支持 24 小时窗口'}, 400
     if event_window:
         identity_error = _event_window_identity_error(start, end, event_reference)
         if identity_error:
             return identity_error
 
+    coverage, error = _delivery_coverage(start, end, conn)
+    if error:
+        return error
+
+    delivered = os.environ.get('DOMEYE_RESULT_DELIVERY') == 'true'
+    selected_only = event_window or bool(selected_asn and (delivered or end - start > datetime.timedelta(days=1)))
     cache_key = (
         start.strftime('%Y-%m-%d %H:%M:%S'),
         end.strftime('%Y-%m-%d %H:%M:%S'),
         selected_asn,
         ranking_limit,
         str(event_reference or '').strip() if event_window else '',
-    ) if conn is conn_11 else None
+    ) if conn is conn_11 and not delivered else None
     cached = _cached_asn_result(cache_key)
     if cached is not None:
         return cached
 
-    data_loader.ensure_core_data_loaded()
-    pool_asns = list(dict.fromkeys(str(item) for item in data_loader.ases_1000['asn'].tolist()))
+    if delivered and selected_asn:
+        pool_asns = [selected_asn]
+    else:
+        data_loader.ensure_core_data_loaded()
+        pool_asns = list(dict.fromkeys(str(item) for item in data_loader.ases_1000['asn'].tolist()))
     event_rows = get_as_event_counts(conn=conn, start_time=start, end_time=end)
     anomaly_counts, high_risk_counts = _event_counters(event_rows)
     query_asns = (
         [selected_asn]
-        if event_window
+        if selected_only
         else _operational_candidates(
             pool_asns,
             anomaly_counts,
@@ -389,7 +426,8 @@ def get_asn_workbench(
             selected_asn,
         )
     )
-    previous_start = start if event_window else start - (end - start)
+    # 多日单 AS 不扩大成两个长窗扫描；前窗未知时不计算环比。
+    previous_start = start if event_window or (delivered and selected_only) or end - start > datetime.timedelta(days=1) else start - (end - start)
     feature_rows = get_as_feature_aggregates(
         conn=conn,
         grouped_asns=_group_asns(query_asns),
@@ -469,8 +507,8 @@ def get_asn_workbench(
         row_asn = _normalize_asn(_row_value(row, 'asn'))
         sparks[row_asn].append({
             'time': _time_value(_row_value(row, 'bucket')),
-            'announce': _int_value(_row_value(row, 'announce')),
-            'withdraw': _int_value(_row_value(row, 'withdraw')),
+            'announce': _nullable_int(_row_value(row, 'announce')),
+            'withdraw': _nullable_int(_row_value(row, 'withdraw')),
         })
     for profile in profiles.values():
         profile['sparkline'] = sparks.get(profile['asn'], [])
@@ -496,11 +534,12 @@ def get_asn_workbench(
         'timezone': 'Asia/Shanghai',
         'window_boundary': '[start,end)',
         'latest_observation': latest_observation,
-        'scope_kind': 'event_window_selected_asn' if event_window else 'operational_asn_cohort',
+        'scope_kind': 'event_window_selected_asn' if event_window else 'selected_asn' if selected_only else 'operational_asn_cohort',
         'scope_note': (
             '按国家中断事件的完整窗口只读查询指定 ASN，不读取窗口外对比基线。'
             if event_window
-            else '静态优先 100、重要 ASN 最多 50、窗口异常 ASN 最多 50，并加入指定 ASN；排行仅在该候选集内比较。'
+            else '只读指定 ASN；完成文件模式按完整文件区间纳入样本，time 为来源文件标签。完成文件模式或多日查询不读取前窗；缺样本不代表零，不代表国家或全网。'
+            if selected_only else '静态优先 100、重要 ASN 最多 50、窗口异常 ASN 最多 50，并加入指定 ASN；排行仅在该候选集内比较。'
         ),
         'candidate_pool_size': len(pool_asns),
         'scope_size': len(query_asns),
@@ -518,6 +557,11 @@ def get_asn_workbench(
         'anomaly_rankings': anomaly_rankings,
         'selected_asn': selected,
     }
+    payload['scope_note'] += ' ' + REFERENCE_NOTE
+    if coverage is not None:
+        payload['delivery_coverage'] = coverage
+        payload['scope_note'] += (' 只包含已交付的部分时段；未交付时段的事件和数量未知。'
+                                  if coverage['state'] == 'partial' else ' 文件处理覆盖不证明源端采集完整。')
     return _store_asn_result(cache_key, payload)
 
 
@@ -540,6 +584,9 @@ def get_asn_recent_events(
     normalized_asn = _normalize_asn(asn)
     if not normalized_asn:
         return {'status': False, 'msg': 'ASN 必须是纯数字或 AS 加数字'}, 400
+    coverage, error = _delivery_coverage(start, end, conn)
+    if error:
+        return error
     try:
         size = int(page_size or 10)
     except (TypeError, ValueError):
@@ -552,10 +599,14 @@ def get_asn_recent_events(
         end_time=end,
         page_size=size,
     )
-    return {
+    payload = {
         'match_mode': 'asn_token_exact',
         'asn': normalized_asn,
         'record_count': str(record_count),
         'total_page': 1 if record_count else 0,
         'data': deal_event(event_rows=rows),
     }
+    if coverage is not None:
+        payload['delivery_coverage'] = coverage
+        payload['scope_note'] = '仅查询已交付观测部分，未交付时段的事件数量未知。' if coverage['state'] == 'partial' else '关联事件限于当前交付与查询窗口，不代表全国或全网。'
+    return payload

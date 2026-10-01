@@ -22,31 +22,29 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/features',
     name: 'features',
-    redirect: to => ({ path: '/', query: typeof to.query.date === 'string' ? { date: to.query.date } : {}, hash: '#routing' }),
+    redirect: to => ({ path: '/', query: to.query, hash: '#routing' }),
   },
   {
     path: '/countries',
     name: 'countries',
-    component: () => import('@/pages/CountryPage.vue'),
-    meta: { title: '国家态势', section: '时序特征' },
+    redirect: to => ({ name: 'home', query: to.query }),
   },
   {
     path: '/countries/:country',
     name: 'country-detail',
-    component: () => import('@/pages/CountryPage.vue'),
-    meta: { title: '国家档案', section: '时序特征' },
+    redirect: to => ({ name: 'home', query: { ...to.query, country: String(to.params.country) } }),
   },
   {
     path: '/ases',
     name: 'ases',
     component: () => import('@/pages/AsnPage.vue'),
-    meta: { title: 'ASN 态势', section: '时序特征' },
+    meta: { title: 'AS 查询', section: '网络观测' },
   },
   {
     path: '/ases/:asn',
     name: 'asn-detail',
     component: () => import('@/pages/AsnPage.vue'),
-    meta: { title: 'ASN 档案', section: '时序特征' },
+    meta: { title: 'AS 档案', section: '网络观测' },
   },
 ]
 

@@ -3,102 +3,132 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getEvents } from '@/api/events'
+import { resultDelivery } from '@/api/health'
 import EventTable from '@/components/EventTable.vue'
 import PageState from '@/components/PageState.vue'
 import { CORE_EVENT_TYPES, type EventPage, type EventRow } from '@/types/api'
+import { localTime, scopeLabel } from '@/utils/coreScope'
+import { eventDataRange, eventDateParameter, eventPresetRange, eventRangeError, eventRangeFromQuery, normalizeEventRange } from '@/utils/eventScope'
 import { errorMessage } from '@/utils/normalize'
-import { eventDateTimeRange, recentDateRange, resolveDataWindow } from '@/utils/time'
+import { resolveDataWindow } from '@/utils/time'
 
 const router = useRouter()
 const route = useRoute()
-const dataWindow = resolveDataWindow(import.meta.env)
-const defaultDates = dataWindow
-  ? recentDateRange(7, import.meta.env)
-  : { start: '', end: '' }
-const minimumDate = dataWindow?.start.slice(0, 10)
-const maximumDate = dataWindow?.end.slice(0, 10)
+const dataRange = eventDataRange(resolveDataWindow(import.meta.env))
+const minimumTime = dataRange?.start
+const maximumTime = dataRange?.end
+const deliveryRange = computed(() => {
+  const delivery = resultDelivery.value
+  if (delivery?.state !== 'available' || !delivery.start || !delivery.end_exclusive) return null
+  return { start: localTime(delivery.start), end: localTime(delivery.end_exclusive) }
+})
+const defaultRange = () => eventPresetRange(7, deliveryRange.value || dataRange || { start: '', end: '' })
 const DATE_PRESETS = [
   { id: 'recent-7', label: '近 7 天', days: 7 },
   { id: 'recent-30', label: '近 30 天', days: 30 },
   { id: 'full-window', label: '整个数据窗口', days: null },
 ] as const
-const requestedEventType = typeof route.query.event_type === 'string'
-  && CORE_EVENT_TYPES.includes(route.query.event_type as (typeof CORE_EVENT_TYPES)[number])
-  ? route.query.event_type
-  : ''
-const requestedAttackedCountry = typeof route.query.attacked_country === 'string'
-  ? route.query.attacked_country.trim()
-  : ''
-const requestedAttackedAs = typeof route.query.attacked_as === 'string'
-  ? route.query.attacked_as.trim().replace(/^AS/i, '')
-  : ''
-const requestedDate = typeof route.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(route.query.date) ? route.query.date : undefined
-const filters = reactive({
-  eventType: requestedEventType,
-  level: '',
-  country: 'all',
-  attackedCountry: requestedAttackedCountry,
-  attackedAs: requestedAttackedAs,
-  keyword: '',
-  startDate: requestedDate || defaultDates.start,
-  endDate: requestedDate || defaultDates.end,
-  pageSize: 10,
-})
+const queryText = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+function filtersFromQuery() {
+  const eventType = queryText(route.query.event_type)
+  const country = queryText(route.query.country)
+  return {
+    eventType: CORE_EVENT_TYPES.includes(eventType as (typeof CORE_EVENT_TYPES)[number]) ? eventType : '',
+    level: ['high', 'middle', 'low'].includes(queryText(route.query.level)) ? queryText(route.query.level) : '',
+    country: ['domestic', 'foreign'].includes(country) ? country : 'all',
+    attackedCountry: queryText(route.query.attacked_country) || (!['all', 'domestic', 'foreign'].includes(country) ? country : ''),
+    attackedAs: queryText(route.query.attacked_as).replace(/^AS/i, ''),
+    keyword: queryText(route.query.event_info),
+    ...eventRangeFromQuery(route.query, defaultRange()),
+    pageSize: [10, 50, 100, 200].includes(Number(route.query.page_size)) ? Number(route.query.page_size) : 10,
+  }
+}
+const filters = reactive(filtersFromQuery())
 const page = ref(1)
 const result = ref<EventPage>({ data: [], totalPage: 0, recordCount: 0 })
 const loading = ref(true)
 const error = ref('')
+let requestId = 0
 
 const pageLabel = computed(() => {
   const total = Math.max(1, result.value.totalPage)
   return `${page.value.toString().padStart(2, '0')} / ${total.toString().padStart(2, '0')}`
 })
-
+const presetRange = (preset: (typeof DATE_PRESETS)[number]) => preset.days === null
+  ? dataRange || { start: '', end: '' }
+  : eventPresetRange(preset.days, deliveryRange.value || dataRange || { start: '', end: '' })
 const activeDatePreset = computed(() => DATE_PRESETS.find((preset) => {
-  const range = preset.days === null
-    ? { start: minimumDate, end: maximumDate }
-    : recentDateRange(preset.days, import.meta.env)
-  return filters.startDate === range.start && filters.endDate === range.end
+  const range = presetRange(preset)
+  return filters.start === range.start && filters.end === range.end
 })?.id ?? '')
+const activeDeliveryRange = computed(() => deliveryRange.value
+  && filters.start === deliveryRange.value.start && filters.end === deliveryRange.value.end)
 
 function applyDatePreset(preset: (typeof DATE_PRESETS)[number]) {
-  const range = preset.days === null
-    ? { start: minimumDate ?? '', end: maximumDate ?? '' }
-    : recentDateRange(preset.days, import.meta.env)
-  filters.startDate = range.start
-  filters.endDate = range.end
-  void load(true)
+  Object.assign(filters, presetRange(preset))
+  void applyFilters()
 }
-
+function applyDeliveryRange() {
+  if (!deliveryRange.value) return
+  Object.assign(filters, deliveryRange.value)
+  void applyFilters()
+}
+function currentQuery(): Record<string, string> {
+  return {
+    start: filters.start, end: filters.end,
+    ...(filters.eventType ? { event_type: filters.eventType } : {}),
+    ...(filters.level ? { level: filters.level } : {}),
+    ...(filters.country !== 'all' ? { country: filters.country } : {}),
+    ...(filters.attackedCountry.trim() ? { attacked_country: filters.attackedCountry.trim() } : {}),
+    ...(filters.attackedAs.trim() ? { attacked_as: filters.attackedAs.trim().replace(/^AS/i, '') } : {}),
+    ...(filters.keyword.trim() ? { event_info: filters.keyword.trim() } : {}),
+    ...(filters.pageSize !== 10 ? { page_size: String(filters.pageSize) } : {}),
+  }
+}
+async function applyFilters() {
+  Object.assign(filters, normalizeEventRange(filters))
+  const invalid = eventRangeError(filters)
+  if (invalid) {
+    requestId += 1
+    loading.value = false
+    error.value = invalid
+    return
+  }
+  const query = currentQuery()
+  const target = router.resolve({ path: route.path, query, hash: route.hash })
+  if (target.fullPath === route.fullPath) await load(true)
+  else await router.replace({ query, hash: route.hash })
+}
 async function load(resetPage = false) {
+  const id = ++requestId
   if (resetPage) page.value = 1
-  if (!dataWindow) {
+  const invalid = eventRangeError(filters)
+  if (!dataRange || invalid) {
     result.value = { data: [], totalPage: 0, recordCount: 0 }
     loading.value = false
-    error.value = '缺少固定数据窗口配置，已阻止按当前日期查询。请重新构建并发布完整前端。'
+    error.value = !dataRange ? '缺少固定数据窗口配置，已阻止按当前日期查询。请重新构建并发布完整前端。' : invalid
     return
   }
   loading.value = true
   error.value = ''
   try {
-    result.value = await getEvents({
+    const next = await getEvents({
       page_num: page.value,
       page_size: filters.pageSize,
       event_type: filters.eventType || undefined,
       level: filters.level || undefined,
       country: filters.country,
       attacked_country: filters.attackedCountry.trim() || undefined,
-      attacked_as: filters.attackedAs.trim() || undefined,
+      attacked_as: filters.attackedAs.trim().replace(/^AS/i, '') || undefined,
       event_info: filters.keyword.trim() || undefined,
-      date: filters.startDate && filters.endDate
-        ? eventDateTimeRange(filters.startDate, filters.endDate)
-        : undefined,
+      date: eventDateParameter(filters),
       sort_mode: 'start_timeB',
     })
+    if (id === requestId) result.value = next
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (id === requestId) error.value = errorMessage(cause)
   } finally {
-    loading.value = false
+    if (id === requestId) loading.value = false
   }
 }
 
@@ -110,15 +140,14 @@ function changePage(next: number) {
 
 function openEvent(event: EventRow) {
   if (!event.detailUrl) return
-  void router.push({ name: 'event-detail', query: { ref: event.detailUrl, date: filters.startDate } })
+  void router.push({ name: 'event-detail', query: { ...currentQuery(), ref: event.detailUrl } })
 }
 
 onMounted(() => load())
-watch(() => route.query.date, date => {
-  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    filters.startDate = date; filters.endDate = date
-    void load(true)
-  }
+watch(() => route.query, () => {
+  if (route.name !== 'events') return
+  Object.assign(filters, filtersFromQuery())
+  void load(true)
 })
 </script>
 
@@ -130,11 +159,11 @@ watch(() => route.query.date, date => {
         <h1>异常事件</h1>
       </div>
       <p class="page-heading-copy">
-        在六类核心异常中按等级、范围、日期和摘要检索，点击事件可继续查看对应业务事实与路径证据。
+        按国家、ASN 和时间范围查找六类异常，点击事件查看业务事实与路径证据。
       </p>
     </header>
 
-    <form class="filter-console" @submit.prevent="load(true)">
+    <form class="filter-console" @submit.prevent="applyFilters()">
       <label>
         <span>异常类型</span>
         <select v-model="filters.eventType">
@@ -172,12 +201,12 @@ watch(() => route.query.date, date => {
         <input v-model="filters.attackedAs" type="search" placeholder="例如：3356" />
       </label>
       <label>
-        <span>开始日期</span>
-        <input v-model="filters.startDate" type="date" :min="minimumDate" :max="maximumDate" />
+        <span>开始时间（北京时间）</span>
+        <input v-model="filters.start" type="datetime-local" step="1" :min="minimumTime" :max="maximumTime" required />
       </label>
       <label>
-        <span>结束日期</span>
-        <input v-model="filters.endDate" type="date" :min="minimumDate" :max="maximumDate" />
+        <span>结束时间（不含）</span>
+        <input v-model="filters.end" type="datetime-local" step="1" :min="minimumTime" :max="maximumTime" required />
       </label>
       <label>
         <span>每页数量</span>
@@ -191,6 +220,9 @@ watch(() => route.query.date, date => {
       <button class="solid-action" type="submit">执行查询</button>
       <div class="filter-presets" role="group" aria-label="快捷时间范围">
         <span class="preset-label">快捷范围</span>
+        <button v-if="deliveryRange" class="preset-chip" type="button"
+          :class="{ 'is-active': activeDeliveryRange }" :aria-pressed="!!activeDeliveryRange"
+          @click="applyDeliveryRange()">已接入时段</button>
         <button
           v-for="preset in DATE_PRESETS"
           :key="preset.id"
@@ -202,9 +234,8 @@ watch(() => route.query.date, date => {
         >
           {{ preset.label }}
         </button>
-        <span v-if="minimumDate && maximumDate" class="preset-hint">
-          可选范围 {{ minimumDate }} — {{ maximumDate }}
-        </span>
+        <span class="preset-hint">按事件开始时间筛选 · 开始含、结束不含 · 北京时间</span>
+        <span v-if="dataRange" class="range-hint">可选范围 {{ scopeLabel(dataRange) }}（结束不含）</span>
       </div>
     </form>
 
@@ -329,6 +360,8 @@ watch(() => route.query.date, date => {
   color: var(--muted);
   font-size: 10px;
 }
+
+.range-hint { flex-basis: 100%; color: var(--muted); font-size: 10px; }
 
 .result-heading {
   margin: 0;

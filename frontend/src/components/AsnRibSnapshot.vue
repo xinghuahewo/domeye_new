@@ -83,6 +83,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 <template>
   <section v-if="state !== 'not_configured'" class="asn-rib" aria-label="RIB 时点快照">
     <header><div><p>RIB 时点快照</p><h2>明确起源前缀</h2></div><span>与五分钟资源／报文特征独立</span></header>
+    <p class="rib-window-note">此处单独选择快照日期，不随上方时间区间改变；数量只说明标明时点。</p>
     <form class="rib-controls" @submit.prevent="selectDate">
       <label>快照日期<input v-model="dateInput" type="date" required :min="profile.window_start.slice(0, 10)" :max="profile.snapshot_time.slice(0, 10)" /></label>
       <button type="submit">查看所选日期</button>
@@ -118,13 +119,14 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort() })
 </template>
 
 <style scoped>
-.asn-rib { padding: 20px; border: 1px solid #ccdce6; border-left: 4px solid #147d92; border-radius: 8px; background: #f6fafc; color: #233e50; }
+.asn-rib { padding: 22px 24px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: #233e50; }
 .asn-rib header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .asn-rib h2 { font-size: 18px; margin: 4px 0 14px; }
 .asn-rib p, .asn-rib span, .asn-rib summary { font-size: 12px; line-height: 1.7; }
 .rib-result > strong { font-size: 36px; margin-right: 10px; }
 .asn-rib details { margin-top: 12px; overflow-wrap: anywhere; }
 .asn-rib summary { cursor: pointer; font-weight: 650; }
+.asn-rib .rib-window-note { color:var(--muted); margin:0 0 18px; font-size:11px; }
 .rib-evidence { border-top: 1px solid #cbd9e1; padding: 10px 0; }
 .asn-rib button { margin-left: 12px; cursor: pointer; }
 .rib-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 0 0 18px; }

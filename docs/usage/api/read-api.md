@@ -23,7 +23,7 @@ Core 的规模与路径对照位于其响应相应部分；无需编造一个尚
 
 首页已实现全球／国家或地区、已接入时段、近 24 小时／7 天／30 天和自定义区间选择。快捷区间截至已交付数据末端，显式选择通过网址 `start`／`end`／`country` 保留。API 的 `start_time` 与 `end_time` 成对、精确到秒、使用 `[start,end)`，不能与旧 `date`／`hour` 混用。区间和地区查询目前仅支持完成文件结果源，旧按日留存入口继续保留原语义。
 
-地区候选来自当前结果源的国家 Feature 和事件受影响国家字段。事件精确匹配 `event_list.attacked_country` 中的成员，不由攻击方、ASN 或文字搜索猜测归属；多地区事件可在多个地区出现，地区数量不能简单相加为全球总数。`metadata.query_coverage` 单独说明所选区间的完成文件覆盖，`complete` 不代表采集完整。Feature 使用同名国家，缺口断线；其旧含尾端接口由首页以减一秒的方式适配秒级半开区间。国家／ASN 档案自身的 24 小时上限保持不变；首页长区间跳转到普通档案时，导航明确标注“末 24h”。
+地区候选来自当前结果源的国家 Feature 和事件受影响国家字段。事件精确匹配 `event_list.attacked_country` 中的成员，不由攻击方、ASN 或文字搜索猜测归属；多地区事件可在多个地区出现，地区数量不能简单相加为全球总数。`metadata.query_coverage` 单独说明所选区间的完成文件覆盖，`complete` 不代表采集完整。Feature 使用同名国家，缺口断线；其旧含尾端接口由首页以减一秒的方式适配秒级半开区间。国家档案保持24小时上限；指定单 ASN 档案支持最长45天，可保留首页的多日窗口。
 
 趋势区仅展示宣告与撤回、IPv4 资源量、IPv6 资源量三张 Feature 图，每图独占一行。区内起止时间筛选只影响这三图，支持恢复首页区间；首页地区或时间改变时，趋势区恢复跟随首页。每张图另提供时间滑块以查看所选区间中的局部时段，缩放不重新计算数据。缺口保留断线，不补零。
 
@@ -52,7 +52,8 @@ Resource 的三张资源规模图已从首页趋势区隐藏，不再由该组�
 | `/api/v1/features/countries` | 国家对象及其时序分页 | `country`、`page_num`、`page_size`、`start_time`、`end_time` |
 | `/api/v1/features/countries/overview` | 国家档案与候选排名 | `country`、`limit`、`start_time`、`end_time`；普通窗口最多 24 小时 |
 | `/api/v1/features/ases` | ASN 对象及其时序分页 | `asn`、`country`、`page_num`、`page_size`、`start_time`、`end_time`；默认候选不代表全部 ASN |
-| `/api/v1/features/ases/overview` | ASN 档案及运营候选排名 | `asn`、`limit`、`start_time`、`end_time`；普通窗口最多 24 小时；事件窗口扩展见文末 |
+| `/api/v1/features/ases/candidates` | 已交付样本中的 AS 候选 | `country`、`q`、`sort`、`order`、`page`、`page_size`、`version` 与起止时间；最多45天，不代表全国或全网 |
+| `/api/v1/features/ases/overview` | ASN 档案及运营候选排名 | `asn`、`limit`、`start_time`、`end_time`；指定单 ASN 最多45天，未指定时旧运营候选仍最多24小时；事件窗口扩展见文末 |
 | `/api/v1/features/ases/events` | 指定 ASN 的精确关联事件 | `asn`、`page_size`、`start_time`、`end_time`；事件窗口扩展见文末 |
 
 时间参数按当前实现使用 `YYYY-MM-DD HH:MM:SS`，不假定所有旧入口都接受带时区 ISO 字符串。国家参数沿用该入口列表返回的名称，不能默认把中文名与国家代码互换。除单目标识别明确支持外，ASN 参数使用相应接口要求的数字形式。
@@ -101,7 +102,7 @@ Resource 的三张资源规模图已从首页趋势区隐藏，不再由该组�
 | --- | --- | --- |
 | `/api/v1/features/outages/country-as` | 国家检测记录中的去重 AS | `country` 与起止时间 |
 | `/api/v1/features/outages/country-prefix` | 国家粗路由集合中的去重前缀 | `country` 与起止时间 |
-| `/api/v1/features/outages/as-prefix` | 单 ASN 粗路由集合中的去重前缀 | `asn` 与起止时间 |
+| `/api/v1/features/outages/as-prefix` | 单 ASN 粗路由集合中的去重前缀 | `asn` 与起止时间，最多45天；其他国家和总体中断曲线仍最多24小时 |
 | `/api/v1/features/outages/global-as` | 当前采集范围的去重 AS | 起止时间；global 不表示全互联网 |
 | `/api/v1/features/outages/global-prefix` | 当前采集范围粗路由集合的去重前缀 | 起止时间 |
 
@@ -119,10 +120,18 @@ Resource 的三张资源规模图已从首页趋势区隐藏，不再由该组�
 
 ## ASN 事件窗口参数
 
-`/api/v1/features/ases/overview` 和 `/api/v1/features/ases/events` 正式支持 `event_window`、`event_reference`。布尔参数只能为 `true` 或 `false`，默认 `false`，不接受重复参数。`true` 时必须给出单个数字 ASN 和事件引用，起止时间与已解析国家事件原窗口严格相同，最多 45 天；普通模式最多 24 小时，不能附带非空事件引用。档案响应此时使用 `scope_kind=event_window_selected_asn`，不查询前窗，前窗活动与环比为 null。
+`/api/v1/features/ases/overview` 和 `/api/v1/features/ases/events` 正式支持 `event_window`、`event_reference`。布尔参数只能为 `true` 或 `false`，默认 `false`，不接受重复参数。`true` 时必须给出单个数字 ASN 和事件引用，起止时间与已解析国家事件原窗口严格相同，最多 45 天；普通模式指定单 ASN 时最多45天，不能附带非空事件引用；不指定 ASN 的旧运营候选仍最多24小时。完成文件单AS或多日查询不读取前窗，前窗活动与环比为 null。档案响应此时使用 `scope_kind=event_window_selected_asn`，不查询前窗，前窗活动与环比为 null。
 
 必需参数缺失、格式或窗口无效返回 HTTP 400；事件窗口无法核对时返回已有 503 状态。Feature 单目标读取失败返回结构化 500，不返回原始异常文本。部分旧事件入口仍需检查 HTTP 200 正文中的 `status:false`。
 
 ## 已退役入口
 
 P0 与旧 dashboard 的六个入口已从源码和合同移除，返回 404。它们不自动重定向到不同来源或不同统计范围。退役路径、当前迁移选择和源代码／运行服务的区别见[业务 API 设计与退役](../../architecture/业务只读API设计与退役.md#退役与保留清单)。
+
+## 已交付 AS 候选
+
+`/features/ases/candidates` 只读 `result_delivery.features` 中 `scope=asn` 的已有样本，只纳入完整包含于查询内的完成文件。`country` 精确匹配样本 `country`，`q` 仅接受数字或 AS 加数字的 ASN 前缀；名称不参与搜索。`sort=activity|latest|asn`、`order=asc|desc`，默认按活动降序，空值排末，并列按数字 ASN 升序；每页最多50条。候选总数只对应该批次、窗口、国家与搜索条件，不受静态重点200池限制，也不代表全国或全网 AS。
+
+响应 `metadata.version` 与文件覆盖单独返回；可携带 `version` 保持翻页同版，不一致返回409。无处理覆盖为 `window_not_observed`；有覆盖但没有候选返回 `available` 与空列表。未配置交付模式或读失败为503，不能伪装为空列表。宣告、撤回及活动是实际纳入完整文件样本的合计，不是请求整窗的完整量；任一纳入样本缺指标则该合计为 null。最后采样是这些文件的实际末时点。名称和组织来自已配置 `AS_INFO_FILE` 的静态身份参考，历史适用性未知；候选接口未统计异常数，不填零。候选与单 AS 档案共用轻量读取器，只分块读取 ASN、名称、国家、组织和类型列，并按配置路径在进程内缓存；不加载前缀、域名或联系人资料。未配置、缺失或读取失败时，候选名称为 null，档案身份保持空字符串的既有合同；不从事件记录推断当前身份。替换参考文件后需重启服务刷新缓存。候选筛选仍使用 Feature.country，与身份参考国家分别解释。
+
+单 AS 详情在完成文件模式直接按 subject 读取，避免静态国家参考路由到错误物理表；聚合、sparkline 和 series 与候选使用相同的完整文件纳入边界，series.time 保留来源文件标签。详情与最近事件若完全没有交付覆盖返回503和数量未知；部分覆盖在 delivery_coverage 及 scope_note 中明确说明。事件列表仍按受影响 ASN 的数字边界精确匹配。

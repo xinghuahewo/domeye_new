@@ -1146,6 +1146,7 @@ export interface AsnProfile {
 }
 
 export interface AsOverview {
+  deliveryCoverage?: { version: string; state: 'complete' | 'partial'; intervals: { start: string; end_exclusive: string }[] }
   startTime: string
   endTime: string
   timezone: string
@@ -1168,6 +1169,38 @@ export interface AsOverview {
   volatilityRankings: AsnProfile[]
   anomalyRankings: AsnProfile[]
   selectedAsn: AsnProfile | null
+}
+
+export interface AsCandidate {
+  asn: string
+  country: string | null
+  countries: string[]
+  asName: string | null
+  orgName: string | null
+  sampleCount: number
+  latestObservation: string | null
+  announce: number | null
+  withdraw: number | null
+  updateTotal: number | null
+  withdrawRate: number | null
+  anomalyCount: number | null
+}
+
+export interface AsCandidatePage {
+  state: 'available' | 'window_not_observed'
+  version: string
+  collectorId: string
+  scopeKind: string
+  countryBasis: string
+  coverage: { state: string; intervals: { start: string; end_exclusive: string }[] }
+  limitations: string[]
+  start: string
+  end: string
+  country: string
+  total: number
+  page: number
+  pageCount: number
+  items: AsCandidate[]
 }
 
 export type HealthPayload = components['schemas']['HealthPayload']

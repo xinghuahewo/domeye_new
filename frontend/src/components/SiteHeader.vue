@@ -7,13 +7,9 @@ const route = useRoute()
 const navigation = [
   { to: '/', label: '核心态势', names: ['home'] },
   { to: '/events', label: '异常事件', names: ['events', 'event-detail'] },
-  { to: '/countries', label: '国家特征', names: ['countries', 'country-detail'] },
-  { to: '/ases', label: 'AS 特征', names: ['ases', 'asn-detail'] },
+  { to: '/ases', label: 'AS 查询', names: ['ases', 'asn-detail'] },
 ]
 const destination = (path: string) => ({ path, query: scopeQuery(path, route.query, resultDelivery.value) })
-const rangeNote = (path: string) => ['/countries', '/ases'].includes(path)
-  && typeof route.query.start === 'string' && destination(path).query.start !== route.query.start
-  ? '该页支持 24 小时，查看所选区间最后 24 小时' : undefined
 </script>
 
 <template>
@@ -28,11 +24,9 @@ const rangeNote = (path: string) => ['/countries', '/ases'].includes(path)
     </RouterLink>
     <nav aria-label="主导航">
       <RouterLink v-for="item in navigation" :key="item.to" :to="destination(item.to)"
-        :title="rangeNote(item.to)"
         :class="{ active: item.names.includes(String(route.name)) }"
         :aria-current="item.names.includes(String(route.name)) ? 'page' : undefined">
         {{ item.label }}
-        <small v-if="rangeNote(item.to)" class="nav-range-note">末 24h</small>
       </RouterLink>
     </nav>
     <span class="site-header-note">历史窗口 / 只读数据</span>
@@ -50,7 +44,6 @@ const rangeNote = (path: string) => ['/countries', '/ases'].includes(path)
 .site-header nav a { display: flex; align-items: center; min-height: 44px; font-size: 12px; color: #b4c2ca; border-bottom: 3px solid transparent; padding-top: 3px; text-decoration: none; white-space: nowrap; }
 .site-header nav a:hover { color: white; }
 .site-header nav a.active { color: white; border-color: var(--brand); }
-.nav-range-note { margin-left:4px; font-size:9px; color:#b4c2ca; }
 .site-header-note { margin-left: auto; font-size: 10px; color: #b4c2ca; white-space: nowrap; }
 @media (max-width: 1000px) { .site-header { gap: 30px; }.site-header nav { gap: 22px; }.site-header-note { display: none; } }
 @media (max-width: 760px) {

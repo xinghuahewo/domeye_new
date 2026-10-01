@@ -1,6 +1,8 @@
 from flask import request
 from flask_restful import Resource
+import psycopg2
 from services.asn_service import get_asn_recent_events, get_asn_workbench
+from services.asn_candidates import get_asn_candidates
 from services.country_service import get_country_series, get_country_workbench
 from services.country_comparison import get_country_comparison
 from services.series_statistics import summarize_series
@@ -95,13 +97,20 @@ class ASWorkbenchResource(Resource):
         options, error = _event_window_options()
         if error:
             return error
-        return get_asn_workbench(
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-            asn=request.args.get('asn', ''),
-            limit=request.args.get('limit'),
-            **options,
-        )
+        if set(request.args) - {'start_time', 'end_time', 'asn', 'limit', 'event_window', 'event_reference'} or any(len(request.args.getlist(key)) != 1 for key in request.args):
+            return {'status': False, 'msg': 'ASN 查询参数重复或不受支持'}, 400
+        try:
+            return get_asn_workbench(start_time=request.args.get('start_time'), end_time=request.args.get('end_time'),
+                                     asn=request.args.get('asn', ''), limit=request.args.get('limit'), **options)
+        except psycopg2.Error:
+            return {'status': False, 'msg': 'ASN 特征读取失败，不能解释为零'}, 503
+
+
+class ASCandidatesResource(Resource):
+    def get(self):
+        if any(len(request.args.getlist(key)) != 1 for key in request.args):
+            return {'status': False, 'msg': 'AS 候选查询参数不能重复'}, 400
+        return get_asn_candidates(request.args.to_dict())
 
 
 class ASRecentEventsResource(Resource):
@@ -111,13 +120,13 @@ class ASRecentEventsResource(Resource):
         options, error = _event_window_options()
         if error:
             return error
-        return get_asn_recent_events(
-            start_time=request.args.get('start_time'),
-            end_time=request.args.get('end_time'),
-            asn=request.args.get('asn', ''),
-            page_size=request.args.get('page_size'),
-            **options,
-        )
+        if set(request.args) - {'start_time', 'end_time', 'asn', 'page_size', 'event_window', 'event_reference'} or any(len(request.args.getlist(key)) != 1 for key in request.args):
+            return {'status': False, 'msg': 'ASN 查询参数重复或不受支持'}, 400
+        try:
+            return get_asn_recent_events(start_time=request.args.get('start_time'), end_time=request.args.get('end_time'),
+                                         asn=request.args.get('asn', ''), page_size=request.args.get('page_size'), **options)
+        except psycopg2.Error:
+            return {'status': False, 'msg': 'ASN 事件读取失败，不能解释为零'}, 503
 
 
 class _FeatureSeriesResource(Resource):

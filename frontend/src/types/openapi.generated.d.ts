@@ -512,6 +512,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/features/ases/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description 只读当前完成文件内实际有 AS Feature 的候选；最多45天且限定项目数据档，仅纳入完全包含于查询内的完整文件。不受静态重点池限制，也不代表全国或全网 AS。覆盖 none 时 window_not_observed；有覆盖但无匹配时 available+空列表。 */
+        get: operations["getAsCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/features/ases/overview": {
         parameters: {
             query?: never;
@@ -519,7 +536,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。 */
+        /** @description 按 Asia/Shanghai 的 [start_time,end_time) 查询。指定单 ASN 最多45天，旧运营候选最多24小时。完成文件模式直接按 subject 读取完整包含于窗口的文件样本，返回 time 为来源文件标签；完成文件单AS或多日查询不读前窗，前窗指标为 null。事件模式仍须与国家事件窗口严格对应且最多45天。共享窗口不代表共享数据发布或观测总体。 */
         get: operations["getAsWorkbenchOverview"];
         put?: never;
         post?: never;
@@ -536,7 +553,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 按 Asia/Shanghai 的 [start_time,end_time) 查询。普通窗口最多 24 小时；事件窗口必须指定单 ASN 并与已解析国家事件严格对应，最多 45 天。共享窗口不代表共享数据发布或观测总体。 */
+        /** @description 按 Asia/Shanghai 的 [start_time,end_time) 查询。指定单 ASN 最多45天，旧运营候选最多24小时。完成文件模式直接按 subject 读取完整包含于窗口的文件样本，返回 time 为来源文件标签；完成文件单AS或多日查询不读前窗，前窗指标为 null。事件模式仍须与国家事件窗口严格对应且最多45天。共享窗口不代表共享数据发布或观测总体。 */
         get: operations["getAsExactRecentEvents"];
         put?: never;
         post?: never;
@@ -587,7 +604,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单次最多 24 小时。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
+        /** @description 直接读取现有完成文件事件表，按 Asia/Shanghai 的 [start_time,end_time) 每三分钟采样，单 ASN 最多45天。包括窗口开始前的未结束事件，按对象去重；前缀沿用粗路由筛选及同对象同起点结束记录优先。e_time=NULL 表示截至已处理数据未触发结束；覆盖外返回 null/not_observed，无法跨处理缺口确认状态返回 null/unknown，实际覆盖且无中断才返回 0。响应包含版本、处理范围、查询覆盖、单位和采样口径。没有可核对处理覆盖的历史源返回 503。参数不得重复或超出合同。 可用 summary_seconds 在同次读取中取得分桶统计，首末和极值保留实际时点；无需客户端重新提取裸数字统计。 */
         get: operations["getAsPrefixOutages"];
         put?: never;
         post?: never;
@@ -2612,6 +2629,7 @@ export interface components {
              */
             window_boundary: "[start,end)";
         };
+        /** @description 名称、组织、国家与类型来自已配置 AS_INFO_FILE 的静态身份参考；历史适用性未知。轻量分块读取仅身份列，进程内缓存；未配置、缺失或读失败时身份字符串为空，不从事件推断。 */
         AsProfile: {
             asn: string;
             as_name: string;
@@ -2661,18 +2679,82 @@ export interface components {
             volatility: number | null;
             anomaly_count: number;
             high_risk_count: number;
-            sparkline: components["schemas"]["CountrySparkPoint"][];
+            sparkline: components["schemas"]["AsSparkPoint"][];
             series: components["schemas"]["CountrySeriesPoint"][];
             /** @description 前窗实际样本行数。零表示未取得前窗样本，不证明零活动。事件窗口模式不查询前窗。 */
             previous_sample_count: number;
         };
+        /** @description 只包含查询内完整已交付文件的 AS Feature 样本。计数为纳入样本合计，不是整窗或全网量；缺指标为 null。最后采样为文件末时点，可等于窗口右端。名称来自轻量静态身份参考，历史适用性未知；参考未配置、缺失或读失败时名称为 null。异常数未统计。多个国家归属时 country 为 null、countries 保留来源成员。 */
+        AsCandidate: {
+            asn: string;
+            country: string | null;
+            countries: string[];
+            as_name: string | null;
+            org_name: string | null;
+            sample_count: number;
+            /** Format: date-time */
+            latest_observation: string;
+            announce: number | null;
+            withdraw: number | null;
+            update_total: number | null;
+            withdraw_rate: number | null;
+            anomaly_count: null;
+        };
+        AsCandidatesPayload: {
+            /** @enum {unknown} */
+            state: "available" | "window_not_observed";
+            query: {
+                start: string;
+                end_exclusive: string;
+                timezone: string;
+                /** @constant */
+                window_boundary: "[start,end)";
+                country: string;
+                q: string;
+                /** @enum {unknown} */
+                sort: "activity" | "latest" | "asn";
+                /** @enum {unknown} */
+                order: "asc" | "desc";
+                page: number;
+                page_size: number;
+            };
+            metadata: {
+                version: string;
+                collector_id: string;
+                /** @constant */
+                scope_kind: "delivered_asn_feature_samples";
+                /** @constant */
+                country_basis: "result_delivery.features.country";
+                coverage: {
+                    /** @enum {unknown} */
+                    state: "complete" | "partial" | "none";
+                    intervals: components["schemas"]["ResultDeliveryInterval"][];
+                };
+                limitations: string[];
+            };
+            total: number;
+            page_count: number;
+            items: components["schemas"]["AsCandidate"][];
+        };
+        AsSparkPoint: {
+            time: string;
+            announce: number | null;
+            withdraw: number | null;
+        };
         AsOverview: {
+            /** @description 完成文件模式的实际处理覆盖。完全无交付覆盖返回503与数量未知，不生成零值档案或无事件成功。部分覆盖仅解释已交付部分。 */
+            delivery_coverage?: {
+                version: string;
+                /** @enum {unknown} */
+                state: "complete" | "partial";
+                intervals: components["schemas"]["ResultDeliveryInterval"][];
+            };
             start_time: string;
             end_time: string;
             timezone: string;
             latest_observation: string | null;
             /** @enum {string} */
-            scope_kind: "operational_asn_cohort" | "event_window_selected_asn";
+            scope_kind: "operational_asn_cohort" | "event_window_selected_asn" | "selected_asn";
             scope_note: string;
             candidate_pool_size: number;
             scope_size: number;
@@ -2696,6 +2778,14 @@ export interface components {
             window_boundary: "[start,end)";
         };
         AsExactEventPage: {
+            scope_note?: string;
+            /** @description 完成文件模式的实际处理覆盖。完全无交付覆盖返回503与数量未知，不生成零值档案或无事件成功。部分覆盖仅解释已交付部分。 */
+            delivery_coverage?: {
+                version: string;
+                /** @enum {unknown} */
+                state: "complete" | "partial";
+                intervals: components["schemas"]["ResultDeliveryInterval"][];
+            };
             /** @enum {string} */
             match_mode: "asn_token_exact";
             asn: string;
@@ -4038,6 +4128,72 @@ export interface operations {
             };
         };
     };
+    getAsCandidates: {
+        parameters: {
+            query: {
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                start_time: components["parameters"]["StartTime"];
+                /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
+                end_time: components["parameters"]["EndTime"];
+                /** @description 可选国家，精确匹配 Feature.country。 */
+                country?: string;
+                /** @description 仅支持数字或 AS 加数字的 ASN 前缀检索，不搜索名称。 */
+                q?: string;
+                /** @description 样本活动合计、最后采样或数字 ASN 排序。 */
+                sort?: "activity" | "latest" | "asn";
+                /** @description 空值排末，并列按 ASN 升序。 */
+                order?: "asc" | "desc";
+                /** @description 页码。 */
+                page?: number;
+                /** @description 每页条数。 */
+                page_size?: number;
+                /** @description 可选交付版本，变化返回409。 */
+                version?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 实际样本候选和文件覆盖 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AsCandidatesPayload"];
+                };
+            };
+            /** @description 参数无效、重复或超过45天 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 交付版本变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+            /** @description 未配置结果源或读取失败，不解释为零 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureQueryError"];
+                };
+            };
+        };
+    };
     getAsWorkbenchOverview: {
         parameters: {
             query: {
@@ -4047,7 +4203,7 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
-                /** @description URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时普通窗口最多 24 小时。 */
+                /** @description URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时指定单 ASN 最多45天；未指定 ASN 的旧运营候选仍最多24小时。 */
                 event_window?: boolean;
                 /** @description event_window=true 时必需的国家中断事件引用，来自事件列表／解析。不得重复；普通模式不得传入非空引用。 */
                 event_reference?: string;
@@ -4076,7 +4232,7 @@ export interface operations {
                     "application/json": components["schemas"]["FeatureQueryError"];
                 };
             };
-            /** @description 国家事件窗口所需的绑定未配置或无法可靠核对 */
+            /** @description 国家事件窗口绑定不可核对，或交付模式没有所选窗口的已交付观测／覆盖不可读，数量未知 */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -4096,7 +4252,7 @@ export interface operations {
                 start_time: components["parameters"]["StartTime"];
                 /** @description Asia/Shanghai 本地时间，格式 YYYY-MM-DD HH:MM:SS。端点包含规则见具体操作；兼容原始时序仍保留右端点纳入。 */
                 end_time: components["parameters"]["EndTime"];
-                /** @description URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时普通窗口最多 24 小时。 */
+                /** @description URL 中只接受 true 或 false，禁止重复。true 时必须指定单 ASN、事件引用和与该事件完全相同的本地窗口；最多 45 天。false 时指定单 ASN 最多45天；未指定 ASN 的旧运营候选仍最多24小时。 */
                 event_window?: boolean;
                 /** @description event_window=true 时必需的国家中断事件引用，来自事件列表／解析。不得重复；普通模式不得传入非空引用。 */
                 event_reference?: string;
@@ -4125,7 +4281,7 @@ export interface operations {
                     "application/json": components["schemas"]["FeatureQueryError"];
                 };
             };
-            /** @description 国家事件窗口所需的绑定未配置或无法可靠核对 */
+            /** @description 国家事件窗口绑定不可核对，或交付模式没有所选窗口的已交付观测／覆盖不可读，数量未知 */
             503: {
                 headers: {
                     [name: string]: unknown;

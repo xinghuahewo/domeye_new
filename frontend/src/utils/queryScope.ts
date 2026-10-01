@@ -27,17 +27,13 @@ export function scopeQuery(target: string, query: LocationQuery, delivery?: Deli
     } else if (delivery?.state === 'available' && delivery.start && delivery.end_exclusive) {
       start = toBusinessTime(new Date(delivery.start)).replace(' ', 'T')
       end = toBusinessTime(new Date(delivery.end_exclusive)).replace(' ', 'T')
-      // 普通档案查询最多一天；更长批次默认从首个实际时点查看一天。
-      const limit = new Date(businessTimeToIso(start)).getTime() + 86400000
-      if (target !== 'home' && target !== '/' && new Date(businessTimeToIso(end)).getTime() > limit) end = toBusinessTime(new Date(limit)).replace(' ', 'T')
     }
   }
-  if (!start || !end) return {}
-  if (target === 'home' || target === '/') return { start, end, ...(text(query.country) ? { country: text(query.country)! } : {}) }
-  if (target === 'events' || target === '/events') return { date: start.slice(0, 10) }
-  // 普通档案仍只支持一天；导航明示这一转换，避免把首页长区间传成无效请求。
-  if (new Date(businessTimeToIso(end)).getTime() - new Date(businessTimeToIso(start)).getTime() > 86400000) {
-    start = toBusinessTime(new Date(new Date(businessTimeToIso(end)).getTime() - 86400000)).replace(' ', 'T')
-  }
-  return { start, end }
+  // 事件页的 country 是国内/国外筛选，国家名称使用 attacked_country。
+  const country = text(query.attacked_country)?.trim()
+    || (text(query.country) && !['all', 'domestic', 'foreign'].includes(text(query.country)!)
+      ? text(query.country)!.trim() : '')
+  const result: Record<string, string> = start && end ? { start, end } : {}
+  if (country) result[target === 'events' || target === '/events' ? 'attacked_country' : 'country'] = country
+  return result
 }

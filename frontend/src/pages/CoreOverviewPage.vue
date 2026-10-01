@@ -9,6 +9,7 @@ import CoreScopeFilters from '@/components/CoreScopeFilters.vue'
 import { localTime, scopeFromQuery, scopeError, scopeLabel, type CoreScope } from '@/utils/coreScope'
 import CoreAnomalyCards from '@/components/CoreAnomalyCards.vue'
 import CoreDailyTrends from '@/components/CoreDailyTrends.vue'
+import CoreCountryAsList from '@/components/CoreCountryAsList.vue'
 import type { AnomalyKind } from '@/api/coreAnomalies'
 import { resultDelivery } from '@/api/health'
 import './home-prototype/overview.css'
@@ -337,7 +338,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
 <template>
   <div class="core-real">
     <main class="variant-c c-overview core-main" :aria-busy="loading">
-      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势 <span class="core-heading-region">/ {{ regionLabel }}</span></h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a></nav><button class="core-source-button" @click="showScope">● RRC25 · 来源说明 ⓘ</button></div>
+      <div class="c-title-row"><div><p class="overline">ROUTING OVERVIEW</p><h1>核心态势 <span class="core-heading-region">/ {{ regionLabel }}</span></h1></div><nav class="core-section-links" aria-label="本页导航"><a href="#anomalies">异常态势 ↓</a><a href="#events">路由异常 ↓</a><a href="#routing">趋势分析 ↓</a><a v-if="scope.country" href="#networks">AS 观测 ↓</a></nav><button class="core-source-button" @click="showScope">● RRC25 · 来源说明 ⓘ</button></div>
       <CoreScopeFilters v-model="scope" :countries="metadata?.countries || []" :retained="retainedScope" :loading="loading" @refresh="load(true)" />
       <p v-if="metadata?.query_coverage?.state === 'partial'" class="core-coverage-note" role="status"><strong>部分时段有数据</strong> 已覆盖 {{ coverageLabel }}；其余时段未知，图表不补零。</p>
       <div v-if="data?.diagnostic" class="core-notice core-diagnostic" role="alert"><strong>{{ diagnosticTitle }}</strong><span>此日不提供异常统计和异常列表，不表示没有异常。</span><ul><li v-for="reason in data.diagnostic.reasons" :key="`${reason.kind}:${reason.code}`">{{ diagnosticTypes[reason.kind] }}：{{ failureLabels[reason.code] }}<template v-if="reason.count !== null">，{{ count(reason.count) }} 条</template>。</li></ul><small>核验阶段：{{ diagnosticStage }}。原始值保留，此日尚未准入。</small><button @click="showDiagnostic">核验依据与版本 ↗</button></div>
@@ -369,6 +370,7 @@ onBeforeUnmount(() => { requestNumber++; controller?.abort(); detailController?.
       </section>
       <p class="c-bottom-note">列表局部筛选不改变上方概况和趋势。只说明 RRC25 的已存异常记录，不代表全网状态、实际断网或原因。</p>
       <CoreDailyTrends :start="scope.start" :end="scope.end" :country="scope.country" :date="date" :refresh-key="snapshotRefresh" />
+      <CoreCountryAsList v-if="scope.country && ready && pinnedVersion" :start="scope.start" :end="scope.end" :country="scope.country" :version="pinnedVersion" :refresh-key="snapshotRefresh" @refresh="load(true)" />
       <footer class="core-footer"><button @click="showScope">来源、版本与数据边界 ↗</button><button v-if="pathReady" @click="showPaths">两次 RIB 观察对照 ↗</button><span :title="pinnedVersion">{{ pinnedVersion ? `${pinnedVersion.slice(0, 28)}…` : '留存版本待读取' }}</span></footer>
     </main>
     <dialog ref="dialog" class="core-dialog" aria-labelledby="core-dialog-title" @close="afterClose" @click="event => { if (event.target === dialog) closeDialog() }">

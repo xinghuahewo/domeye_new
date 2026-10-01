@@ -28,6 +28,7 @@ EXPECTED_ROUTES = {
     '/api/v1/features/countries/comparison',
     '/api/v1/features/ases',
     '/api/v1/features/ases/overview',
+    '/api/v1/features/ases/candidates',
     '/api/v1/features/ases/events',
     '/api/v1/features/outages/country-as',
     '/api/v1/features/outages/country-prefix',
