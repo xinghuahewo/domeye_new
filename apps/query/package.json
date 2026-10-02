@@ -1,0 +1,28 @@
+{
+  "name": "domeye-three-tools",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Domeye 三工具自然语言问数",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "chat": "node cli.mjs",
+    "check": "node --check models.mjs && node --check agent.mjs && node --check tools.mjs && node --check api-operations.mjs && node --check schema-tools.mjs && node --check cli.mjs && node --check server.mjs && node --check web/app.js && node --check runtime/source-receipt.mjs && node --check runtime/truncate.mjs && node --check runtime/settings.mjs && node --check scripts/prepare-docs.mjs",
+    "test:executor": "node --test runtime/executor.test.mjs",
+    "test:session": "node --experimental-test-module-mocks --test session.test.mjs",
+    "test:contracts": "node --test models.test.mjs api-operations.test.mjs spec.test.mjs schema-tools.test.mjs datasets.test.mjs docs.test.mjs runtime/request-policy.test.mjs runtime/source-receipt.test.mjs runtime/response-source.test.mjs runtime/settings.test.mjs runtime/model-options.test.mjs",
+    "test:integration": "node --experimental-test-module-mocks --test request-policy.integration.test.mjs result-reuse.integration.test.mjs",
+    "test:search": "node --experimental-test-module-mocks --test api-operations.integration.test.mjs search.integration.test.mjs tools-context.integration.test.mjs",
+    "web": "node server.mjs",
+    "test:web": "node --test server.test.mjs runtime/text-stream.test.mjs",
+    "test:loop": "node --experimental-test-module-mocks --test agent-loop.integration.test.mjs model-timing.integration.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.0",
+    "@earendil-works/pi-ai": "0.87.0",
+    "quickjs-emscripten": "0.32.0",
+    "typebox": "1.3.34"
+  }
+}

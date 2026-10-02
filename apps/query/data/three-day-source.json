@@ -1,0 +1,22 @@
+{
+  "说明": "国家事件与三日问数统一读取本项目主后端；源码提交和接口合同分别核对。",
+  "source_commit": "8cd6916509967ecc022b49298147d2bfcb826412",
+  "source_directory": "/home/bgpdata/domeye-new-releases/country-event-api-20260925",
+  "api_base_url": "http://127.0.0.1:28473",
+  "files": {
+    "backend/data_pipeline/results/event_view.py": "99815c2b455b0ae337f52f1f59ac6f8dc78691e97090358367e3d0bd2bced4ae",
+    "backend/data_pipeline/results/delivery_read.py": "867ea0a463f2fecba8465a6003bfec7c44aff3203d6ad379dd0657594f561aa3",
+    "backend/services/country_comparison.py": "e2fc66ff28add2354f672f258b5ba63885bbfc5ea9f6991b3d39f9b3b879b219",
+    "backend/services/country_service.py": "e874618df2559570dcf7626d0b30ade12df7feabfe5460866d3614e4ed2921cb",
+    "backend/services/features_service.py": "9b7ae71604c17c86243fc71b4ae5511575c5c25a494dcc5aad006ae0e572a263",
+    "backend/services/core_overview_service.py": "67fd8207374f1488d479443f70087dfe6c55f6c2ba5eda7c5bfddb82b1965b1c",
+    "backend/web/api/route.py": "2e69403b679ebf6180e8de4e39ef8a991de14eccc2716a3658f5f79e4a1b9461",
+    "contracts/openapi.json": "f42c8b6448267e297de3a20f6825d7eb335b6cf6db6529b8e736f73272a656c7",
+    "backend/services/result_rollup_service.py": "8873a4f48637704494dd6ff0e05bfc84d7db6a58a9bf56d96f0c3b91a2973639",
+    "backend/web/api/result_rollups.py": "e6bbff813a901d6867045997fc26451b0122364a7587acce81555ea53720a4ef",
+    "backend/data_pipeline/results/rollups.py": "7132bb9983724bcc3d714f59bbec31429eddab5b2621e46c3bc68f0f1e2fd90f"
+  },
+  "documentation_commit": "decd5327adcc2a345200930964da1bb2c334e32c",
+  "query_spec_sha256": "47d0a7c16f2f44c83318341ddf7094f1ae76ca1d381a2df748daf3b5e8f8048b",
+  "query_spec_note": "由同一提交 OpenAPI 仅规范化完整 URL 路径和 servers，不改变参数或响应结构。"
+}

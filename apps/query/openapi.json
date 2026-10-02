@@ -1,0 +1,528 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Domeye 独立问数流式接口",
+    "version": "0.4.0",
+    "description": "独立 Node 问数合同，不属于主 Flask 业务接口。模型在会话创建时绑定；聊天流每行一个 ChatStreamEvent。只有 done.turn.status=completed 表示正常结束并保存，不代表答案正确。"
+  },
+  "paths": {
+    "/api/models": {
+      "get": {
+        "operationId": "queryModels",
+        "summary": "读取宿主支持的模型与配置状态",
+        "responses": {
+          "200": {
+            "description": "公开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Host 或 Origin 不合法"
+          },
+          "503": {
+            "description": "服务正在关闭"
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "operationId": "querySession",
+        "summary": "读取当前会话与固定的模型、数据批次",
+        "responses": {
+          "200": {
+            "description": "公开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Host 或 Origin 不合法"
+          },
+          "503": {
+            "description": "服务正在关闭"
+          }
+        }
+      },
+      "post": {
+        "operationId": "newQuerySession",
+        "summary": "以所选模型和数据批次开启新会话",
+        "description": "须同源且当前空闲。省略 modelId 使用宿主默认模型；未知或未配置模型返回 400，保留原会话。切换成功后旧会话仅作为历史阅读，不传递旧模型上下文。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "datasetId": {
+                    "type": "string",
+                    "enum": [
+                      "completed-files",
+                      "three-day"
+                    ]
+                  },
+                  "modelId": {
+                    "type": "string",
+                    "enum": [
+                      "deepseek-v4-pro",
+                      "deepseek-flash",
+                      "glm-5.3-flashx"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "公开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Host 或 Origin 不合法"
+          },
+          "503": {
+            "description": "服务正在关闭"
+          },
+          "400": {
+            "description": "模型、批次或字段无效"
+          },
+          "409": {
+            "description": "回答或切换尚未结束"
+          },
+          "415": {
+            "description": "请求须为 JSON"
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "operationId": "queryHistory",
+        "summary": "读取只读会话目录及各自的模型身份",
+        "responses": {
+          "200": {
+            "description": "公开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Host 或 Origin 不合法"
+          },
+          "503": {
+            "description": "服务正在关闭"
+          }
+        }
+      }
+    },
+    "/api/history/{id}": {
+      "get": {
+        "operationId": "queryHistorySession",
+        "summary": "读取历史会话",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "公开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySession"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Host 或 Origin 不合法"
+          },
+          "503": {
+            "description": "服务正在关闭"
+          },
+          "404": {
+            "description": "记录不存在或不可读"
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "operationId": "queryChat",
+        "summary": "提交问题并接收正文与状态流",
+        "description": "要求同源 Origin 和空闲的当前会话。text 是未完成预览，按消息和内容块组合；discarded 丢弃预览。done 的完整快照替换预览，禁止重复追加。",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object", "required": ["sessionId", "question"], "additionalProperties": false,
+            "properties": {"sessionId": {"type": "string", "format": "uuid"}, "question": {"type": "string", "minLength": 1, "maxLength": 4000}}
+          }}}
+        },
+        "responses": {
+          "200": {"description": "NDJSON 流；断连或 error 不表示成功完成。", "content": {"application/x-ndjson": {
+            "schema": {"type": "string", "description": "逐行解析并校验 ChatStreamEvent。"},
+            "x-line-schema": {"$ref": "#/components/schemas/ChatStreamEvent"}
+          }}},
+          "400": {"description": "问题或字段无效"},
+          "403": {"description": "Host 或 Origin 不合法"},
+          "409": {"description": "会话变化或仍忙碌"},
+          "413": {"description": "请求超过大小上限"},
+          "415": {"description": "请求须为 JSON"},
+          "503": {"description": "服务正在关闭"}
+        }
+      }
+    }
+  },
+  "components": {"schemas": {
+    "PublicModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "provider",
+        "model"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "description": "会话使用的模型身份，不含凭据、地址或运行配置。历史缺少身份时返回 null，不采用当前默认模型。"
+    },
+    "AvailableModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "provider",
+        "model",
+        "available"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean",
+          "description": "宿主是否已配置；不证明余额、网络或模型响应可用。"
+        }
+      }
+    },
+    "ModelList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "defaultModel",
+        "models"
+      ],
+      "properties": {
+        "defaultModel": {
+          "type": "string"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/AvailableModel"
+          }
+        }
+      }
+    },
+    "PublicDataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "Session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "dataset",
+        "model",
+        "busy",
+        "turns"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicDataset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "busy": {
+          "type": "boolean"
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/PublicTurn"
+          }
+        }
+      }
+    },
+    "HistorySession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "readOnly",
+        "dataset",
+        "model",
+        "turns",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "readOnly": {
+          "const": true
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicDataset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/PublicTurn"
+          }
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "HistoryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "dataset",
+        "model",
+        "updatedAt",
+        "count",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicDataset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PublicModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "cancelled",
+            "failed"
+          ]
+        }
+      }
+    },
+    "HistoryList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "records"
+      ],
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/HistoryRecord"
+          }
+        }
+      }
+    },
+    "Millis": {"type": ["number", "null"], "minimum": 0},
+    "PublicTurn": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "question", "answer", "status", "failureReason", "startedAt", "completedAt"],
+      "properties": {
+        "id": {"type": ["string", "null"], "format": "uuid"},
+        "question": {"type": "string"}, "answer": {"type": "string"},
+        "status": {"enum": ["running", "completed", "cancelled", "failed"]},
+        "failureReason": {"type": "string"}, "startedAt": {"type": "string"}, "completedAt": {"type": "string"}
+      }
+    },
+    "ModelTiming": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "started_ms", "first_token_ms", "first_text_ms", "first_public_text_ms", "ended_ms"],
+      "properties": {
+        "id": {"type": ["integer", "null"]}, "started_ms": {"$ref": "#/components/schemas/Millis"},
+        "first_token_ms": {"$ref": "#/components/schemas/Millis"}, "first_text_ms": {"$ref": "#/components/schemas/Millis"},
+        "first_public_text_ms": {"$ref": "#/components/schemas/Millis"}, "ended_ms": {"$ref": "#/components/schemas/Millis"}
+      }
+    },
+    "ToolTiming": {
+      "type": "object", "additionalProperties": false, "required": ["name", "started_ms", "ended_ms"],
+      "properties": {"name": {"enum": ["docs", "search", "execute", null]}, "started_ms": {"$ref": "#/components/schemas/Millis"}, "ended_ms": {"$ref": "#/components/schemas/Millis"}}
+    },
+    "AgentTiming": {
+      "type": "object", "additionalProperties": false,
+      "required": ["generation_end_ms", "save_started_ms", "save_finished_ms", "final_message_id", "final_first_text_ms", "models", "tools"],
+      "properties": {
+        "generation_end_ms": {"$ref": "#/components/schemas/Millis"}, "save_started_ms": {"$ref": "#/components/schemas/Millis"},
+        "save_finished_ms": {"$ref": "#/components/schemas/Millis"}, "final_message_id": {"type": ["integer", "null"]},
+        "final_first_text_ms": {"$ref": "#/components/schemas/Millis"},
+        "models": {"type": "array", "items": {"$ref": "#/components/schemas/ModelTiming"}},
+        "tools": {"type": "array", "items": {"$ref": "#/components/schemas/ToolTiming"}}
+      }
+    },
+    "HttpTiming": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clock", "first_status_ms", "first_text_ms", "final_first_text_ms", "done_ms", "agent"],
+      "properties": {
+        "clock": {"const": "monotonic_ms_since_http_ingress"}, "first_status_ms": {"$ref": "#/components/schemas/Millis"},
+        "first_text_ms": {"$ref": "#/components/schemas/Millis"}, "final_first_text_ms": {"$ref": "#/components/schemas/Millis"},
+        "done_ms": {"$ref": "#/components/schemas/Millis"}, "agent": {"anyOf": [{"$ref": "#/components/schemas/AgentTiming"}, {"type": "null"}]}
+      }
+    },
+    "ChatStreamEvent": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["type", "sessionId"], "properties": {"type": {"const": "start"}, "sessionId": {"type": "string"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": {"type": {"const": "answer_start"}, "messageId": {"type": "integer"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "messageId", "contentIndex", "text"], "properties": {"type": {"const": "text"}, "messageId": {"type": "integer"}, "contentIndex": {"type": "integer"}, "text": {"type": "string"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "messageId", "state"], "properties": {"type": {"const": "answer_end"}, "messageId": {"type": "integer"}, "state": {"enum": ["generated", "discarded"]}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "label", "state"], "properties": {"type": {"const": "tool"}, "label": {"type": "string"}, "state": {"enum": ["running", "failed", "done"]}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "sessionId", "turn", "timing"], "properties": {"type": {"const": "done"}, "sessionId": {"type": "string"}, "turn": {"$ref": "#/components/schemas/PublicTurn"}, "timing": {"$ref": "#/components/schemas/HttpTiming"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "message"], "properties": {"type": {"const": "error"}, "message": {"type": "string"}}}
+    ]}
+  }}
+}
